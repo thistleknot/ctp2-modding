@@ -1,0 +1,21 @@
+# Scenario game data lives in its own repos (ctp2-momjr etc.) — never here.
+Scenarios/
+scen0000/
+**/scen0000/
+
+# Python / build artifacts
+__pycache__/
+*.pyc
+*.pyo
+.task_graph.db
+
+# Generated workbooks / large binaries (tools regenerate these)
+*.xlsx
+*.zip
+*.rar
+*.7z
+
+# OS junk
+Thumbs.db
+desktop.ini
+nul
