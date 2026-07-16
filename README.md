@@ -8,20 +8,33 @@ abilities*.
 
 ## The core idea: merging mods is a schema map-reduce
 
-The pipeline encodes each source mod into ONE common xlsx/csv **control plane**
-— the single format to observe and compare mods side by side — then derives a
-unified schema, MAPs each mod's native `(civilization, age)` onto it, and
-REDUCEs into a new merged mod. See `memory-bank/skill-mod-schema-mapreduce.md`.
+The pipeline encodes each source mod — **civ2 OR native ctp2** — into ONE
+common xlsx/csv **control plane**, the single format to observe and compare
+mods side by side, then derives a unified schema, MAPs each mod's native
+`(civilization, age)` onto it, and REDUCEs into a new merged mod. See
+`memory-bank/skill-mod-schema-mapreduce.md`.
 
 ```
-civ2 mod ──encode──► csv/xlsx control plane ──curate──► ctp2_generator ──► scenario
-   (schema)          (observe / compare / merge)         (engine files)
+civ2 mod ──encode_civ2_mod──►┐
+                             ├─► csv/xlsx control plane ──curate──► ctp2_generator ──► scenario
+ctp2 mod ──encode_ctp2_mod──►┘   (observe / compare / merge)         (engine files)
+   (schema)
 ```
+
+Both encoders emit the **same** per-dimension csv schema, so a ctp2-sourced
+row is indistinguishable from a civ2-sourced one downstream. `encode_ctp2_mod`
+normalizes cross-engine: stats back to civ2-scale (attack/defense ÷5, cost
+÷100), domain from `MovementType`, prereq from `EnableAdvance`; it discovers
+dimension files by suffix (`*Units.txt`, `*Advance.txt`) and last-wins-dedups,
+so multi-file mods (LotR's `LOTR_Units.txt` + `LOTR3_Units.txt`) encode
+cleanly.
 
 ## Layout
 
 - `tools/` — the pipeline:
   - `encode_civ2_mod.py` — civ2 RULES.TXT → per-dimension CSVs (+ workbook)
+  - `encode_ctp2_mod.py` — native ctp2 gamedata → same CSVs, cross-engine
+    normalized (suffix file-discovery + last-wins dedup for multi-file mods)
   - `merge_control_planes.py` — union/normalize N encoded mods (+ genre mask)
   - `make_genre_mask.py` — era/keyword mask staging sheet (age-gated)
   - `assign_unit_factions.py` — sphere/faction unit gating
