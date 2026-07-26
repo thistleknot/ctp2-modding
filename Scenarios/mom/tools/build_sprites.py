@@ -106,16 +106,30 @@ CONTENT_MAX_H_FRAC = float(os.environ.get("MOM_SPRITE_MAX_H_FRAC", 1.0))
 # GU0*.SPR MOVE frames (medians; shadow runs excluded from the content bbox, since
 # the shadow is the ground blob and would drag the measured bottom down):
 #
-#     content height 55   content bottom row 64   (content top row 9)
-#     content width  32   hot_x - content_cx == 0 for 110/155 files, +-1 for 135
-#     bottom - hot_y = 12   <- the anchor sits ~12px ABOVE the art's feet
+#     content height  min 23  p25 48  med 55  p75 59  max 70
+#     content bottom row 64   (content top row 9)
+#     bottom - hot_y = 12          <- the anchor sits ~12px ABOVE the art's feet
+#     hot_x - pixel-mass centroid  <- median +0.5 (mean +0.5, range -7.7..+15.3)
 #
-# The last line is the one that matters and the one we had wrong: we anchored at
-# the exact content bottom (bottom - hot_y == 0), which draws every MoM unit ~12px
-# too high on its tile. Vanilla's own spread is wide (+1..+30), so these are the
-# distribution's centre, not a law -- but centring on it is strictly better than
-# sitting at one tail of it, which is where we were.
-STOCK_CONTENT_H      = 55
+# The last two lines are the ones that matter, and both were wrong.
+#
+# bottom - hot_y: we anchored at the exact content bottom (== 0), drawing every
+# MoM unit ~12px too high -- the reported "a little to the top". Fixed 2026-07-26.
+#
+# hot_x: we anchored on the BBOX centre. For symmetric art that equals the mass
+# centre, but MoM units carry a spear on one side and a banner on the other, so
+# the two diverge. Measured on the shipped build: stock sits at +0.5 from its
+# pixel-mass centroid, ours at a median of -4.6 -- i.e. our art's visual mass sat
+# ~5px RIGHT of the anchor, which is the residual "still offset to the right"
+# the bottom-12 fix did not touch. _content_anchor now uses the alpha-weighted
+# centroid. See its docstring.
+#
+# Height was pinned at the median 55 and the units read as slightly small on the
+# map (user, 2026-07-26: "made the units a little too small"). Stock's own spread
+# is 23..70, so 55 is the centre of a wide distribution, not a law. Raised to 62
+# (~p85) -- visibly larger, still inside the shipped envelope, and still well
+# under the 68-70 we were at when nobody complained about size.
+STOCK_CONTENT_H      = 62
 STOCK_CONTENT_BOT    = 64
 STOCK_FEET_TO_ANCHOR = 12
 
@@ -421,9 +435,9 @@ def _facing_images(tga: Path, flip: bool) -> list["Image.Image"]:
 
 def _content_anchor(img: "Image.Image") -> tuple[int, int]:
     """
-    Return the (x, y) draw anchor of a keyed facing image: the horizontal centre
-    of its opaque bounding box, and STOCK_FEET_TO_ANCHOR rows ABOVE the box's
-    bottom — not the bottom row itself.
+    Return the (x, y) draw anchor of a keyed facing image: the ALPHA-WEIGHTED
+    horizontal centroid of its opaque pixels, and STOCK_FEET_TO_ANCHOR rows ABOVE
+    the bounding box's bottom — not the bottom row itself.
 
     Require:   img is RGBA, already background-keyed (transparent surround).
     Guarantee: the returned point lies inside the image bounds.
@@ -442,6 +456,15 @@ def _content_anchor(img: "Image.Image") -> tuple[int, int]:
     FEET_TO_HOTPOINT = 16; the 12 here is measured from the shipped art rather
     than assumed, so it supersedes that constant.
 
+    hot_x is the alpha-weighted centroid, NOT the bbox centre. The two are equal
+    only for art that is symmetric inside its box, and MoM's is not: a spear juts
+    one way, a banner the other, so the box grows on both sides while the visual
+    mass stays off to one. Measured on the shipped build, stock sits at
+    hot_x - centroid = +0.5 median while ours sat at -4.6 — the art's mass ~5px
+    right of the anchor, which is exactly the "still offset to the right" that
+    survived the bottom-12 fix. Weighting by alpha (not a binary opaque test)
+    keeps a feathered edge from counting as much as solid body pixels.
+
     Coupled to _normalize_to_stock_extent(): that bounds the content to vanilla's
     envelope, this anchors within it. Changing one without the other is what made
     the 2026-07-25 attempt regress.
@@ -452,7 +475,23 @@ def _content_anchor(img: "Image.Image") -> tuple[int, int]:
     x0, y0, x1, y1 = box                      # getbbox is right/bottom-EXCLUSIVE
     bottom = y1 - 1
     hot_y = max(y0, bottom - STOCK_FEET_TO_ANCHOR)   # never above the content top
-    return (int(round((x0 + x1 - 1) / 2.0)), hot_y)
+
+    alpha = img.getchannel("A")
+    wsum = 0
+    xsum = 0
+    ap = alpha.load()
+    for x in range(x0, x1):
+        col = 0
+        for y in range(y0, y1):
+            col += ap[x, y]
+        wsum += col
+        xsum += col * x
+    # Fall back to the bbox centre only if the box is somehow weightless, which
+    # getbbox already rules out — belt and braces so a divide-by-zero can never
+    # take the build down.
+    hot_x = (xsum / wsum) if wsum else ((x0 + x1 - 1) / 2.0)
+    hot_x = max(0, min(img.width - 1, int(round(hot_x))))
+    return (hot_x, hot_y)
 
 
 def _convert_tga_to_tifs(tga: Path, num: int, work_dir: Path, flip: bool = False) -> int:

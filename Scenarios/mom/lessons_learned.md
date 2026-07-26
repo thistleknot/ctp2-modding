@@ -1,3 +1,58 @@
+## 2026-07-26 (second pass) — matching the WRONG STATISTIC looks like confirmation
+
+The entry below closed the horizontal complaint on the evidence
+`hot_x - bbox_cx ~= 0` for stock AND ours. That comparison was true, and
+irrelevant. The user came back the same day: *"made the units a little too
+small, and they are all still offset to the right a little bit"* — two real
+defects the first pass created or missed.
+
+**The horizontal one: bbox centre is not mass centre.** They coincide only for
+art symmetric inside its box. MoM units carry a spear one way and a banner the
+other, so the box grows on BOTH sides while the visual mass stays off to one.
+Re-measured against the pixel-mass centroid instead:
+
+| | stock (n=95) | ours, first pass |
+|---|---|---|
+| `hot_x - mass centroid` | **+0.5** med (−7.7..+15.3) | **−4.6** med |
+
+Mass ~5px right of the anchor is exactly what renders as "offset to the right".
+`_content_anchor` now computes `hot_x` from the **alpha-weighted centroid**
+(alpha-weighted, not a binary opaque test, so a feathered edge does not count as
+much as solid body). Post-fix across all 59: med **+0.2**, range −0.9..+4.1 —
+tighter than stock's own spread.
+
+**The size one: I treated a median as a law.** `STOCK_CONTENT_H` was pinned to
+the stock *median* 55, but stock's shipped spread is 23..70 (p75 59, mean 52.9),
+and we had been at 68-70 with nobody complaining about size. 55 is the centre of
+a wide distribution, not a constraint. Raised to **62** (~p85): visibly larger,
+still inside the shipped envelope, still under where no complaint existed.
+
+**THE LESSON.** A statistic that matches is not evidence unless it is the
+statistic that governs the symptom. `hot_x - bbox_cx` agreeing with stock felt
+like confirmation and *foreclosed the correct line of attack* for a full round
+trip. Before trusting an agreement, ask what the number would have to be for the
+user's complaint to be true — if the complaint could be true with the number
+unchanged, the number is not the instrument.
+
+**Verified.** Windowed on the engine's own selection ring in
+`runs/20260726-084023/03_peasant_on_open_map.png`: ring bbox `x[503,550]
+y[372,419]` — 47x47, one tile, so the filter isolated the ring and not the
+grid — unit mass centre `(525.9, 399.7)` vs ring centre `(526.5, 395.5)`:
+**dx = −0.6px**. Closed.
+
+**Harness note, same failure mode as before.** The FIRST attempt at that
+measurement ran the green-density filter over the whole map and returned a
+"ring" bbox of 313x368 px with `dx=+4.6`. Both numbers were artifacts: the
+filter kept dotted-grid clusters, and the terrain-distance mask sampled green
+grass while the unit stands on yellow-brown desert, so nearly every pixel read
+as "far". Constraining the window to the unit's neighbourhood fixed it. Colour
+segmentation at frame level is ALSO not usable for measuring unit SIZE — the
+largest-blob heuristic grabbed a mountain above the ring. Size verdicts come
+from decoding the SPR, which is objective; the frame instrument is for tile
+anchoring only.
+
+---
+
 ## 2026-07-26 — units drew off-centre: extent and anchor are ONE coupled bug
 
 **Symptom.** User, twice: first "too far lower left", then after a fix "a little
