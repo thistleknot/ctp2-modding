@@ -1,0 +1,30 @@
+# Force LF line endings for CTP2 game data files.
+# The CTP2 engine parses these files expecting LF (Unix) line endings.
+# CRLF causes \r to appear in key/value strings, breaking lookups (blank GL list items).
+Scenarios/mom/scen0000/english/gamedata/gl_str.txt eol=lf
+Scenarios/mom/scen0000/english/gamedata/tips_str.txt eol=lf
+Scenarios/mom/scen0000/english/gamedata/civ_str.txt eol=lf
+Scenarios/mom/scen0000/english/gamedata/scen_str.txt eol=lf
+Scenarios/mom/scen0000/default/gamedata/civilisation.txt eol=lf
+# SLIC scripts: engine lexer needs ASCII; keep LF to match base game .slc files.
+Scenarios/mom/scen0000/default/gamedata/scenario.slc eol=lf
+Scenarios/mom/scen0000/default/gamedata/tutorial.slc eol=lf
+
+# BROAD protection: the specific list above was incomplete. autocrlf reintroduced CRLF on
+# checkout into newsprite.txt / uniticon.txt / buildings.txt / Wonder.txt / Great_Library
+# and more, corrupting sprite/icon/GL lookups -> rainbow "fuglies". Force LF for EVERY
+# scenario game-data, AI-data, and SLIC file so no lookup file can ever carry a stray \r.
+Scenarios/mom/scen0000/**/*.txt eol=lf
+Scenarios/mom/scen0000/**/*.slc eol=lf
+
+# BASE ctp2_data UI layouts + gamedata: CRLF in controlpanel.ldl (and other .ldl) breaks the
+# engine's LDL parser -> banner "fuglies". These base files are otherwise untracked; the ones
+# we version here stay LF-enforced so the banner fugly cannot silently return.
+ctp2_data/**/uidata/**/*.ldl eol=lf
+ctp2_data/**/gamedata/*.txt eol=lf
+
+# SMM scenario: same LF protection as MoM (CRLF corrupts CTP2 lookups -> fuglies).
+Scenarios/smm/scen0000/**/*.txt eol=lf
+Scenarios/smm/scen0000/**/*.slc eol=lf
+Scenarios/smm/csv/*.csv -text
+Scenarios/smm/sources/**/*.csv -text
