@@ -211,17 +211,39 @@ TOP_BAR_INERT = (600, 6)
 
 
 def engine_ping(inp):
-    """Post one click at an inert chrome pixel so aui sees pointer input.
+    """Post pointer MOVEMENT (no buttons) so aui sees input before END TURN.
 
     Require:   inp is the harness input poster for the game window.
-    Guarantee: exactly one left click is posted at TOP_BAR_INERT, which is
-               background chrome in the top status bar -- no widget, no map,
-               so it cannot scroll the view or activate anything.
-    Failure:   none; a posted click that lands on nothing is a no-op to the UI
-               but still updates the engine's input state, which is the whole
-               point (see the measurement block above).
+    Guarantee: only WM_MOUSEMOVE is posted -- never a button message -- so this
+               cannot press, activate, scroll, or select anything, at any client
+               geometry.
+    Failure:   none.
+
+    MEASURED 2026-07-26, and this is the fix for the turn-0 0xC0000005 that ate
+    a whole session. The old body was `inp.click(*TOP_BAR_INERT)` with
+    TOP_BAR_INERT = (600, 6) -- an ABSOLUTE capture constant, the documented
+    recurring defect class in this file (fifth instance). At the 1024x768-content
+    geometry it lands on blank top-bar chrome; at a 1024x1280 client the UI
+    REFLOWS (it does not letterbox) and that same point is no longer inert, and
+    the posted BUTTON killed the process. Isolation: `UIWALK_NO_PING=1` on the
+    identical run turned a hard 0xC0000005 at turn 0 into a clean
+    TURN_DID_NOT_ADVANCE_AT_1 -- crash gone, and the turn correctly failing to
+    advance, which is exactly what the ping exists to fix.
+
+    The requirement was never "click something". The memory entry says it
+    precisely: an injected END TURN press only advances if SOME mouse message
+    reached the engine that turn. A move IS a mouse message, carries no button,
+    and therefore has no aim to get wrong -- which retires the whole
+    stale-absolute-coordinate class here rather than re-tuning the constant.
     """
-    inp.click(*TOP_BAR_INERT)
+    if os.environ.get("UIWALK_NO_PING"):
+        print("  [ping] SUPPRESSED (UIWALK_NO_PING)", flush=True)
+        return
+    hwnd = inp.hwnd
+    for x, y in (TOP_BAR_INERT, (TOP_BAR_INERT[0] + 3, TOP_BAR_INERT[1] + 3)):
+        win32api.PostMessage(hwnd, win32con.WM_MOUSEMOVE, 0,
+                             win32api.MAKELONG(int(x), int(y)))
+        time.sleep(0.05)
 
 # MEASURED 2026-07-25 (runs/20260725-062519-turnloop/turn_006.png): TWO DIFFERENT
 # SURFACES stack, and each has its close control somewhere else. The plain
@@ -231,6 +253,11 @@ def engine_ping(inp):
 # the alertbox is MODAL, so END TURN is dead while it is on screen. That was the
 # whole TURN_DID_NOT_ADVANCE_AT_6 stall.
 RESEARCH_OK_LDL = "SciAdvanceScreen.Background.BackButton"  # captioned str_ldl_CAPS_OK
+_RESEARCH_INJECT_DEAD = False   # latched True once an inject fails to close the box
+# Latched True the first time a SLIC alertbox refuses to close. There is no
+# second channel to fall back to (see the alertbox branch in dismiss_message),
+# so the only useful response is to stop opening new ones.
+_ALERT_DISMISS_DEAD = False
 
 # In DECLARATION order from messagebox.ldl:10 -- LeftButton (xpix 220) is the
 # rightmost on screen and is the OK/close arm for a one-button SLIC message.
@@ -271,7 +298,62 @@ MESSAGE_CLOSE_LDL = (
     "MessageBoxDialog.RightButton",
 )
 _MSG_LDL_LATCH = [None]   # first MESSAGE_CLOSE_LDL path observed to work
+
+# SLIC ALERTBOX ARM -- injection path (added 2026-07-26, replaces the click).
+#
+# WHY NOT CLICK: a posted mouse BUTTON is process-lethal at the 1024x1280
+# client. Measured 3 distinct pixels across 2 surfaces, 3 runs, every one
+# 0xC0000005: engine_ping's (600,6) top bar, the Summon arm (302,383), and the
+# Close arm (217,383) whose whole SLIC body is `Kill();`. A posted WM_MOUSEMOVE
+# at the same geometry is safe. So it is CLICKING that is broken here, not the
+# aim and not the send scale -- an identity-first send of x1.00, the exact pixel
+# find_alert_buttons measured, died too. Both the "wrong scale" and the "arm
+# body is the killer" theories are falsified by those runs.
+#
+# WHERE THE NAME COMES FROM (engine source, not guesswork):
+#   - messagewindow.cpp:115  strcpy(windowBlock, "StandardMessageWindow")
+#   - CreateResponses -> CreateSelectResponses -> MessageResponseStandard
+#   - messageresponse.cpp:132
+#       sprintf(buttonBlock, "%s.%s", ldlBlock, "StandardResponseButton");
+#       ctp2_Button *button = new ctp2_Button(&errcode, aui_UniqueId(), buttonBlock);
+#     and line 170 button->SetAction(action) -- so aui_Button::InjectPress falls
+#     through its m_ActionFunc branch to m_action->Execute(), which is exactly
+#     what a real click on the arm runs.
+#
+# ONLY THE FIRST-DECLARED ARM IS REACHABLE THIS WAY. Every arm is newed inside
+# one loop with the SAME block string, and aui_Ldl::Associate keys the by-string
+# table on hash(ldlBlock) -- duplicates collapse to a single entry, so
+# GetObject() can only ever hand back one of them. Arms are built in
+# GetButton(0..n) order, so the surviving entry is declaration index 0. In
+# mom_msg.slc's MagicMenu that is Button(ID_MOM_MSG_BTN_SUMMON) -- the arm under
+# test. decl_index != 0 has no injection path and falls back to the click.
+#
+# MEASURED 2026-07-26 (runs/20260725-222727): that path resolves to
+# obj=00000000 -- the by-string table has no entry for it while the box is
+# open. So the derivation above is right about WHERE the button comes from and
+# wrong about it being addressable. The candidates below are a probe: each is
+# injected in turn and H:\mom_hook.log records obj per path, so one run tells us
+# which alertbox controls are in the table at all. None of them can be the
+# Close arm (that arm shares StandardResponseButton's name), so a box that
+# closes during this sweep closed because the SUMMON arm fired.
+ALERT_ARM_LDL = "StandardMessageWindow.StandardResponseButton"
+ALERT_ARM_LDL_CANDIDATES = (
+    "StandardMessageWindow.StandardResponseButton",
+    "StandardMessageWindow.StandardResponseDropdown",
+    "StandardMessageWindow.StandardResponseDropdownItem",
+    "StandardMessageWindow.StandardDontShowButton",
+)
+# MEASURED: of the six probed, only StandardMinimizeButton (obj=12D9C4B0) and
+# the window itself (obj=12D88A78) are in the table -- and pressing the WINDOW
+# casts an aui_Window to aui_Button and takes the process down (0xFFFFFFFF), so
+# it is deliberately not a candidate. The four response-button names all return
+# obj=00000000 while the box is visibly open, so a SLIC alertbox arm is not
+# reachable by string at all. Minimize is not an arm: it hides the window
+# without running any arm body, so it cannot stand in for the Summon press.
 ALERT_CLOSE_CAPTURE = (160, 384)  # 'Close' button of the alertbox, capture coords
+# The one alertbox control that IS in the aui_Ldl by-string table (obj=12D9C4B0,
+# measured with the box open). Dismissal channel -- see dismiss_message().
+ALERT_MINIMIZE_LDL = "StandardMessageWindow.StandardMinimizeButton"
 ALERT_PROBE_CAPTURE = (200, 300)  # its interior, below the message window's extent
 
 
@@ -371,6 +453,22 @@ def _calibrate(game, inp, x, y, probe, what) -> bool:
     # falling through to x1.00 -- a repeat of a KNOWN-safe candidate is free,
     # whereas advancing to the lethal one ends the run.
     order = (0.80, 0.80, 1.00) if what == "message" else SCALE_CANDIDATES
+    # IDENTITY FIRST WHEN THE GEOMETRY IS 1:1, added 2026-07-26.
+    # This does NOT re-derive the factor from geometry -- the candidate set is
+    # unchanged and the winner is still decided by the pixel probe. It only
+    # reorders, and only when capture_w == content_w, i.e. the capture IS the
+    # engine surface at 1:1 and x1.00 sends the exact pixel we measured.
+    #
+    # MEASURED (runs/20260725-221437): at a 1024x1280 client, capture_w=1024 and
+    # geometry says x1.000, yet the battery still opened on x0.80 -- (302,383)
+    # sent as (241,306) -- and the process died with 0xC0000005 before the first
+    # post-candidate screenshot (the calib dump was armed and wrote nothing).
+    # The x0.80/x1.25 candidates were latched on runs whose capture and content
+    # geometry DISAGREED (1280-wide capture over a 1024-wide surface); at 1:1
+    # they are pure misses, and a miss on this surface is process-lethal. Trying
+    # a known-miss before the identity is a cost with no information in it.
+    if abs(derived - 1.0) < 0.01:
+        order = tuple([1.00] + [f for f in order if f != 1.00])
     print(f"  [calib] {what}: capture_w={frame0.shape[1]} "
           f"geometry_would_say x{derived:.3f}; order={order}", flush=True)
     for factor in order:
@@ -608,6 +706,18 @@ def click_alert_arm(game: uiwalk.Game, inp, decl_index: int, label: str) -> bool
         return False
     x, y = buttons[-(decl_index + 1)]
     print(f"  [arm] {label}: buttons={buttons} target_capture=({x},{y})", flush=True)
+
+    # INJECTION FIRST -- see ALERT_ARM_LDL. Only decl_index 0 is addressable.
+    if decl_index == 0:
+        for path in ALERT_ARM_LDL_CANDIDATES:
+            uiwalk.inject_press(game.hwnd, path)
+            time.sleep(0.6)
+            if not alert_box_open(game.screenshot()):
+                print(f"  [arm] {label}: closed=True via inject {path}",
+                      flush=True)
+                return True
+        print(f"  [arm] {label}: all inject candidates missed", flush=True)
+
     if not _calibrate(game, inp, x, y, alert_box_open, "alertbox"):
         inp.click(int(x * SEND_SCALE["alertbox"]), int(y * SEND_SCALE["alertbox"]))
     time.sleep(1.0)
@@ -661,6 +771,24 @@ def find_research_box(frame):
                             # MANAGER also passes every other test here (792x345 in
                             # turn_000_founded.png) and is landscape -- without this
                             # the "OK" fraction would land on its Clear button.
+        # ASPECT BAND, added 2026-07-26 -- this is the fix for the turn-0
+        # 0xC0000005. MEASURED: at a 1024x1280 client the old gates matched a
+        # 154x351 sliver of bottom chrome (aspect 0.44, cw/w 0.15). "Portrait"
+        # alone is not enough: a SLIVER is portrait too. dismiss_message then
+        # injected press:SciAdvanceScreen...BackButton into a screen that was
+        # NOT open, and injecting at a UI object on a closed screen is
+        # process-lethal (same class as the unbounded SelectItem). The real
+        # dialog is 415x518 -> aspect 0.80, so require the aspect to actually
+        # look like it.
+        #
+        # Aspect is the ONLY new gate on purpose. My first attempt also raised
+        # the width floor to w*0.25 -- that rejected the known TRUE positive
+        # (turn_018.png, a 2400x1350 capture where the 415-wide dialog is only
+        # 0.17 of the frame), because a fraction-of-CAPTURE floor is meaningless
+        # when the capture size varies. Caught by running the battery, which is
+        # why the battery includes a positive and not just the failing case.
+        if not (0.60 <= cw / float(ch) <= 0.95):
+            continue
         if best is None or area > best[4]:
             best = (x, y, cw, ch, area)
     if best is None:
@@ -740,6 +868,32 @@ def _surface_sig(frame, what):
     return (box, int(small.astype(np.int64).sum()))
 
 
+def date_rect(rx0, ry0, rx1, ry1):
+    """The date widget's box, as BOTTOM-ANCHORED offsets of the render rect.
+
+    MEASURED 2026-07-26. DATE_FRACTION (a fraction of the render HEIGHT) is
+    correct only while the render is 768 tall. The engine REFLOWS its in-game UI
+    to the client size -- it does not letterbox a fixed surface -- so at a
+    1024x1280 client the control panel moves to the BOTTOM of a 1280-tall frame
+    while a height-fraction crop stays at 0.857*1280 = y1097, ~85px above the
+    widget. That crop sat on static chrome, so date_changed returned False on a
+    turn that HAD advanced (gold 106 -> 175, science 0 -> 15, date 4000BC ->
+    3925BC in the very same frame pair) and the run failed
+    TURN_DID_NOT_ADVANCE_AT_1 on a healthy game.
+
+    The control panel is BOTTOM-anchored chrome of a FIXED pixel height, so the
+    widget's distance from the bottom edge is invariant across both geometries
+    where a fraction of the height is not. Offsets derived from the known-good
+    1024x768 numbers (x 478..556, y 658..690 -> 110..78 px above the bottom) and
+    verified to frame the date exactly at 1024x1280.
+    """
+    h = ry1 - ry0 + 1
+    x0, x1 = rx0 + 478, rx0 + 557
+    y1 = ry0 + h - 78
+    y0 = ry0 + h - 110
+    return (x0, y0, x1, y1)
+
+
 def date_changed(a, b) -> bool:
     """Positive turn-advance assertion: the date widget's pixels differ.
 
@@ -753,10 +907,7 @@ def date_changed(a, b) -> bool:
     if a is None or b is None or a.shape != b.shape:
         return False
     rx0, ry0, rx1, ry1 = render_rect(a)
-    w, h = rx1 - rx0 + 1, ry1 - ry0 + 1
-    fx0, fy0, fx1, fy1 = DATE_FRACTION
-    x0, y0 = rx0 + int(w * fx0), ry0 + int(h * fy0)
-    x1, y1 = rx0 + int(w * fx1), ry0 + int(h * fy1)
+    x0, y0, x1, y1 = date_rect(rx0, ry0, rx1, ry1)
     return frame_delta(a[y0:y1, x0:x1], b[y0:y1, x0:x1]) > 0
 
 
@@ -781,6 +932,7 @@ def dismiss_message(game: uiwalk.Game, inp) -> int:
     reports TURN_DID_NOT_ADVANCE with a large delta (the delta is the box closing,
     not the turn advancing). So: close until the surface is clear, not once.
     """
+    global _RESEARCH_INJECT_DEAD, _ALERT_DISMISS_DEAD
     total = 0
     misses = 0
     # Cap raised 6 -> 30 (2026-07-25): six was not enough by turn 6. Unread SLIC
@@ -838,6 +990,16 @@ def dismiss_message(game: uiwalk.Game, inp) -> int:
             # so synthetic clicks are dead here exactly as in the main menus).
             # Drive it by LDL injection instead. Path from science.ldl:421-440,
             # where BackButton is the one captioned str_ldl_CAPS_OK.
+            # PROCESS-WIDE latch, added 2026-07-26. `if not gone: break` below
+            # only stops re-injection WITHIN one dismiss_message call -- the
+            # crashing run injected twice because dismiss_message is called
+            # again next turn. A research inject that leaves the box "open" is
+            # proof the detection was a false positive (the real dialog always
+            # closes), so never inject again this process.
+            if _RESEARCH_INJECT_DEAD:
+                print("  [aim] research -> SUPPRESSED (a prior inject did not "
+                      "close it => detection is a false positive)", flush=True)
+                break
             print(f"  [aim] research -> inject press:{RESEARCH_OK_LDL}", flush=True)
             uiwalk.inject_press(game.hwnd, RESEARCH_OK_LDL)
             time.sleep(1.0)
@@ -848,6 +1010,47 @@ def dismiss_message(game: uiwalk.Game, inp) -> int:
             print(f"dismiss research -> delta={d} closed={gone}", flush=True)
             total += d
             if not gone:
+                _RESEARCH_INJECT_DEAD = True
+                break
+            continue
+        if what == "alertbox":
+            # DISMISS BY INJECTION, never by click. A posted mouse BUTTON is
+            # process-lethal at the 1024x1280 client -- measured on 3 distinct
+            # pixels across 2 surfaces and 3 runs, every one 0xC0000005,
+            # including ALERT_CLOSE_CAPTURE itself, whose entire SLIC body is
+            # `Kill();`. A posted WM_MOUSEMOVE at the same geometry is safe, so
+            # the lethal ingredient is the button message, not the aim point.
+            #
+            # StandardMinimizeButton is used rather than an arm because it is
+            # the ONLY alertbox control that resolves: a probe run with the box
+            # visibly open returned obj=00000000 for all four response-button
+            # names and obj=12D9C4B0 for minimize (arms all share the block
+            # string "StandardMessageWindow.StandardResponseButton", and
+            # aui_Ldl::Associate keys the by-string table on hash(ldlBlock), so
+            # the duplicates collapse to one entry). Minimize hides the window
+            # WITHOUT running any arm body -- which is exactly right for a
+            # dismissal (Close's body is `Kill();` and nothing else) and exactly
+            # why it can NOT stand in for the Summon arm.
+            if _ALERT_DISMISS_DEAD:
+                # Already proven unclosable this process; retrying every turn
+                # only adds ~8s of wait_stable per turn for a known answer.
+                break
+            print(f"  [aim] alertbox -> inject press:{ALERT_MINIMIZE_LDL}",
+                  flush=True)
+            uiwalk.inject_press(game.hwnd, ALERT_MINIMIZE_LDL)
+            time.sleep(1.0)
+            uiwalk.wait_stable(game, 6000)
+            after = game.screenshot()
+            d = frame_delta(before, after)
+            gone = not probe(after)
+            print(f"dismiss alertbox -> delta={d} closed={gone}", flush=True)
+            total += d
+            if not gone:
+                _ALERT_DISMISS_DEAD = True
+                print("  [aim] alertbox: minimize did not clear it -- NOT "
+                      "falling back to a click (posted buttons are lethal "
+                      "here); leaving the box up and suppressing further "
+                      "magic probes.", flush=True)
                 break
             continue
         if what == "message" and not os.environ.get("UIWALK_MSG_NOINJECT"):
@@ -998,12 +1201,20 @@ def main() -> int:
     ap.add_argument("--dismiss", action="store_true",
                     help="click the BeginTurn message box closed before acting")
     ap.add_argument("--summon-arm", type=int, default=0, choices=[0, 1, 2],
-                    help="INTERACTIVE SLIC TEST (link 7). 1 = MagicMenu's first "
-                         "declared arm (Guardian), 2 = second (Zombies). Opens the "
-                         "menu on --summon-turn, clicks that arm, then captures the "
-                         "FOLLOWING turn's opening frame -- the arm only writes a "
-                         "global, so anything visible next turn was produced by the "
-                         "BeginTurn consumer reading it across the turn boundary.")
+                    help="INTERACTIVE SLIC TEST. 1 = MagicMenu's first declared "
+                         "arm (Summon Creature). Opens the menu on --summon-turn, "
+                         "clicks that arm, then captures the FOLLOWING turn's "
+                         "opening frame -- the arm only writes a global, so "
+                         "anything visible next turn was produced by the BeginTurn "
+                         "consumer reading it across the turn boundary. "
+                         "Choice 2 is GONE as of 2026-07-26: the menu used to "
+                         "declare two hardcoded summon arms (Guardian, Zombies) "
+                         "purely so link 7's readout could discriminate 'the "
+                         "ordered unit appeared' from 'the handler always spawns "
+                         "that unit'. Link 7 closed, and the leftover second arm "
+                         "let a Life tribe raise zombies. One arm now; the "
+                         "creature is resolved from the caster's sphere at spawn "
+                         "time, and the result popup names it.")
     ap.add_argument("--summon-turn", type=int, default=3,
                     help="turn on which to place the summon order")
     ap.add_argument("--found-city", action="store_true",
@@ -1271,7 +1482,16 @@ def main() -> int:
                 print(f"  [peek] captured {args.peek_units_count} unit previews",
                       flush=True)
 
-            if args.probe_every and turn % args.probe_every == 0:
+            if (args.probe_every and turn % args.probe_every == 0
+                    and not _ALERT_DISMISS_DEAD):
+                # Probe ONCE-per-N, and stop entirely once dismissal is known
+                # impossible. A SLIC alertbox has no working close channel at
+                # this geometry -- clicking it is process-lethal and minimize is
+                # the only control in the by-string table, which presses but
+                # does not clear it (the table entry is shared, so the press
+                # lands on whichever window registered it last). Re-probing
+                # after that just stacks unclosable boxes over the map region
+                # the visibility checks measure.
                 inp.hotkey(["j"])
                 time.sleep(1.5)
                 uiwalk.wait_stable(game, 8000)

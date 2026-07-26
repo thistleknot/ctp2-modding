@@ -161,8 +161,36 @@ def _child_env():
     return env
 
 
-def preflight_display(want=(1024, 768)):
+def profile_screen_res(default=(1024, 768)):
+    """The ScreenResWidth/Height the engine will actually ASK for.
+
+    MEASURED 2026-07-26: the preflight used to hardcode (1024, 768), which asks
+    the wrong question. The engine's gate is "is the PROFILE's mode legal on the
+    primary display", not "is 1024x768 legal" -- so a profile edited to a mode
+    that IS legal on a portrait primary (e.g. 1024x1280) was still reported as
+    an abort. Read the value the engine reads."""
+    prof = EXE_DIR / "userprofile.txt"
+    w = h = None
+    try:
+        for line in prof.read_text(errors="ignore").splitlines():
+            k, _, v = line.partition("=")
+            k = k.strip()
+            if k == "ScreenResWidth":
+                w = int(v.strip())
+            elif k == "ScreenResHeight":
+                h = int(v.strip())
+    except Exception:
+        return default
+    if w and h:
+        return (w, h)
+    return default
+
+
+def preflight_display(want=None):
     """ABORT when the PRIMARY display cannot supply `want`.
+
+    `want` defaults to whatever userprofile.txt asks for -- see
+    profile_screen_res(). Passing an explicit tuple is for tests only.
 
     This is a GATE, not decoration. The condition it detects is NOT what makes
     captures black (see _child_env) -- but it IS what makes coordinate clicks
@@ -193,6 +221,9 @@ def preflight_display(want=(1024, 768)):
     which is fatal -- hence the abort.
     """
     import ctypes.wintypes
+
+    if want is None:
+        want = profile_screen_res()
 
     class DEVMODE(ctypes.Structure):
         _fields_ = [("dmDeviceName", ctypes.c_wchar * 32),
