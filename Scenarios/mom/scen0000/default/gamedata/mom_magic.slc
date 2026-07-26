@@ -31,10 +31,26 @@ int_f MomRecalcMagicPerTurn(int_t mp_1)
             if (HasGood(cloc) >= 0) {
                 nodes = nodes + 1;
             }
+            // GetNeighbor's return value MUST gate the read of its out-arg.
+            // At a map edge it returns 0 and does NOT write nloc, so the
+            // ungated form below fed HasGood() an uninitialised location_t --
+            // a hard 0xC0000005, no SLIC error dialog, because it is a bad
+            // pointer inside a builtin rather than a SLIC diagnostic. It is the
+            // same defect already fixed in MomSpawnSphereUnit (mom_func.slc) on
+            // 2026-07-25 -- that fix was applied at one call site and missed
+            // this one.
+            //
+            // CORRECTION 2026-07-26: an earlier version of this comment claimed
+            // this gate explained the found-a-city end-turn 0xC0000005. That is
+            // FALSIFIED -- the crash survived this fix, survived neutering all
+            // four MoM BeginTurn handlers, and survived disabling every scenario
+            // SLIC include. This is a real latent defect on the map edge, and
+            // nothing more. Do not re-attribute the end-turn crash to it.
             for (j = 0; j < 8; j = j + 1) {
-                GetNeighbor(cloc, j, nloc);
-                if (HasGood(nloc) >= 0) {
-                    nodes = nodes + 1;
+                if (GetNeighbor(cloc, j, nloc)) {
+                    if (HasGood(nloc) >= 0) {
+                        nodes = nodes + 1;
+                    }
                 }
             }
         }
