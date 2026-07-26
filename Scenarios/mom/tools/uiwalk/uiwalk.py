@@ -361,8 +361,35 @@ LAUNCH_TIMEOUT_S = 90
 GOLDENS = TOOL_DIR / "goldens"
 RUNS = TOOL_DIR / "runs"
 
+def _stash_position() -> tuple[int, int]:
+    """Top-left corner to park the game window at: just past the RIGHT edge of
+    the whole virtual desktop, vertically aligned with its top.
+
+    NOT (-32000, -32000).  That pair is Windows' *minimized* sentinel, and a
+    window parked there can be treated as minimized.  Note the honest history:
+    this was first written up as the cause of a run whose 14 shots were all
+    BYTE-IDENTICAL on the startup "Loading..." frame -- that attribution was
+    FALSIFIED (re-running from this position froze identically).  The actual
+    cause was a modal 'Load save game Error' dialog (class #32770) blocking the
+    engine ~2s after launch, raised because --save defaults to the nonexistent
+    save "uiwalk_start"; see Game.launch().  Found by enumerating the process's
+    top-level windows, not by reasoning about coordinates.
+
+    The position is kept anyway on its own merits, not on that false story:
+    just past the virtual right edge is equally invisible to the user (no
+    monitor covers it) but is an ordinary coordinate, so it carries no
+    minimized semantics at all.
+
+    Guarantee: returned x is >= the right edge of every monitor.
+    """
+    x = (win32api.GetSystemMetrics(win32con.SM_XVIRTUALSCREEN)
+         + win32api.GetSystemMetrics(win32con.SM_CXVIRTUALSCREEN))
+    y = win32api.GetSystemMetrics(win32con.SM_YVIRTUALSCREEN)
+    return x + 8, y
+
+
 def _stash_offscreen(hwnd):
-    """Move the game window far off-screen so runs are invisible to the user.
+    """Move the game window off every monitor so runs are invisible to the user.
     Safe: input is PostMessage with CLIENT-relative coords and capture is
     PrintWindow, so neither depends on the window being on-screen or focused.
     Set UIWALK_VISIBLE=1 to keep it on-screen for debugging."""
@@ -370,7 +397,8 @@ def _stash_offscreen(hwnd):
     if os.environ.get("UIWALK_VISIBLE") == "1":
         return
     try:
-        win32gui.SetWindowPos(hwnd, 0, -32000, -32000, 0, 0,
+        x, y = _stash_position()
+        win32gui.SetWindowPos(hwnd, 0, x, y, 0, 0,
                               win32con.SWP_NOSIZE | win32con.SWP_NOZORDER
                               | win32con.SWP_NOACTIVATE)
     except Exception:
@@ -774,10 +802,56 @@ class Game:
             time.sleep(1.0)
         raise TimeoutError(f"'{WINDOW_TITLE}' window not found within {LAUNCH_TIMEOUT_S}s")
 
+    def _assert_no_blocking_modal(self):
+        """Fail loudly if the engine has raised a native Win32 modal dialog.
+
+        A modal dialog blocks the engine's message pump, so it stops presenting
+        frames and PrintWindow returns the LAST PAINTED bitmap forever.  The
+        symptom is byte-identical captures across an entire run -- which reads
+        as "the game hung" or "our capture is stale" and sends you hunting in
+        the wrong layer.  Measured 2026-07-26: 14/14 identical shots, all on the
+        startup "Loading..." frame, caused by a 'Load save game Error' (#32770)
+        raised ~3s after launch because --save defaulted to a save the engine
+        could not load.  Nothing about the game or the capture path was wrong.
+
+        Checked on EVERY handle access rather than once at launch, because a
+        modal can appear at any point (a load error, an assert box).  Our stash
+        watchdog also parks the dialog off-screen, so it is invisible to a human
+        watching the run -- this check is the only thing that can see it.
+
+        Require: self.proc is the game process.
+        Guarantee: returns None, or raises RuntimeError naming the dialog.
+        """
+        if self.proc is None:
+            return
+        found = []
+
+        def cb(hwnd, _):
+            try:
+                if win32gui.GetClassName(hwnd) != "#32770":
+                    return
+                _, pid = win32process.GetWindowThreadProcessId(hwnd)
+                if pid == self.proc.pid:
+                    found.append(win32gui.GetWindowText(hwnd))
+            except Exception:
+                pass
+        try:
+            win32gui.EnumWindows(cb, None)
+        except Exception:
+            return
+        if found:
+            raise RuntimeError(
+                f"game is blocked on a native modal dialog: {found!r}. "
+                "The engine's message pump is stopped, so every capture from "
+                "here on would be a byte-identical stale frame. Common cause: "
+                "--save names a save the engine cannot load (it defaults to "
+                "'uiwalk_start'); pass --save none for a menu-entry walk.")
+
     def get_hwnd(self):
         """Return a live window handle; the engine destroys and recreates its
         window between the loading phase and the main game — re-find by title
         whenever the cached handle dies."""
+        self._assert_no_blocking_modal()
         if self.hwnd and win32gui.IsWindow(self.hwnd):
             # HEADLESS INVARIANT: re-assert on EVERY access, not just discovery.
             # The engine repositions its window on-screen during scenario load
@@ -1056,7 +1130,14 @@ def main():
     if not args.skip_display_check and not args.attach:
         preflight_display()
 
-    ctypes.windll.user32.SetProcessDPIAware()
+    # Deliberately NOT SetProcessDPIAware().  ctp2.exe has no DPI manifest, so
+    # on a scaled primary (125% here) Windows virtualizes it.  If WE are aware
+    # and the game is not, GetClientRect hands back PHYSICAL pixels (1280x960
+    # for a 1024x768 client) and PrintWindow reads across the virtualization
+    # boundary -- measured 2026-07-26 as 12 BYTE-IDENTICAL frames in one run
+    # (all still on the startup "Loading..." dialog while the game had walked
+    # to the map).  Staying unaware puts us in the same coordinate space as the
+    # game, so rects are logical and the captured bitmap is the live one.
     game = Game()
     if args.attach or args.record:
         wins = [w for w in pygetwindow.getWindowsWithTitle(WINDOW_TITLE) if w.title == WINDOW_TITLE]

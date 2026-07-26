@@ -1,3 +1,85 @@
+## 2026-07-26 -- spearman-on-map closed: TWO shipped filename conventions, and my search could never have seen the second
+
+**Root cause.** `ctp2.exe` carries BOTH format strings `GU%.2d.SPR` and
+`GU%.3d.SPR`, and stock CTP2 ships sprites under both conventions (124
+zero-padded, 83 unpadded, all mtime 2000-11-01). `build_sprites.py` wrote only
+the unpadded name. Where a base zero-padded twin existed, the engine resolved
+that first and served **stock art for a MoM unit**. `SPRITE_SPEARMEN 92`: MoM
+wrote `GU92.SPR` (19,190 B) while base `GU092.SPR` (562,756 B) sat next to it
+and won. Same for `SPRITE_ZOMBIES 91` and `SPRITE_SWORDSMEN 93`.
+
+**Fix.** `_dest_names(num)` returns `{GU{n:02d}.SPR, GU{n:03d}.SPR}` and the
+builder writes both. Verified deterministically: all 59 MoM-owned sprite ids
+(91-149) are now byte-identical twins, so there is no filename the engine can
+resolve that holds base art. Ids 2-90 remain divergent -- that is stock CTP2's
+own shipped state, untouched by MoM.
+
+**Method lesson (the expensive part).** I "verified the sprite chain clean"
+three times and closed it as DO-NOT-RE-INVESTIGATE. The verification was
+`find -iname 'GU92.SPR'`. That search **structurally cannot see `GU092.SPR`**.
+The bug lived in the exact blind spot of the instrument I used to declare the
+absence of a bug. A negative result is only as strong as the search's ability
+to have returned a positive -- before concluding "not present", state what the
+query would have missed. Note also that the padding is `%.2d`, i.e. a MINIMUM
+of two digits: for n<10 the pair is `GU03`/`GU003`, never `GU3`. My first audit
+script used `GU%d` and reported 58 phantom divergences.
+
+## 2026-07-26 -- identical frames across a whole run: a modal dialog, and my own default argument
+
+**Symptom.** Every one of 14 captures in a run was byte-identical, all showing
+the startup "Loading..." frame. Read as "the game hung" or "our capture is
+stale".
+
+**Root cause.** A native `'Load save game Error'` dialog (window class `#32770`)
+raised ~3s after launch blocked the engine's message pump, so it stopped
+presenting and PrintWindow kept returning the last painted bitmap. It appeared
+because `uiwalk.py --save` **defaults to `uiwalk_start`** -- a save the engine
+cannot load -- and a menu-entry walk must be run with `--save none`. Our own
+headless stash also parked the dialog off-screen, so it was invisible to anyone
+watching. Line 710 of uiwalk.py already documented this exact trap from a
+previous incident.
+
+**Found by** enumerating every top-level window owned by the game PID and
+printing on change -- not by reasoning about coordinates. Two coordinate-level
+theories were proposed and falsified first (the `-32000,-32000` minimize
+sentinel; `__COMPAT_LAYER=HighDpiAware`).
+
+**Fix.** `Game._assert_no_blocking_modal()` runs on every `get_hwnd()` and
+raises naming the dialog, so a blocked pump can never again masquerade as a
+hung game or a stale capture.
+
+## 2026-07-26 -- the "1.25 ratio" was never engine behaviour: it was OUR DPI awareness
+
+**Root cause.** `uiwalk.py` called `ctypes.windll.user32.SetProcessDPIAware()`
+while `ctp2.exe` ships no DPI manifest. On a 125%-scaled primary that puts the
+harness and the game in **different coordinate spaces**: `GetClientRect`
+returned PHYSICAL pixels (1280x960) for a client the game believed was logical
+(1024x768). Ratio: exactly 1.25.
+
+Everything built on top of that was an artifact. The "empirical per-surface
+send scales" (message x0.80 = 1/1.25, alertbox x1.25) were the same mismatch
+observed from two directions and mistaken for engine behaviour. **With uiwalk
+DPI-unaware, send == capture, 1:1, on every surface.**
+
+**Fix.** Deleted the awareness call. Captures returned to 1024x768 and all four
+goldens went from 0/4 (0.144 / 0.075 / 0.193 / 0.454) to **4/4 at 1.000**.
+
+**Method lesson.** I had claimed the goldens were "stale, captured at 1024x1280
+under a portrait primary". They were always correct; the instrument was broken.
+A perfect 1.000 is the proof. This is the third time in this project I blamed
+the environment (display, monitor rotation, how something was authored) before
+checking the instrument I control -- see `feedback-instrument-before-environment`.
+Order of suspicion: my own argv, then the comparator, then the artifact, and
+the environment LAST.
+
+**Separate finding, still open by design:** a posted `click` in-game is
+process-lethal (0xC0000005), reproducibly, ~5 runs. Falsified as causes: the
+rebuilt sprites (control run with base art restored still AV'd) and the
+coordinate (corrected under the new 1:1 rule, still AV'd). The click itself is
+the trigger. It is also unnecessary -- `verify_centering.json` now waits instead
+and completes all 14 shots at 4/4. Use the `press:`/`select:` injection hook,
+which posts no mouse input, if a control ever genuinely needs pressing.
+
 ## 2026-07-26 -- icon over-zoom closed: the extractor was the THIRD producer of the same TGA
 
 **Root cause.** `ICON_UNIT_*.tga` is written by three tools:

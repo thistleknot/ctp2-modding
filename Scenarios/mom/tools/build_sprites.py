@@ -406,6 +406,24 @@ def _spr_move_nonempty_rows(spr: Path) -> "int | None":
     return nonempty
 
 
+def _dest_names(num: int) -> list[Path]:
+    """Every shipped filename the engine might resolve for sprite id `num`.
+
+    ctp2.exe contains BOTH format strings "GU%.2d.SPR" and "GU%.3d.SPR", and
+    base CTP2 ships both conventions on disk (124 zero-padded, 83 unpadded, all
+    2000-11-01).  For ids < 100 the two forms are different files, so writing
+    only the unpadded one leaves any base-shipped padded twin in place and the
+    engine may serve stock art.  Measured 2026-07-26 for SPRITE_SPEARMEN 92:
+    map drew base GU092.SPR, UI drew MoM's GU92.SPR.  Base twins exist for
+    091/092/093 only, but emitting both names unconditionally is cheap and
+    removes the whole class.
+
+    Guarantee: returns 1 path for num >= 100, 2 distinct paths below that.
+    """
+    names = {f"GU{num:02d}.SPR", f"GU{num:03d}.SPR"}
+    return [SPRITES_DIR / n for n in sorted(names)]
+
+
 def _build_spr(num: int, work_dir: Path, anchor: tuple[int, int]) -> Path:
     """
     Write GU###.TXT and invoke makespr.py -u {num} in work_dir.
@@ -481,7 +499,13 @@ def main() -> int:
 
         nn = f"{num:02d}"
         spr = SPRITES_DIR / f"GU{nn}.SPR"
-        # Presence is NOT proof we built it. The MoM range starts at 91, but base
+        # Presence is NOT proof we built it.  Nor is presence of the UNPADDED
+        # name proof the engine reads it: ctp2.exe carries BOTH "GU%.2d.SPR"
+        # and "GU%.3d.SPR", and base CTP2 ships zero-padded twins GU091/092/093
+        # dated 2000-11-01.  Measured 2026-07-26: the map drew base GU092.SPR
+        # (white spearman) while the UI drew MoM's GU92.SPR (gold warrior).  So
+        # staleness must consider the OLDEST of both names, and the copy step
+        # writes both.  See _dest_names(). The MoM range starts at 91, but base
         # CTP2 already ships GU91/92/93/95 (and others) into the same directory, so
         # a bare exists() check silently adopted stock art for SPRITE_ZOMBIES,
         # SPRITE_SPEARMEN, SPRITE_SWORDSMEN and SPRITE_WARBEARS -- the map drew a
@@ -489,8 +513,10 @@ def main() -> int:
         # instead: rebuild whenever the source TGA is newer than the SPR. Stock
         # files are dated 2000-11-01, so every collision resolves in our favour and
         # the check self-heals on any future art edit.
-        if (spr.exists() and not args.force
-                and spr.stat().st_mtime >= tga.stat().st_mtime):
+        dests = _dest_names(num)
+        if (not args.force
+                and all(d.exists() for d in dests)
+                and min(d.stat().st_mtime for d in dests) >= tga.stat().st_mtime):
             continue   # up to date
 
         to_build.append((name, num, tga))
@@ -547,9 +573,9 @@ def main() -> int:
                     raise ValueError(
                         f"compiled GU{nn}.SPR is fully EMPTY (all rows transparent) — keying "
                         f"erased the art for {name}; not copying. Diagnose with diagnose_spr.py.")
-                dest = SPRITES_DIR / f"GU{nn}.SPR"
-                shutil.copy2(str(spr), str(dest))
-                print(f"    -> {dest}  ({dest.stat().st_size} bytes)")
+                for dest in _dest_names(num):
+                    shutil.copy2(str(spr), str(dest))
+                    print(f"    -> {dest}  ({dest.stat().st_size} bytes)")
             except Exception as exc:
                 errors.append((name, f"GU{nn}.SPR", str(exc)))
                 print(f"    ERROR: {exc}")
