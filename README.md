@@ -76,6 +76,14 @@ string as `None`.
   - `backcast_slic.py` — scenario SLIC → the `slic` dimension (+ `--check` gate)
   - `build_schema.py` / `enrich_csv_schema.py` / `schema_*.py` — schema
     induction, query, and drift checks over the control plane
+  - `gl_descriptions.py` — Great Library prose for every element of every
+    dimension: GAMEPLAY **derived** from the live DB blocks each run (stays true
+    when costs are retuned), HISTORICAL **authored** once in
+    `examples/momjr/control-plane/gl_descriptions.csv`. Runs last, immediately
+    before `save_all()`, so derived costs are final and PREREQ stubs are
+    reconciled.
+  - `gate_gl_descriptions.py` — fails the build if any section is still filler
+    (shares `gl_descriptions.is_filler()`, the single definition of "missing")
   - `validate_scenario.py` — **9 crash-class gates; run before every playtest**
   - `mom_audit.py`, `crossref_audit.py`, `scan_interconnections.py` —
     post-generation validation and cross-dimension reference tracing
