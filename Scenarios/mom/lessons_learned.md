@@ -1,3 +1,51 @@
+## 2026-07-26 — every building was a 1-turn build: the rescale ran 1300 lines before the ingest
+
+**Symptom.** Build Manager showed Barracks / Merchant's Guild / Coastal Fortress
+all at `1` turn. Shipped `buildings.txt` carried `ProductionCost 4..24` — raw
+Civ2 numbers — against a CTP2 first-age band of 270..875.
+
+**It was NOT a missing control plane.** The age-scaling layer already existed
+and its docstring names this exact symptom: "Raw Civ2 costs (4..60) render as
+1-turn builds in CTP2". `_retune_mom_improvement_costs()` was being called. It
+just ran at `main():2863` while `_merge_mom_improvements_into_buildings()` —
+which writes raw CSV costs straight into the file — runs at `main():4156`. The
+rescale was clobbered by the ingest every single run. Wonders and units were
+never affected: their retunes run *after* their own ingestion.
+
+**Discriminating evidence.** A full regen reproduced the raw costs exactly, and
+a standalone call to the retune against the same on-disk file rescaled all 21
+blocks correctly. Same function, same input, opposite outcome — that gap is only
+explainable by ordering, and it pointed straight at the call site.
+
+**Second bug, same class, found while verifying the first.** The ingest resolves
+each building's gating advance against a set read from DISK
+(`_read_rel("default/gamedata/Advance.txt")`), but the live tree is still in the
+registry and is not flushed until `save_all()` — after the ingest. So the guard
+`if adv not in advances` was testing against the *previous run's* advance file.
+Fixed by reading `reg.load(...)` instead.
+
+**Third, in the same code path: the two lanes of `advance_code_map.csv` are not
+interchangeable.** Buildings were resolved through `MOM_UNIT_ADVANCE`, which is
+filtered to `lane == "unit"`, so prereq-only codes fell to the fallback advance
+— Merchant's Guild's `Eco` among them. But merging the prereq lane *over* the
+unit lane is also wrong: 5 prereq-lane targets are dangling
+(`ADVANCE_COMMUNE_WITH_GODS` was never generated), and a blind override demoted
+Cathedral from the live `ADVANCE_THEOLOGY` to the fallback. Correct shape is a
+resolution CHAIN — prereq lane, then unit lane, then fallback — where a
+candidate is usable only if it exists AND is not disabled by self-prerequisite
+(CTP2's sanctioned "unresearchable" form, applied to 169 base advances here).
+
+**The law.** A silent fallback is how all three of these survived. The fallback
+itself was correct behaviour; the silence was the defect. The generator now
+prints `! prereq code 'X' for 'Y' is dangling or disabled` for every one, and
+there is currently exactly one (`Eco`, because `ADVANCE_ECONOMICS` is a disabled
+stub in MoM's replaced tech tree).
+
+**Generalisation worth carrying.** When a transform's output looks untransformed,
+check WHERE it runs before checking WHETHER it runs. Both bugs here were a
+correct function reading correct data at the wrong point in the pipeline, and
+neither would ever surface as an error.
+
 ## 2026-07-26 -- spearman-on-map closed: TWO shipped filename conventions, and my search could never have seen the second
 
 **Root cause.** `ctp2.exe` carries BOTH format strings `GU%.2d.SPR` and
