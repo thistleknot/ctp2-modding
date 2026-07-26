@@ -1,3 +1,46 @@
+## 2026-07-26 -- icon over-zoom closed: the extractor was the THIRD producer of the same TGA
+
+**Root cause.** `ICON_UNIT_*.tga` is written by three tools:
+`civ2_sprite_extractor.py` (extraction), `build_unit_icon_art.py` (icon
+builder), and `reframe_unit_icons.py` (one-shot repair). Two of them capped
+content at `ICON_CONTENT_MAX_FRAC = 0.80`. The extractor did not -- its
+`_scale_rgba_to_canvas` was unconditional fit-to-fill, so **every regen
+silently un-repaired the shipped icons**, re-inflating figures until they
+overran the 96x72 unit-preview box and protruding weapons were severed by the
+frame. That is why the 2026-07-25 repair kept "coming back."
+
+**Fix.** `_scale_rgba_to_canvas` now takes `max_frac` / `floor_margin`. The
+sprite call sites keep the fit-to-fill default (their consumer
+`build_sprites.py` does its own 96x72 fit and wants the largest clean source);
+the icon call site passes the 0.80 cap and a 6px floor margin. The constants
+live at module scope with a comment naming the other two producers.
+
+**Two things the measurement caught that reading would not have:**
+
+1. **`int()` -> `round()` is not a cosmetic cleanup.** I "tidied" the shared
+   scale math while rewriting, and 33 `SPRITE_*.tga` moved by a pixel. The
+   byte-identical sprite gate caught it immediately. Reverted to `int()`;
+   sprites back to **0 changed**.
+2. **Never-upscale is correct for the repair tool and WRONG for the
+   extractor.** `reframe_unit_icons` clamps scale at 1.0 because it reframes an
+   already-160x120 icon. The extractor's input is a native atlas cell ~40px
+   tall, so the same clamp left every figure at **0.28** of the frame --
+   measured, not reasoned. Dropped the clamp on the extractor path only, and
+   documented the divergence in the docstring so it does not get "fixed" back.
+
+**Gate (post-fix, 62 icons):** height extent median 0.77 / max **0.78**, width
+median 0.55, over-cap **0**, edge-clipped **0**, and all 62 `SPRITE_*.tga`
+byte-identical. Rendered repaired-vs-regenerated side by side at preview size:
+same subject in every column, nothing touching the frame. The pipeline is now
+idempotent -- `reframe_unit_icons` run against the new output is a no-op,
+because content already sits at or under the cap.
+
+**Method lesson.** When a repair keeps regressing, stop repairing and count the
+**producers** of the artifact. Two agreeing tools and one disagreeing tool
+looks exactly like a flaky fix. See [[ctp2-icon-overzoom-uniformity-tell]].
+
+---
+
 ## 2026-07-26 -- the sprite cell_index disagreement was NOT latent; I had misread the extractor
 
 **What I told the user:** the `units.csv` duplicate `cell_index` 1 was harmless
