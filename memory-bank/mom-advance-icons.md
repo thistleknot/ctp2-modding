@@ -1,0 +1,46 @@
+---
+name: mom-advance-icons
+description: "CANONICAL advance art = 11 thematic category cells from MOMJR Improvements.bmp per the xlsx/advances.csv cell_index contract — intra-category shared art IS the design; never de-duplicate. All repoint 'fixes' (surgical 27, momjr-port UPAP, scored remap, enables-chain) were wrong turns, superseded."
+metadata: 
+  node_type: memory
+  type: project
+  originSessionId: 77eb8577-a451-4ba1-84c7-af8b7cf3cf0e
+---
+
+**2026-07-15 MEASURED CURRENT STATE (user-accepted as working):** 85 visible advances → **11 distinct images / 10 shared groups** = the canonical 11-category-cell contract (below) IS what's on disk and in HEAD. A mid-window 71-repoint uniticon dedup (unique art per advance) was built, verified, then **superseded by the 656ecab canonical restore** — do not assume any per-advance dedup survives. If unique-per-advance art is requested again: write art INTO ICON_ADVANCE_<X>.tga files (durable), never uniticon repoints (regen-reverted). Durable scan lessons: key dupe scans by content hash ONLY (name+md5 keying hides same-content school lines); use decoded-PIXEL md5, not file md5; free-pool = md5-groups referenced by NO uniticon entry of any type. Wiki: lessons_learned § "[STATE + SCAN LESSON]" (2026-07-15).
+
+**2026-07-14 canonical contract (governs art + pipeline/cost side):**
+- Advance art = `advances.csv` `cell_index` (== `mom_dimension_inventory*.xlsx` advances sheet): 87 advances → **11 category cells** of `H:\Games\civ2\MOMJR\MOMJR\Improvements.bmp` — 2 Barracks/military, 7 Courthouse/governance, 10 Bank/economy, 30 Harbor/construction, 40 Gaia's Shrine/Nature, 44 Great Library/knowledge(×27), 45 Oracle/Life, 46 Wall of Bone/Death, 56 Eldritch College/Sorcery, **62 Forge of Chaos/Chaos**, 66 Celestial Beacon/FutureTech. "11 distinct md5s" was the DESIGN, not corruption. `cell_index` dual-use (art + cost weight) is intentional.
+- **User counts sheet positions 1-BASED**: "position 63 (row 8 col 7)" = 0-based cell 62. Watch this off-by-one in all future coordinate exchanges.
+- Pipeline: `civ2_sprite_extractor.py --sheet advances` → `ctp2_generator.py` (owns/rewires all ICON_ADVANCE uniticon blocks) → `mom_audit.py`. `art_cell_index` column removed (extractor override support kept, unused). `advances_cell_remap.csv` = superseded experiment.
+- Wiki: `lessons_learned.md` § "[ADVANCE-ICONS — CANONICAL CONTRACT]".
+
+**Historical (superseded fixes — kept for archaeology):**
+
+2026-07-13: "Alchemy/Alphabet/Animism all use the same image" — FIXED, second attempt. Full detail in lessons_learned.md.
+
+**The overreach lesson (cost a user-visible regression):** first fix rewrote ALL 225 uniticon entries via a tier ladder. User immediately: "I had most of the correct ones before, now I'm missing most and only have old ones!" (Chaos Magic showed a CTP2 power plant). The generated MoM category art was LIKED for most advances — the complaint was only the duplicate group. **Fix scope = the complained-about set, nothing more** ([[feedback-surgical-changes]]). Final fix: restored `uniticon.txt` from backup, then repointed ONLY the 27 advances whose `ICON_ADVANCE_*.tga` was md5-identical to Alchemy's: momjr loose art where it exists (Alchemy→CM2_UPAP010L), base advanceicon by exact name (Writing→CA011F, zfs-loaded), remainder round-robined over the OTHER 10 MoM-generated looks (keeps the MoM aesthetic, breaks adjacency dupes).
+
+**Non-obvious facts (never re-derive):**
+- The 388 generated `ICON_ADVANCE_*.tga` have only **11 distinct md5s** — `momjr_csv/advances.csv` `cell_index` holds 11 category buckets. ~~Civ2 MOMJR has no per-advance portraits~~ **CORRECTED 2026-07-14 by user**: `Improvements.bmp` IS the tech sheet — advances lift a related building/wonder cell via `advances_cell_remap.csv` (`new_cell_index`; 68 good, 19 hit empty cells 0/69 = scorer misfires). `Icons.bmp` is UI chrome.
+- **cell_index is DUAL-USE**: `ctp2_generator.py` reads `advances.csv cell_index` as the advance **cost weight** (`csv_weights` → `_scaled_mom_advance_cost`) — the 11-bucket collapse came from `update_advances_tier_a.py` setting `cell_index = epoch*5+category` for costs, destroying art coords as a side effect. Sheet coords now live in the separate `art_cell_index` column (999 = skip sentinel); extractor prefers it.
+- **uniticon ICON_ADVANCE blocks are generator-owned and EPHEMERAL** (`ctp2_generator.py:~3609`): every Advance.txt Icon ref gets forced to `ICON_ADVANCE_<X>.tga` if that file exists, else `UPLG001.TGA`. Hand-edits to advance uniticon lines get stomped on the next generator run. **The durable truth is the CONTENT of `ICON_ADVANCE_<X>.tga` files.** (This obsoletes the durability of the 2026-07-14 122-repoint alignment for hidden advances — they'll fall back to placeholder on next generator run; invisible, harmless.)
+- Design intent = momjr CTP2 port's `uniticon.txt`/`mom_uniticon.txt` (curated override) at `H:\Games\ctp2\mom\mom\Scen0000\default\gamedata\` (a git repo; art PNGs there are unit sprites only). Only ~129 of its 482 referenced GL pictures exist locally; 63 more recovered from pre-extracted Cradle/Ages-of-Man dirs under `H:\Games\ctp2\` (user rule: pre-extracted folders only, no zip diving).
+- **Crash guard:** recovered loose icon TGAs arrive desc=0x01 = the documented GL SourceList crash trigger — normalize byte 17 to 0x00 before use.
+
+2026-07-14 audit (goldmines — verified on disk, don't re-derive):
+- **GL advance-list visibility = `GLHidden` flag in Advance.txt.** 255 DB advances = 85 visible + 170 hidden (base-CTP2 leftovers, 31 WAW stubs, USER_DEF_TECH_A). Visible set == momjr design csv (87 rows) minus EXTRA_ADVANCE_4 (spare slot, deliberately dropped) minus USER_DEF_TECH_A (hidden). Coverage is COMPLETE.
+- **All 85 visible advance icons are pixel-unique** (decoded-pixel md5 over converted TGAs, not file md5 — desc-byte/footer normalization hides pixel-identity from file hashes). Zero duplicate images among visible advances.
+- **137 hidden advances point at UPLG001.TGA** = base game's ICON_*_DEFAULT placeholder (lives only in zfs, not loose). Harmless — none are visible. Gap ledger if ever unhidden: 94 have design-named UPAP/CM2_UPAP art missing locally; CANNON_MAKING→UPAP016L and PLASMA_WEAPONRY→UPAP084L exist locally already.
+- **Perceived "repeats" in GL = cross-category reuse, not advance dupes**: ~51 advance icons are SPRITE_*.tga unit stills (realm tier ladders Chaos/Death/Life/Nature/Sorcery each use 5 distinct creature portraits: e.g. Chaos = Hell Hounds/Efreet/Salamander/Warrax/Tauron). Same creature appears again on its UNIT GL page → looks repeated while browsing. Each still is referenced by exactly one icon entry.
+- **FULL DESIGN ALIGNMENT DONE 2026-07-14** (user: "align them all"): all 122 advances whose momjr-port uniticon assignment differed were repointed to design intent — 101 TGAs converted from pic555 PNGs, 5 repoint-only, 21 visible + 101 hidden. 5 unresolved (art exists nowhere pre-extracted, kept current unique art): LITERACY→CM2_UPAP020L, TACTICS→UPAP001L, THE_REPUBLIC→UPAP059L, WARRIOR_CODE→UPAS001L, MIND_CONTROL→mindcont.TGA. Post-state: 85 visible / 78 distinct images / **7 shared pairs that are IN the momjr design itself** (Alphabet+Writing, Bridge Building+Pottery, Ceremonial Burial+Pantheism, Currency+Trade, Map Making+Seafaring, Masonry+Sanitation, Mathematics+Mysticism) — do NOT "fix" these as dupes without asking; they're design intent. Astrology → UPAP104L ("Unified Field Theory" box art; momjr text fields even point at THEORY_OF_GRAVITY_* — it's a re-skin). Local CM2_UPAP045L now shadows the zfs copy Mathematics used.
+- **GOLDMINE — `H:/Games/civctp2/Advance-Graph/pic555/`**: 106 base+Cradle (CM2_) advance pictures as PNGs (upap###l.png / cm2_upap###l.png), pre-extracted → legal source under the "pre-extracted folders only" rule. Covers most of the 94-missing design-art ledger. Also Advance_<lang>.pdf/gv/svg tech-tree graphs one level up in Advance-Graph/.
+- **TGA authoring recipe for GL pictures (UPAP family, verified working)**: 160x120, type-2 uncompressed 16bpp ARGB1555 (alpha bit 0), bottom-up rows, desc byte 0x00, TRUEVISION-XFILE v2 footer. Same-dims transplant trick: copy a working file's 18-byte header + everything after pixel data verbatim, swap only the 38400 pixel bytes — keeps footer/extension offsets valid.
+
+2026-07-14 tech-sheet migration (staged, awaiting user tool run):
+- `advances.csv` gained `art_cell_index` (68 sheet cells from remap, 19×999 skip); backup `.bak_pre_art_cell`. Extractor patched to prefer it. 17 misfire advances' `ICON_ADVANCE_*.tga` pre-seeded from their current good art (incl. Alchemy←CM2_UPAP010L and University←CM2_UPIP053L pulled from `H:/Games/civctp2/ctp2_data/.../pictures/`, desc-normalized); Chaos Magic reverted to its unique generated icon; Nature Magic already self.
+- USER must run (harness rule): `civ2_sprite_extractor.py --sheet advances` → `ctp2_generator.py` → `mom_audit.py` (expect 39 PASS). Extractor scales cells to 160×120 canvas itself (`_scale_rgba_to_canvas`), writes rgb555 TGAs.
+
+Full detail: wiki entry `Scenarios/mom/lessons_learned.md` § "[ADVANCE-ICONS] Improvements.bmp IS the tech sheet…" (2026-07-14, top of file).
+
+Related: [[mom-wiki]], [[reference_momjr_source]], [[mom-citypanel-fugly-engine]] (desc rules are per texture family).

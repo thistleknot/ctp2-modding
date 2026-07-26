@@ -1,5 +1,26 @@
+# Scenario game data lives in its own repos (ctp2-momjr etc.) — never here.
+Scenarios/
+scen0000/
+**/scen0000/
 
-# uiwalk harness: transient run artifacts
-Scenarios/mom/tools/uiwalk/runs/
-Scenarios/mom/tools/uiwalk/*.log
-Scenarios/mom/tools/uiwalk/__pycache__/
+# Python / build artifacts
+__pycache__/
+*.pyc
+*.pyo
+.task_graph.db
+
+# Generated workbooks / large binaries (tools regenerate these)
+*.xlsx
+*.zip
+*.rar
+*.7z
+
+# uiwalk run output: captures, logs and crash dumps, gigabytes of it.
+# The scripts, steps and goldens ARE tracked; what a run produced is not.
+tools/uiwalk/runs/
+*.log
+
+# OS junk
+Thumbs.db
+desktop.ini
+nul
