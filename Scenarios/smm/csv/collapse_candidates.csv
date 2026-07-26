@@ -1,0 +1,248 @@
+dimension,concept_stem,member_name,member_source,member_code,group_size
+advances.csv,ALCHEMY,Alchemy,base,AFl,2
+advances.csv,ALCHEMY,Alchemy Haradrim,lotr,lotr:ADVANCE_ALCHEMY_HARADRIM,2
+advances.csv,APPLIED_MATH,Applied Math,cradle,cradle:ADVANCE_APPLIED_MATH,2
+advances.csv,APPLIED_MATH,Applied Math Isengard,lotr,lotr:ADVANCE_APPLIED_MATH_ISENGARD,2
+advances.csv,AQUEDUCTS,Aqueducts,cradle,cradle:ADVANCE_AQUEDUCTS,2
+advances.csv,AQUEDUCTS,Aqueducts Men,lotr,lotr:ADVANCE_AQUEDUCTS_MEN,2
+advances.csv,ARCHERY,Archery,cradle,cradle:ADVANCE_ARCHERY,5
+advances.csv,ARCHERY,Archery Elves,lotr,lotr:ADVANCE_ARCHERY_ELVES,5
+advances.csv,ARCHERY,Archery Haradrim,lotr,lotr:ADVANCE_ARCHERY_HARADRIM,5
+advances.csv,ARCHERY,Archery Isengard,lotr,lotr:ADVANCE_ARCHERY_ISENGARD,5
+advances.csv,ARCHERY,Archery Orcs,lotr,lotr:ADVANCE_ARCHERY_ORCS,5
+advances.csv,ARCHITECTURE,Architecture,cradle,cradle:ADVANCE_ARCHITECTURE,4
+advances.csv,ARCHITECTURE,Architecture Dwarves,lotr,lotr:ADVANCE_ARCHITECTURE_DWARVES,4
+advances.csv,ARCHITECTURE,Architecture Gondor,lotr,lotr:ADVANCE_ARCHITECTURE_GONDOR,4
+advances.csv,ARCHITECTURE,Architecture Mordor,lotr,lotr:ADVANCE_ARCHITECTURE_MORDOR,4
+advances.csv,ASTRONOMY,Astronomy,cradle,cradle:ADVANCE_ASTRONOMY,2
+advances.csv,ASTRONOMY,Astronomy Isengard,lotr,lotr:ADVANCE_ASTRONOMY_ISENGARD,2
+advances.csv,BARRACKS,Barracks,cradle,cradle:ADVANCE_BARRACKS,3
+advances.csv,BARRACKS,Barracks Angmar,lotr,lotr:ADVANCE_BARRACKS_ANGMAR,3
+advances.csv,BARRACKS,Barracks Orcs,lotr,lotr:ADVANCE_BARRACKS_ORCS,3
+advances.csv,BRONZE_WORKING,Bronze Working,base,Bro,7
+advances.csv,BRONZE_WORKING,Bronze Working Angmar,lotr,lotr:ADVANCE_BRONZE_WORKING_ANGMAR,7
+advances.csv,BRONZE_WORKING,Bronze Working Arnor,lotr,lotr:ADVANCE_BRONZE_WORKING_ARNOR,7
+advances.csv,BRONZE_WORKING,Bronze Working Dwarves,lotr,lotr:ADVANCE_BRONZE_WORKING_DWARVES,7
+advances.csv,BRONZE_WORKING,Bronze Working Easterling,lotr,lotr:ADVANCE_BRONZE_WORKING_EASTERLING,7
+advances.csv,BRONZE_WORKING,Bronze Working Haradrim,lotr,lotr:ADVANCE_BRONZE_WORKING_HARADRIM,7
+advances.csv,BRONZE_WORKING,Bronze Working Orcs,lotr,lotr:ADVANCE_BRONZE_WORKING_ORCS,7
+advances.csv,BUREAUCRACY,Bureaucracy,cradle,cradle:ADVANCE_BUREAUCRACY,3
+advances.csv,BUREAUCRACY,Bureaucracy Easterling,lotr,lotr:ADVANCE_BUREAUCRACY_EASTERLING,3
+advances.csv,BUREAUCRACY,Bureaucracy Men,lotr,lotr:ADVANCE_BUREAUCRACY_MEN,3
+advances.csv,CHARIOTS,Chariots,cradle,cradle:ADVANCE_CHARIOTS,4
+advances.csv,CHARIOTS,Chariots Easterling,lotr,lotr:ADVANCE_CHARIOTS_EASTERLING,4
+advances.csv,CHARIOTS,Chariots Haradrim,lotr,lotr:ADVANCE_CHARIOTS_HARADRIM,4
+advances.csv,CHARIOTS,Chariots Rohan,lotr,lotr:ADVANCE_CHARIOTS_ROHAN,4
+advances.csv,CITY_STATE,City State,cradle,cradle:ADVANCE_CITY_STATE,7
+advances.csv,CITY_STATE,City State Arnor,lotr,lotr:ADVANCE_CITY_STATE_ARNOR,7
+advances.csv,CITY_STATE,City State Dwarves,lotr,lotr:ADVANCE_CITY_STATE_DWARVES,7
+advances.csv,CITY_STATE,City State Easterling,lotr,lotr:ADVANCE_CITY_STATE_EASTERLING,7
+advances.csv,CITY_STATE,City State Gondor,lotr,lotr:ADVANCE_CITY_STATE_GONDOR,7
+advances.csv,CITY_STATE,City State Haradrim,lotr,lotr:ADVANCE_CITY_STATE_HARADRIM,7
+advances.csv,CITY_STATE,City State Isengard,lotr,lotr:ADVANCE_CITY_STATE_ISENGARD,7
+advances.csv,CIVIC_ENGINEERING,Civic Engineering,cradle,cradle:ADVANCE_CIVIC_ENGINEERING,3
+advances.csv,CIVIC_ENGINEERING,Civic Engineering Hobbits,lotr,lotr:ADVANCE_CIVIC_ENGINEERING_HOBBITS,3
+advances.csv,CIVIC_ENGINEERING,Civic Engineering Mordor,lotr,lotr:ADVANCE_CIVIC_ENGINEERING_MORDOR,3
+advances.csv,COMPOSITE_BOW,Composite Bow,cradle,cradle:ADVANCE_COMPOSITE_BOW,3
+advances.csv,COMPOSITE_BOW,Composite Bow Elves,lotr,lotr:ADVANCE_COMPOSITE_BOW_ELVES,3
+advances.csv,COMPOSITE_BOW,Composite Bow Orcs,lotr,lotr:ADVANCE_COMPOSITE_BOW_ORCS,3
+advances.csv,CONCRETE,Concrete,cradle,cradle:ADVANCE_CONCRETE,3
+advances.csv,CONCRETE,Concrete Evil,lotr,lotr:ADVANCE_CONCRETE_EVIL,3
+advances.csv,CONCRETE,Concrete Good,lotr,lotr:ADVANCE_CONCRETE_GOOD,3
+advances.csv,COPPER_SMELTING,Copper Smelting,cradle,cradle:ADVANCE_COPPER_SMELTING,7
+advances.csv,COPPER_SMELTING,Copper Smelting Angmar,lotr,lotr:ADVANCE_COPPER_SMELTING_ANGMAR,7
+advances.csv,COPPER_SMELTING,Copper Smelting Dwarves,lotr,lotr:ADVANCE_COPPER_SMELTING_DWARVES,7
+advances.csv,COPPER_SMELTING,Copper Smelting Easterling,lotr,lotr:ADVANCE_COPPER_SMELTING_EASTERLING,7
+advances.csv,COPPER_SMELTING,Copper Smelting Evil,lotr,lotr:ADVANCE_COPPER_SMELTING_EVIL,7
+advances.csv,COPPER_SMELTING,Copper Smelting Mordor,lotr,lotr:ADVANCE_COPPER_SMELTING_MORDOR,7
+advances.csv,COPPER_SMELTING,Copper Smelting Sindar,lotr,lotr:ADVANCE_COPPER_SMELTING_SINDAR,7
+advances.csv,COSMOLOGY,Cosmology,cradle,cradle:ADVANCE_COSMOLOGY,4
+advances.csv,COSMOLOGY,Cosmology Arnor,lotr,lotr:ADVANCE_COSMOLOGY_ARNOR,4
+advances.csv,COSMOLOGY,Cosmology Haradrim,lotr,lotr:ADVANCE_COSMOLOGY_HARADRIM,4
+advances.csv,COSMOLOGY,Cosmology Sindar,lotr,lotr:ADVANCE_COSMOLOGY_SINDAR,4
+advances.csv,COUNCIL_V,Council V,lotr,lotr:ADVANCE_COUNCIL_V,3
+advances.csv,COUNCIL_V,Council V Hobbits,lotr,lotr:ADVANCE_COUNCIL_V_HOBBITS,3
+advances.csv,COUNCIL_V,Council V Sindar,lotr,lotr:ADVANCE_COUNCIL_V_SINDAR,3
+advances.csv,CURRENCY,Currency,base,Cur,3
+advances.csv,CURRENCY,Currency Angmar,lotr,lotr:ADVANCE_CURRENCY_ANGMAR,3
+advances.csv,CURRENCY,Currency Dwarves,lotr,lotr:ADVANCE_CURRENCY_DWARVES,3
+advances.csv,DICTATORSHIP,Dictatorship,cradle,cradle:ADVANCE_DICTATORSHIP,8
+advances.csv,DICTATORSHIP,Dictatorship Arnor,lotr,lotr:ADVANCE_DICTATORSHIP_ARNOR,8
+advances.csv,DICTATORSHIP,Dictatorship Dwarves,lotr,lotr:ADVANCE_DICTATORSHIP_DWARVES,8
+advances.csv,DICTATORSHIP,Dictatorship Easterling,lotr,lotr:ADVANCE_DICTATORSHIP_EASTERLING,8
+advances.csv,DICTATORSHIP,Dictatorship Gondor,lotr,lotr:ADVANCE_DICTATORSHIP_GONDOR,8
+advances.csv,DICTATORSHIP,Dictatorship Haradrim,lotr,lotr:ADVANCE_DICTATORSHIP_HARADRIM,8
+advances.csv,DICTATORSHIP,Dictatorship Orcs,lotr,lotr:ADVANCE_DICTATORSHIP_ORCS,8
+advances.csv,DICTATORSHIP,Dictatorship Rohan,lotr,lotr:ADVANCE_DICTATORSHIP_ROHAN,8
+advances.csv,DOMESTICATION,Domestication,cradle,cradle:ADVANCE_DOMESTICATION,2
+advances.csv,DOMESTICATION,Domestication Evil,lotr,lotr:ADVANCE_DOMESTICATION_EVIL,2
+advances.csv,DRAMA,Drama,cradle,cradle:ADVANCE_DRAMA,4
+advances.csv,DRAMA,Drama Men,lotr,lotr:ADVANCE_DRAMA_MEN,4
+advances.csv,DRAMA,Drama Mordor,lotr,lotr:ADVANCE_DRAMA_MORDOR,4
+advances.csv,DRAMA,Drama Sindar,lotr,lotr:ADVANCE_DRAMA_SINDAR,4
+advances.csv,DYNASTY,Dynasty,cradle,cradle:ADVANCE_DYNASTY,4
+advances.csv,DYNASTY,Dynasty Arnor,lotr,lotr:ADVANCE_DYNASTY_ARNOR,4
+advances.csv,DYNASTY,Dynasty Gondor,lotr,lotr:ADVANCE_DYNASTY_GONDOR,4
+advances.csv,DYNASTY,Dynasty Orcs,lotr,lotr:ADVANCE_DYNASTY_ORCS,4
+advances.csv,ETHICS,Ethics,cradle,cradle:ADVANCE_ETHICS,3
+advances.csv,ETHICS,Ethics Good,lotr,lotr:ADVANCE_ETHICS_GOOD,3
+advances.csv,ETHICS,Ethics Isengard,lotr,lotr:ADVANCE_ETHICS_ISENGARD,3
+advances.csv,GRANARIES,Granaries,cradle,cradle:ADVANCE_GRANARIES,2
+advances.csv,GRANARIES,Granaries Rohan,lotr,lotr:ADVANCE_GRANARIES_ROHAN,2
+advances.csv,HERBALISM,Herbalism,cradle,cradle:ADVANCE_HERBALISM,2
+advances.csv,HERBALISM,Herbalism Easterling,lotr,lotr:ADVANCE_HERBALISM_EASTERLING,2
+advances.csv,HIPPOCRATIC_SCHOOL,Hippocratic School,cradle,cradle:ADVANCE_HIPPOCRATIC_SCHOOL,3
+advances.csv,HIPPOCRATIC_SCHOOL,Hippocratic School Gondor,lotr,lotr:ADVANCE_HIPPOCRATIC_SCHOOL_GONDOR,3
+advances.csv,HIPPOCRATIC_SCHOOL,Hippocratic School Sindar,lotr,lotr:ADVANCE_HIPPOCRATIC_SCHOOL_SINDAR,3
+advances.csv,HORSE_RIDING,Horse Riding,cradle,cradle:ADVANCE_HORSE_RIDING,3
+advances.csv,HORSE_RIDING,Horse Riding Orcs,lotr,lotr:ADVANCE_HORSE_RIDING_ORCS,3
+advances.csv,HORSE_RIDING,Horse Riding Rohan,lotr,lotr:ADVANCE_HORSE_RIDING_ROHAN,3
+advances.csv,HULL_MAKING,Hull Making,lotr,lotr:ADVANCE_HULL_MAKING,2
+advances.csv,HULL_MAKING,Hull Making Evil,lotr,lotr:ADVANCE_HULL_MAKING_EVIL,2
+advances.csv,IRON_WORKING,Iron Working,base,Iro,5
+advances.csv,IRON_WORKING,Iron Working Dwarves,lotr,lotr:ADVANCE_IRON_WORKING_DWARVES,5
+advances.csv,IRON_WORKING,Iron Working Evil,lotr,lotr:ADVANCE_IRON_WORKING_EVIL,5
+advances.csv,IRON_WORKING,Iron Working Isengard,lotr,lotr:ADVANCE_IRON_WORKING_ISENGARD,5
+advances.csv,IRON_WORKING,Iron Working Orcs,lotr,lotr:ADVANCE_IRON_WORKING_ORCS,5
+advances.csv,JURISPRUDENCE,Jurisprudence,cradle,cradle:ADVANCE_JURISPRUDENCE,3
+advances.csv,JURISPRUDENCE,Jurisprudence Mordor,lotr,lotr:ADVANCE_JURISPRUDENCE_MORDOR,3
+advances.csv,JURISPRUDENCE,Jurisprudence Rohan,lotr,lotr:ADVANCE_JURISPRUDENCE_ROHAN,3
+advances.csv,MAP_MAKING,Map Making,base,Map,2
+advances.csv,MAP_MAKING,Map Making Arnor,lotr,lotr:ADVANCE_MAP_MAKING_ARNOR,2
+advances.csv,MASONRY,Masonry,base,Mas,3
+advances.csv,MASONRY,Masonry Dwarves,lotr,lotr:ADVANCE_MASONRY_DWARVES,3
+advances.csv,MASONRY,Masonry Rohan,lotr,lotr:ADVANCE_MASONRY_ROHAN,3
+advances.csv,MINING,Mining,cradle,cradle:ADVANCE_MINING,2
+advances.csv,MINING,Mining Easterling,lotr,lotr:ADVANCE_MINING_EASTERLING,2
+advances.csv,MOBILE_TACTICS,Mobile Tactics,cradle,cradle:ADVANCE_MOBILE_TACTICS,5
+advances.csv,MOBILE_TACTICS,Mobile Tactics Elves,lotr,lotr:ADVANCE_MOBILE_TACTICS_ELVES,5
+advances.csv,MOBILE_TACTICS,Mobile Tactics Evil,lotr,lotr:ADVANCE_MOBILE_TACTICS_EVIL,5
+advances.csv,MOBILE_TACTICS,Mobile Tactics Men,lotr,lotr:ADVANCE_MOBILE_TACTICS_MEN,5
+advances.csv,MOBILE_TACTICS,Mobile Tactics Rohan,lotr,lotr:ADVANCE_MOBILE_TACTICS_ROHAN,5
+advances.csv,MONOTHEISM,Monotheism,crusades,crusades:MT,2
+advances.csv,MONOTHEISM,Monotheism Gondor,lotr,lotr:ADVANCE_MONOTHEISM_GONDOR,2
+advances.csv,OCEAN_FARING,Ocean Faring,cradle,cradle:ADVANCE_OCEAN_FARING,2
+advances.csv,OCEAN_FARING,Ocean Faring Haradrim,lotr,lotr:ADVANCE_OCEAN_FARING_HARADRIM,2
+advances.csv,OLIGARCHY,Oligarchy,cradle,cradle:ADVANCE_OLIGARCHY,9
+advances.csv,OLIGARCHY,Oligarchy Angmar,lotr,lotr:ADVANCE_OLIGARCHY_ANGMAR,9
+advances.csv,OLIGARCHY,Oligarchy Arnor,lotr,lotr:ADVANCE_OLIGARCHY_ARNOR,9
+advances.csv,OLIGARCHY,Oligarchy Dwarves,lotr,lotr:ADVANCE_OLIGARCHY_DWARVES,9
+advances.csv,OLIGARCHY,Oligarchy Easterling,lotr,lotr:ADVANCE_OLIGARCHY_EASTERLING,9
+advances.csv,OLIGARCHY,Oligarchy Gondor,lotr,lotr:ADVANCE_OLIGARCHY_GONDOR,9
+advances.csv,OLIGARCHY,Oligarchy Haradrim,lotr,lotr:ADVANCE_OLIGARCHY_HARADRIM,9
+advances.csv,OLIGARCHY,Oligarchy Hobbits,lotr,lotr:ADVANCE_OLIGARCHY_HOBBITS,9
+advances.csv,OLIGARCHY,Oligarchy Rohan,lotr,lotr:ADVANCE_OLIGARCHY_ROHAN,9
+advances.csv,PHILOSOPHY,Philosophy,base,Phi,4
+advances.csv,PHILOSOPHY,Philosophy Angmar,lotr,lotr:ADVANCE_PHILOSOPHY_ANGMAR,4
+advances.csv,PHILOSOPHY,Philosophy Arnor,lotr,lotr:ADVANCE_PHILOSOPHY_ARNOR,4
+advances.csv,PHILOSOPHY,Philosophy Good,lotr,lotr:ADVANCE_PHILOSOPHY_GOOD,4
+advances.csv,PLUMBING,Plumbing,midgard,midgard:Plu  (Cst & Pot),3
+advances.csv,PLUMBING,Plumbing Evil,lotr,lotr:ADVANCE_PLUMBING_EVIL,3
+advances.csv,PLUMBING,Plumbing Good,lotr,lotr:ADVANCE_PLUMBING_GOOD,3
+advances.csv,PROJECTILE_WEAPONS,Projectile Weapons,cradle,cradle:ADVANCE_PROJECTILE_WEAPONS,3
+advances.csv,PROJECTILE_WEAPONS,Projectile Weapons Elves,lotr,lotr:ADVANCE_PROJECTILE_WEAPONS_ELVES,3
+advances.csv,PROJECTILE_WEAPONS,Projectile Weapons Orcs,lotr,lotr:ADVANCE_PROJECTILE_WEAPONS_ORCS,3
+advances.csv,RELIGION,Religion,cradle,cradle:ADVANCE_RELIGION,3
+advances.csv,RELIGION,Religion Mordor,lotr,lotr:ADVANCE_RELIGION_MORDOR,3
+advances.csv,RELIGION,Religion Sindar,lotr,lotr:ADVANCE_RELIGION_SINDAR,3
+advances.csv,REPUBLIC,Republic,cradle,cradle:ADVANCE_REPUBLIC,6
+advances.csv,REPUBLIC,Republic Dwarves,lotr,lotr:ADVANCE_REPUBLIC_DWARVES,6
+advances.csv,REPUBLIC,Republic Gondor,lotr,lotr:ADVANCE_REPUBLIC_GONDOR,6
+advances.csv,REPUBLIC,Republic Hobbits,lotr,lotr:ADVANCE_REPUBLIC_HOBBITS,6
+advances.csv,REPUBLIC,Republic Mordor,lotr,lotr:ADVANCE_REPUBLIC_MORDOR,6
+advances.csv,REPUBLIC,Republic Rohan,lotr,lotr:ADVANCE_REPUBLIC_ROHAN,6
+advances.csv,SAILS,Sails,cradle,cradle:ADVANCE_SAILS,2
+advances.csv,SAILS,Sails Haradrim,lotr,lotr:ADVANCE_SAILS_HARADRIM,2
+advances.csv,SIEGE_WEAPONS,Siege Weapons,cradle,cradle:ADVANCE_SIEGE_WEAPONS,3
+advances.csv,SIEGE_WEAPONS,Siege Weapons Elves,lotr,lotr:ADVANCE_SIEGE_WEAPONS_ELVES,3
+advances.csv,SIEGE_WEAPONS,Siege Weapons Mordor,lotr,lotr:ADVANCE_SIEGE_WEAPONS_MORDOR,3
+advances.csv,SLAVE_LABOR,Slave Labor,cradle,cradle:ADVANCE_SLAVE_LABOR,3
+advances.csv,SLAVE_LABOR,Slave Labor Evil,lotr,lotr:ADVANCE_SLAVE_LABOR_EVIL,3
+advances.csv,SLAVE_LABOR,Slave Labor Haradrim,lotr,lotr:ADVANCE_SLAVE_LABOR_HARADRIM,3
+advances.csv,STIRRUP,Stirrup,cradle,cradle:ADVANCE_STIRRUP,7
+advances.csv,STIRRUP,Stirrup Gondor,lotr,lotr:ADVANCE_STIRRUP_GONDOR,7
+advances.csv,STIRRUP,Stirrup Haradrim,lotr,lotr:ADVANCE_STIRRUP_HARADRIM,7
+advances.csv,STIRRUP,Stirrup Men,lotr,lotr:ADVANCE_STIRRUP_MEN,7
+advances.csv,STIRRUP,Stirrup Mordor,lotr,lotr:ADVANCE_STIRRUP_MORDOR,7
+advances.csv,STIRRUP,Stirrup Orcs,lotr,lotr:ADVANCE_STIRRUP_ORCS,7
+advances.csv,STIRRUP,Stirrup Rohan,lotr,lotr:ADVANCE_STIRRUP_ROHAN,7
+advances.csv,STONE_WORKING,Stone Working,cradle,cradle:ADVANCE_STONE_WORKING,2
+advances.csv,STONE_WORKING,Stone Working Dwarves,lotr,lotr:ADVANCE_STONE_WORKING_DWARVES,2
+advances.csv,TOOLMAKING,Toolmaking,cradle,cradle:ADVANCE_TOOLMAKING,2
+advances.csv,TOOLMAKING,Toolmaking Orcs,lotr,lotr:ADVANCE_TOOLMAKING_ORCS,2
+advances.csv,TRADE,Trade,base,Tra,2
+advances.csv,TRADE,Trade Hobbits,lotr,lotr:ADVANCE_TRADE_HOBBITS,2
+advances.csv,TRIBUNAL_EMPIRE,Tribunal Empire,cradle,cradle:ADVANCE_TRIBUNAL_EMPIRE,9
+advances.csv,TRIBUNAL_EMPIRE,Tribunal Empire Arnor,lotr,lotr:ADVANCE_TRIBUNAL_EMPIRE_ARNOR,9
+advances.csv,TRIBUNAL_EMPIRE,Tribunal Empire Easterling,lotr,lotr:ADVANCE_TRIBUNAL_EMPIRE_EASTERLING,9
+advances.csv,TRIBUNAL_EMPIRE,Tribunal Empire Gondor,lotr,lotr:ADVANCE_TRIBUNAL_EMPIRE_GONDOR,9
+advances.csv,TRIBUNAL_EMPIRE,Tribunal Empire Hobbits,lotr,lotr:ADVANCE_TRIBUNAL_EMPIRE_HOBBITS,9
+advances.csv,TRIBUNAL_EMPIRE,Tribunal Empire Isengard,lotr,lotr:ADVANCE_TRIBUNAL_EMPIRE_ISENGARD,9
+advances.csv,TRIBUNAL_EMPIRE,Tribunal Empire Orcs,lotr,lotr:ADVANCE_TRIBUNAL_EMPIRE_ORCS,9
+advances.csv,TRIBUNAL_EMPIRE,Tribunal Empire Rohan,lotr,lotr:ADVANCE_TRIBUNAL_EMPIRE_ROHAN,9
+advances.csv,TRIBUNAL_EMPIRE,Tribunal Empire Sindar,lotr,lotr:ADVANCE_TRIBUNAL_EMPIRE_SINDAR,9
+advances.csv,WATER_LIFTS,Water Lifts,cradle,cradle:ADVANCE_WATER_LIFTS,5
+advances.csv,WATER_LIFTS,Water Lifts Easterling,lotr,lotr:ADVANCE_WATER_LIFTS_EASTERLING,5
+advances.csv,WATER_LIFTS,Water Lifts Gondor,lotr,lotr:ADVANCE_WATER_LIFTS_GONDOR,5
+advances.csv,WATER_LIFTS,Water Lifts Good,lotr,lotr:ADVANCE_WATER_LIFTS_GOOD,5
+advances.csv,WATER_LIFTS,Water Lifts Hobbits,lotr,lotr:ADVANCE_WATER_LIFTS_HOBBITS,5
+advances.csv,WRITING,Writing,base,Wri,3
+advances.csv,WRITING,Writing Arnor,lotr,lotr:ADVANCE_WRITING_ARNOR,3
+advances.csv,WRITING,Writing Gondor,lotr,lotr:ADVANCE_WRITING_GONDOR,3
+units.csv,ARCHER,Archer,homm2,homm2:ToG,3
+units.csv,ARCHER,Archer Elves,lotr,lotr:ADVANCE_ARCHERY_ELVES,3
+units.csv,ARCHER,Archer Orcs,lotr,Med,3
+units.csv,CHARIOT,Chariot,cradle,cradle:ADVANCE_CHARIOTS,2
+units.csv,CHARIOT,Chariot Archer,aom,aom:ADVANCE_ARISTOCRACY,2
+units.csv,COMPOSITE_ARCHER,Composite Archer Elves,lotr,lotr:ADVANCE_COMPOSITE_BOW_ELVES,2
+units.csv,COMPOSITE_ARCHER,Composite Archer Orcs,lotr,Met,2
+units.csv,CROSSBOWMAN,Crossbowman,cradle,cradle:ADVANCE_CROSSBOW,2
+units.csv,CROSSBOWMAN,Crossbowman Elves,lotr,lotr:ADVANCE_SIEGE_WEAPONS_ELVES,2
+units.csv,ELITE_CHARIOT,Elite Chariot,aom,aom:ADVANCE_CHARIOTS,2
+units.csv,ELITE_CHARIOT,Elite Chariot Archer,aom,aom:ADVANCE_ARISTOCRACY,2
+units.csv,ELITE_KNIGHT,Elite Knight,aom,aom:ADVANCE_PLATE_ARMOUR,2
+units.csv,ELITE_KNIGHT,Elite Knight Templar,aom,Las,2
+units.csv,HOPLITE,Hoplite,cradle,cradle:ADVANCE_BRONZE_WORKING,4
+units.csv,HOPLITE,Hoplite Elite,lotr,lotr:ADVANCE_CITY_STATE_GONDOR,4
+units.csv,HOPLITE,Hoplite Militia,cradle,cradle:ADVANCE_HEXTAPUL,4
+units.csv,HOPLITE,Hoplite Orcs,lotr,MP,4
+units.csv,HORSEMAN,Horseman,cradle,cradle:ADVANCE_HORSE_ARMOR,3
+units.csv,HORSEMAN,Horseman Elves,lotr,lotr:ADVANCE_HORSE_ARMOR_ELVES,3
+units.csv,HORSEMAN,Horseman Rohan,lotr,lotr:ADVANCE_HORSE_ARMOR_ROHAN,3
+units.csv,HYPASPISTS,Hypaspists,cradle,cradle:ADVANCE_BARRACKS,3
+units.csv,HYPASPISTS,Hypaspists Elite,lotr,lotr:ADVANCE_HEXTAPUL,3
+units.csv,HYPASPISTS,Hypaspists Orcs,lotr,Med,3
+units.csv,INFANTRYMAN,Infantryman,cradle,cradle:ADVANCE_FLINTLOCK,2
+units.csv,INFANTRYMAN,Infantryman Militia,cradle,cradle:ADVANCE_HEXTAPUL,2
+units.csv,JAVELIN_CAVALRY,Javelin Cavalry,cradle,cradle:ADVANCE_HORSE_RIDING,3
+units.csv,JAVELIN_CAVALRY,Javelin Cavalry Orcs,lotr,MP,3
+units.csv,JAVELIN_CAVALRY,Javelin Cavalry Rohan,lotr,lotr:ADVANCE_HORSE_RIDING_ROHAN,3
+units.csv,KNIGHT,Knight,cradle,cradle:ADVANCE_CHIVALRY,2
+units.csv,KNIGHT,Knight Templar,aom,Las,2
+units.csv,KNIGHTS,Knights,base,Chi,2
+units.csv,KNIGHTS,Knights Templar,crusades,Lab,2
+units.csv,LEGION,Legion,crusades,,4
+units.csv,LEGION,Legion Elite,lotr,lotr:ADVANCE_BUREAUCRACY_EASTERLING,4
+units.csv,LEGION,Legion Militia,cradle,cradle:ADVANCE_HEXTAPUL,4
+units.csv,LEGION,Legion Orcs,lotr,Med,4
+units.csv,MAN_AT_ARMS,Man At Arms Elite,lotr,lotr:ADVANCE_DICTATORSHIP_HARADRIM,4
+units.csv,MAN_AT_ARMS,Man At Arms Militia,aom,aom:ADVANCE_HEXTAPUL,4
+units.csv,MAN_AT_ARMS,Man At Arms Orcs,lotr,Met,4
+units.csv,MAN_AT_ARMS,Man at Arms,cradle,cradle:ADVANCE_FEUDALISM,4
+units.csv,MOUNTED_ARCHER,Mounted Archer Elves,lotr,lotr:ADVANCE_MOBILE_TACTICS_ELVES,2
+units.csv,MOUNTED_ARCHER,Mounted Archer Rohan,lotr,lotr:ADVANCE_MOBILE_TACTICS_ROHAN,2
+units.csv,PIKEMAN,Pikeman,homm2,homm2:Ast,2
+units.csv,PIKEMAN,Pikeman Militia,cradle,cradle:ADVANCE_HEXTAPUL,2
+units.csv,PIKEMEN,Pikemen,aom,aom:ADVANCE_FEUDALISM,3
+units.csv,PIKEMEN,Pikemen Elite,lotr,lotr:ADVANCE_TRIBUNAL_EMPIRE_EASTERLING,3
+units.csv,PIKEMEN,Pikemen Orcs,lotr,Met,3
+units.csv,SLINGER,Slinger,cradle,cradle:ADVANCE_PROJECTILE_WEAPONS,3
+units.csv,SLINGER,Slinger Elves,lotr,lotr:ADVANCE_PROJECTILE_WEAPONS_ELVES,3
+units.csv,SLINGER,Slinger Orcs,lotr,MP,3
+units.csv,SPEARMAN,Spearman,cradle,cradle:ADVANCE_TOOLMAKING,4
+units.csv,SPEARMAN,Spearman Elite,lotr,lotr:ADVANCE_HEXTAPUL,4
+units.csv,SPEARMAN,Spearman Militia,cradle,cradle:ADVANCE_HEXTAPUL,4
+units.csv,SPEARMAN,Spearman Orcs,lotr,MP,4
+units.csv,WARRIOR,Warrior,aom,aom:ADVANCE_TOOLMAKING,3
+units.csv,WARRIOR,Warrior Elite,lotr,lotr:ADVANCE_COPPER_SMELTING_ANGMAR,3
+units.csv,WARRIOR,Warrior Orcs,lotr,MP,3

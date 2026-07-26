@@ -1,0 +1,5 @@
+
+# uiwalk harness: transient run artifacts
+Scenarios/mom/tools/uiwalk/runs/
+Scenarios/mom/tools/uiwalk/*.log
+Scenarios/mom/tools/uiwalk/__pycache__/

@@ -1,0 +1,30 @@
+cell_index,name,cost,upkeep,prereq,expiry
+38,(Capitalization),60,0,Cor,nil
+39,Pyramids,20,0,Mas,RR
+40,Hanging Gardens,20,0,Pot,Fli
+41,Colossus,20,0,Bro,Mag
+42,Lighthouse,20,0,Map,MT
+43,Great Library,30,0,Lit,The
+44,Oracle,30,0,Mys,MT
+45,Great Wall,30,0,Mas,MT
+46,Sun Tzu's War Academy,30,0,Feu,Ind
+47,King Richard's Crusade,30,0,Eng,Cmn
+48,Roman Embassy,20,0,Tra,nil
+49,Michelangelo's Chapel,40,0,MT,nil
+50,Copernicus' Observatory,30,0,Ast,nil
+51,Magellan's Expedition,40,0,Nav,nil
+52,Shakespeare's Theatre,30,0,Med,Aut
+53,Leonardo's Workshop,40,0,Inv,nil
+54,J. S. Bach's Cathedral,40,0,The,nil
+55,Isaac Newton's College,40,0,ToG,nil
+56,Adam Smith's Trading Co.,40,0,Eco,nil
+57,Darwin's Voyage,40,0,RR,nil
+58,Statue of Liberty,40,0,Dem,nil
+59,Eiffel Tower,30,0,SE,nil
+60,Women's Suffrage,60,0,Ind,nil
+61,Hoover Dam,60,0,E2,nil
+62,Manhattan Project,60,0,NF,nil
+63,United Nations,60,0,Cmn,nil
+64,Apollo Program,60,0,SFl,nil
+65,SETI Program,60,0,Cmp,nil
+66,Cure for Cancer,60,0,Gen,:               0 = Ground
