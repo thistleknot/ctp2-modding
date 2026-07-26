@@ -11,6 +11,10 @@ __pycache__/
 
 # Generated workbooks / large binaries (tools regenerate these)
 *.xlsx
+# ...except the example's workbook, which is tracked ON PURPOSE: it is the
+# in-between artifact, so you can see what csv -> xlsx actually produces
+# without running the pipeline, and a rerun shows the drift as a diff.
+!examples/**/*.xlsx
 *.zip
 *.rar
 *.7z
