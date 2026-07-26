@@ -78,9 +78,23 @@ HandleEvent(BeginTurn) 'MomSummonOrderTick' post {
     city_t tmpCity;
 
     p = player[0];
-    if (p >= 1 && MomSummonChoice[p] != 0 && player[0].cities > 0) {
+    // COST 75 (added 2026-07-26). The order is placed at click time and PAID here,
+    // at spawn time, so the pool is only debited when a creature actually appears.
+    // Re-checking the balance is not redundant with the button-body check: the
+    // only thing that can move the pool between the two is MomMagicPoolTick's
+    // accrual, which is monotonically upward, so a click that was affordable stays
+    // affordable -- but a future spender on the same turn must not be able to push
+    // this negative. The check is a plain comparison at call depth 0.
+    if (p >= 1 && MomSummonChoice[p] != 0 && player[0].cities > 0
+        && MomMagicCur[p] >= 75) {
         GetCityByIndex(player[0], 0, tmpCity);
         if (CityIsValid(tmpCity)) {
+            MomMagicCur[p] = MomMagicCur[p] - 75;
+            if (IsHumanPlayer(p)) {
+                MomMagicCurDisp = MomMagicCur[p];
+                MomMagicMaxDisp = MomMagicMax[p];
+                MomMagicGenDisp = MomMagicPerTurn[p];
+            }
             if (p == 1) {
                 CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tmpCity.location, 1);
                 Message(p, 'MomSummonGuard');
@@ -98,9 +112,15 @@ HandleEvent(BeginTurn) 'MomSummonOrderTick' post {
                 Message(p, 'MomSummonHound');
             }
         }
-        // Cleared unconditionally: an order that could not be filled (no valid
-        // city) must not silently re-fire on a later turn, or "it spawned" would
-        // no longer pin WHICH turn consumed the click.
+    }
+
+    // Cleared OUTSIDE the fill condition, not inside it. An order that could not
+    // be filled -- no valid city, or the pool moved below 75 -- must not survive to
+    // re-fire on a later turn, or "it spawned" would no longer pin WHICH turn
+    // consumed the click. Putting this clear inside the gate (as it was before the
+    // cost check existed, when the gate could not fail for a player with a city)
+    // would have made an unaffordable order a permanent standing order.
+    if (p >= 1 && MomSummonChoice[p] != 0) {
         MomSummonChoice[p] = 0;
     }
 }
@@ -177,6 +197,17 @@ messagebox 'MomSummonHound' {
 	Text(ID_MOM_MSG_SUMMON_HOUND);
 }
 
+// Insufficient-mana answer for the Summon arm. A messagebox, NOT an alertbox:
+// this fires from inside a button body while the MagicMenu alertbox is being
+// Kill()ed, and stacking a second modal on that path is exactly the shape the
+// harness cannot dismiss. mom_spells.slc's 'MomMsgNoMana' is an alertbox and is
+// deliberately not reused here for that reason -- distinct segment name, so the
+// one-flat-namespace rule is satisfied.
+messagebox 'MomSummonNoMana' {
+	Show();
+	Text(ID_MOM_MSG_SUMMON_NOMANA);
+}
+
 messagebox 'MomMagicPower' {
 	Show();
 	Text(ID_MOM_MSG_MAGIC_POWER);
@@ -232,8 +263,17 @@ alertbox 'MagicMenu' {
 	// name the creature (button captions are static string IDs and this segment
 	// is invoked BY NAME from keypress.cpp, so SLIC never gets to pick a
 	// per-sphere variant the way MomSpellShowBook does); the result popup does.
+	// COST 75, checked HERE as well as at spawn time. The click is the moment the
+	// player expects an answer, so an unaffordable click gets an immediate message
+	// rather than a button that appears to do nothing and then produces nothing
+	// next turn. Both branches are comparisons and builtins (Message is a builtin),
+	// so the body is still at call depth 0 -- the Class 1 budget is untouched.
 	Button(ID_MOM_MSG_BTN_SUMMON) {
-		MomSummonChoice[g.player] = 1;
+		if (MomMagicCur[g.player] >= 75) {
+			MomSummonChoice[g.player] = 1;
+		} else {
+			Message(g.player, 'MomSummonNoMana');
+		}
 		Kill();
 	}
 

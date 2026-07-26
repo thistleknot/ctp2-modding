@@ -64,40 +64,14 @@ int_f MomRecalcMagicPerTurn(int_t mp_1)
     return gen;
 }
 
-// M3: the creature a player's sphere summons on pool overflow (reuses the blessing units).
-int_f MomSphereSummonUnit(int_t mp_2)
-{
-    // FLATTENED 2026-07-25. This is called FROM the MomMagicPoolTick handler
-    // body, so calling MomPlayerIsLife() here made a 2-level user-function
-    // chain -- the documented 0xC0000005 class. MEASURED: gating the caller
-    // (the pool-overflow block) took the run from 7/25 to 14/25, and this is
-    // the only 2-level chain in that handler (MomRecalcMagicPerTurn calls
-    // builtins only), and it fires exactly when the pool first caps -- which
-    // is why the crash tracked the cap turn and moved when unrelated code
-    // changed the accrual. MomPlayerIsX(p) is literally p == N, so comparing
-    // numerically is semantically identical at zero call depth.
-    if (mp_2 == 1) {
-        return UnitDB(UNIT_GUARDIAN_SPIRIT);
-    }
-    if (mp_2 == 2) {
-        return UnitDB(UNIT_WARBEARS);
-    }
-    if (mp_2 == 3) {
-        return UnitDB(UNIT_MAGE);
-    }
-    if (mp_2 == 4) {
-        return UnitDB(UNIT_ZOMBIES);
-    }
-    if (mp_2 == 5) {
-        return UnitDB(UNIT_HELL_HOUNDS);
-    }
-    return 0;
-}
+// MomSphereSummonUnit() was REMOVED 2026-07-26 along with its only caller, the
+// pool-overflow auto-summon below. The sphere -> creature mapping now lives
+// inlined at each spend site (mom_msg.slc MomSummonOrderTick, mom_spells.slc
+// MomCastFlameStrike), which is where the Class-1 nested-call budget requires
+// it anyway -- so nothing was lost but a level of indirection.
 
 HandleEvent(BeginTurn) 'MomMagicPoolTick' post {
     int_t p;
-    int_t r;
-    int_t summon;
 
     p = player[0];
 
@@ -115,14 +89,14 @@ HandleEvent(BeginTurn) 'MomMagicPoolTick' post {
             MomMagicCur[p] = MomMagicMax[p];
         }
 
-        // M3 pool-overflow auto-summon: when the pool caps, discharge into the sphere creature.
-        if (MomMagicMax[p] > 0 && MomMagicCur[p] >= MomMagicMax[p]) {
-            summon = MomSphereSummonUnit(p);
-            if (summon != 0 && player[0].cities > 0) {
-                MomMagicCur[p] = 0;
-                MomSpawnSphereUnit(p, summon);
-            }
-        }
+        // M3 pool-overflow auto-summon: REMOVED 2026-07-26. It zeroed the pool the
+        // moment it capped, so mana could never sit at the cap and the 50/100-cost
+        // workings in mom_spells.slc were unreachable by construction -- the pool
+        // was a sawtooth, not a resource. The pool now simply clamps at max and the
+        // player spends it deliberately (Summon 75, Flame Strike 50, Demon 100).
+        // MomSphereSummonUnit() existed only to serve this block and is gone too;
+        // the same mapping is inlined at each spend site for the Class-1 nested-call
+        // budget (see mom_spells.slc:41).
 
         // Refresh the display scalars EVERY turn so the 'j' magic menu
         // (alertbox 'MagicMenu') always shows current values, not just on

@@ -1,3 +1,48 @@
+## 2026-07-26 -- "Samurai on the map, Spearmen in the UI": nothing was broken, the art is authentic
+
+**User report (twice):** *"still seeing samurai on the map when spearman is in the
+ui"*. Earlier phrasings: *"the carpet (spearman) doesn't match the drapes (on map
+icon)"*, *"peasant is still showing up as a samurai"*.
+
+**Verdict: the samurai IS the spearman.** Every link in the chain measured clean.
+MoM's own Spearmen art is a gold lamellar warrior in a crested/horned helm holding
+a long spear -- it reads as a samurai because that is how the source game drew it.
+The UI portrait and the map sprite are the SAME picture, so there is no UI/map
+mismatch to fix; what the user is reacting to is the art's style, not a defect.
+
+I walked this backward link by link instead of guessing, and every hypothesis I
+formed died to a measurement. That is the value of the entry -- the negative
+results are the content.
+
+| Premise | Verdict | Discriminating evidence |
+|---|---|---|
+| `GU92.SPR` is stale, or is stock CTP2 art adopted by the base/MoM id collision | **NO** | temp rebuild from `SPRITE_SPEARMEN.tga` is **byte-identical** to the file on disk: 19190 B, md5 `9d5bb9d3fbac7f346d252ba93d1ae33b`, both sides. |
+| A `.zfs` archive or a second `GU92.SPR` shadows the loose file | **NO** | no sprite `.zfs` exists anywhere under `ctp2_data/**/graphics/`; `find -name GU92.SPR` returns exactly one path. |
+| `SPRITE_SPEARMEN.tga` is a placeholder duplicated from another unit | **NO** | all **62** `SPRITE_*.tga` md5s are distinct. `SPRITE_SWORDSMEN.tga` shares byte size and mtime but hashes differently. |
+| The UI icon and the map sprite come from different art | **NO** | rendered side by side: same gold lamellar figure, spear and round shield. The icon is a reframe of the same subject. |
+| The spear is lost at 96x72 map scale, so the figure reads samurai | **NO** | rendered the keyed frame at 96x72 -- the spear is clearly visible. Killed my own hypothesis before it became a story. |
+| `newsprite.txt` has a numbering defect that misresolves the sprite | **NO** | the two "duplicates" are benign: **90** is the shared city sprite (`SPRITE_CITY` / `OCEAN_CITY` / `SPACE_CITY`, base convention), and `SPRITE_SWORDSMAN` at 6 and 84 is a base-vs-MoM name collision on a unit that is not involved. `SPRITE_SPEARMEN 92` is unique; base has no entry at 92. |
+| The sprite is under-scaled on the canvas, so it reads small | **NO** | `build_sprites.py:72` already measured it: SPEARMEN fills **0.94 of canvas height** (0.56 w only because the figure is tall and thin). It is not an outlier. |
+| The atlas extraction is off by one, cutting Swordsmen's cell for Spearmen | **NO -- the strongest lead, and it died too** | `units.csv` really does contain a duplicate `cell_index` (Zombies=1 **and** Spearmen=1), which made an off-by-one look near-certain. But the extractor does not read that column -- it uses **row position**, and row position is correct. Extracting row 0 of `Units.bmp` with the real detected 9x7 grid and eyeballing the cells gives a perfect 1:1 with `units.csv` row order: 0=Peasants, 1=Zombies, **2=the gold lamellar spearman**, 3=the red-crested legionary (Swordsmen), 4=Phantom Warriors, 5=Hell Hounds, 6=Warbears, 7=Warlock, 8=Ariel. |
+
+**The one real (cosmetic, unrelated) defect found:** `civ2_converted_graphics.csv`
+numbers atlas cells 1,2,3 sequentially by row while `units.csv` carries a duplicate
+`cell_index` of 1. The two columns disagree. It is harmless today **only because
+`extract_units_sprites()` ignores the `cell_index` column and uses row position**
+(its own docstring claims cell_index "equals the sheet's row-major cell order" --
+that claim is false for this file). Anything that ever starts trusting that column
+will silently shift every sprite after Zombies by one. Left as-is, recorded here.
+
+**Method note, and the reason this took as long as it did.** Seven falsified
+hypotheses in a row is the signature of *searching the wrong space*. The file
+chain was verified clean by hypothesis three; hypotheses four through eight were
+me continuing to look for a bug in plumbing that I had already proved correct,
+because "the art is simply like that" felt like a non-answer. It is an answer, and
+the render that showed it was one command. **When N successive measurements all
+come back clean, stop generating hypotheses of the same class and render the
+artifact.** See `feedback-instrument-before-environment`.
+
+---
 ## 2026-07-26 -- Sphere-gated summon VERIFIED BY A REAL CLICK; I declared a false dead end
 
 **Defect (user report):** the MAGIC STATUS alertbox offered `Summon Zombies` to a
