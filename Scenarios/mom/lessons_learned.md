@@ -1,3 +1,44 @@
+## 2026-07-26 -- the sprite cell_index disagreement was NOT latent; I had misread the extractor
+
+**What I told the user:** the `units.csv` duplicate `cell_index` 1 was harmless
+"because the extractor ignores that column and uses row position." **That was
+false**, and the user's reply -- *"fix whatever produces this then"* -- is what
+made me go read the producer instead of trusting my own summary.
+
+`read_csv_identifiers()` resolves the sheet position as
+`art_cell_index` -> else `cell_index` -> else the sequential row index.
+`units.csv` had **no `art_cell_index` column**, so `cell_index` was live. That
+column is the generator's cost/order weight: non-monotonic, skips values, and
+carries a duplicate (Zombies and Spearmen both 1). On the detected 9x7 grid it
+sends Spearmen to cell (0,1) -- the Zombies figure -- and Swordsmen to (0,2) --
+the gold spearman. The next `civ2_sprite_extractor.py` run would have shifted
+every sprite after Zombies by one, and would have manufactured the exact
+"wrong unit on the map" defect the user had already reported twice.
+
+**Measured before editing.** Rendered `Units.bmp` row-0 cells 0..3 against the
+on-disk `SPRITE_ZOMBIES/SPEARMEN/SWORDSMEN.tga`: the TGAs match cells 1, 2, 3 --
+**row order**, not `cell_index`. So the shipped art predates this CSV state and
+was always correct; the "samurai IS the spearman" verdict stands. The defect was
+armed, not yet fired.
+
+**Fix:** added an explicit `art_cell_index` column (0..62) to `units.csv`,
+which is exactly what that column exists for, and rewrote the
+`extract_units_sprites()` docstring -- it had asserted `cell_index` "equals the
+sheet's row-major cell order", which is the false claim that let this sit --
+to forbid the `cell_index` fallback by name.
+
+**Gate:** full regen after the fix is **byte-identical across all 62
+`SPRITE_*.tga`**. 54 `ICON_UNIT_*.tga` bytes did move, and the control says that
+is not mine: Zombies resolves to index 1 under *both* columns and its icon
+changed anyway, so those diffs are the known pre-existing fit-to-fill over-zoom
+drift. Reverted them; the commit is two source files.
+
+**Method:** a byte-identical regen is the right gate for a "did I change the
+mapping or just the bookkeeping" question -- it answers both halves at once. And
+when a summary of mine gets quoted back, re-derive it from the code rather than
+from the summary; this one had survived a whole eight-hypothesis investigation
+unchecked.
+
 ## 2026-07-26 -- 75-mana summon VERIFIED both ways; and the "blocked on your display" claim was mine to fix
 
 **Both arms of the pricing gate are now measured, headless, on live frames:**

@@ -871,10 +871,17 @@ def extract_units_sprites(identifiers: list, dry_run: bool, output_dir: Path) ->
     Extract map sprites (SPRITE_*.tga) from Units.bmp using the real, detected
     9-column x 7-row content grid rather than a rigid pitch.
 
-    Each identifier is (cell_index, sprite_id, name); cell_index is the unit's
-    sequential position in units.csv, which equals the RULES.TXT @UNITS order,
-    which equals the sheet's row-major cell order. That index is mapped directly
-    into the detected grid: (cell_index // n_cols, cell_index % n_cols).
+    Each identifier is (cell_index, sprite_id, name), where the index came from
+    units.csv's 'art_cell_index' column. It is the unit's sequential position in
+    units.csv, which equals the RULES.TXT @UNITS order, which equals the sheet's
+    row-major cell order. That index is mapped directly into the detected grid:
+    (cell_index // n_cols, cell_index % n_cols).
+
+    Do NOT fall back to units.csv's 'cell_index' here: that column is the
+    generator's cost/order weight, is non-monotonic, and contains duplicates
+    (Zombies and Spearmen both carry 1). Extracting on it shifts every sprite
+    after Zombies by one — verified 2026-07-26 by rendering the sheet cells
+    against the on-disk TGAs, which match row order, not cell_index.
 
     Require: Units.bmp exists; identifiers are in sheet order.
     Guarantee: writes one 160x120 RGB555 TGA per non-empty unit cell; empty
