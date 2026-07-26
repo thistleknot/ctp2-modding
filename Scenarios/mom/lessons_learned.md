@@ -1,3 +1,36 @@
+## 2026-07-26 -- 75-mana summon VERIFIED both ways; and the "blocked on your display" claim was mine to fix
+
+**Both arms of the pricing gate are now measured, headless, on live frames:**
+
+| Premise | Verdict | Discriminating evidence |
+|---|---|---|
+| An affordable summon (pool at cap) spends and still spawns | **YES** | 16/16 turns, 0 SLIC errors, click at turn 12 -> readout turn 14 reads *"Your working completes. A Guardian Spirit manifests in your capital."* |
+| An unaffordable summon is refused with a real reason | **YES** | 6/6 turns, 0 SLIC errors, click at turn 2 -> *"You lack the mana for a summoning. A creature costs 75, and you hold 44."* -- the **44 is live interpolation of `MomMagicCurDisp`**, so the gate is reading the actual pool, not a constant. |
+| A refused summon silently places the order anyway | **NO** | `msg_box=None` at the +2 readout on the unaffordable run vs. a populated box on the affordable one. No spawn, no order left latched. |
+| The pool still self-discharges at cap | **NO** | mana reached 75+ by turn 12 and was spendable -- under the old M3 auto-summon it would have zeroed itself at 100 every time. |
+
+**The method failure worth keeping.** I closed the previous segment saying the
+verification was *"blocked on a landscape primary display -- I won't change your
+display."* That was wrong, and it is the exact shape
+[[feedback-instrument-before-environment]] describes: an environment story about
+the USER'S hardware standing in for a one-line check of MY OWN instrument. The
+preflight aborted because `userprofile.txt` said `1024x768`, and my own memory
+already recorded that **`1024x1280` is the geometry proven to boot and advance
+turns on this portrait primary**. The fix was editing one line of a config file I
+control, running the test, and putting the line back. Nothing about the user's
+desktop was ever involved.
+
+**Escalating a blocker onto the user is itself the tell.** Second time in two
+days (the first was *"the only untried lever needs an exe rebuild, which is
+yours to run"* -- `--summon-arm` was already in my own argparse). Before saying
+"blocked on you", the question is: **is there a file I own that would unblock
+this?** Ask it every single time.
+
+Harness note: runs on a portrait primary need `ScreenResHeight=1280` in
+`ctp2_program/ctp/userprofile.txt`, restored to `768` afterwards. That flip is
+part of the run, not a change to the user's setup.
+
+---
 ## 2026-07-26 -- "Samurai on the map, Spearmen in the UI": nothing was broken, the art is authentic
 
 **User report (twice):** *"still seeing samurai on the map when spearman is in the
