@@ -1,3 +1,68 @@
+## 2026-07-26 — units drew off-centre: extent and anchor are ONE coupled bug
+
+**Symptom.** User, twice: first "too far lower left", then after a fix "a little
+too far to the right, and a little to the top". Two complaints that read like two
+bugs. They are one: we were normalizing the art without normalizing the anchor
+the engine draws it around.
+
+**Measured, not assumed.** Decoded the MOVE frame of all 95 shipped `GU0*.SPR`
+(shadow runs excluded from the bbox — the shadow is the ground blob and drags the
+measured bottom down). Vanilla's envelope:
+
+| | stock (n=95) | ours BEFORE | ours AFTER |
+|---|---|---|---|
+| content width | 31-32 | 56 / 70 | 44 / 55 |
+| content height | 55 | 68 / 70 | **55** |
+| content top | 9-10 | 1 | **10** |
+| content bottom | 64 | 68 / 70 | **64** |
+| **bottom - hot_y** | **12** | **0** | **12** |
+| hot_x - content_cx | ~0 | ~0 | ~0 |
+
+**Root cause.** `resize((96,72))` stretched each source TGA edge-to-edge, so MoM
+units came out 1.75-2.2x wider and ~1.25x taller than the art the engine was
+directed around — that overhanging mass is the "too far right". And
+`_content_anchor` anchored at the literal content bottom (`bottom - hot_y == 0`)
+where vanilla sits at 12, so `draw_pos = tile_anchor - hotpoint` put every unit
+~12px too high — the "a little to the top".
+
+**The law.** *Extent and anchor are coupled.* The 2026-07-25 attempt bound
+`_fit_content` to 0.80/0.97 without touching the anchor; shrinking the art walked
+the unit off its draw anchor and the change was reverted the same day. Fixing
+either alone reintroduces the other's symptom. `_normalize_to_stock_extent()` and
+`_content_anchor()` must be changed together.
+
+**Width is deliberately NOT forced to stock.** Scaling is height-governed with a
+width guard; MoM's source drawings genuinely are wider, and squashing them to 32
+would distort every unit to fix a statistic nobody sees.
+
+**Verified in-game, headless** (`steps/verify_unit_centering.json`, run
+`20260726-081900`): founded Eudoria with the starting peasant, queued Spearmen
+from `UnitsList` index 0, nine pinged end-turns to 3775BC, Spearmen built and on
+the map. Read the verdict off the engine-drawn selection ring — the only
+ground truth for the tile anchor there is — bbox `x[598,647] y[418,468]`, centre
+`(622.5, 443.0)`: sprite mass on the centre, head below the ring top, feet above
+the ring bottom, no overhang past any arrow.
+
+**Two harness bugs fixed to get that frame at all.**
+1. `uiwalk.py`'s `VK` table had no arrow keys (`KeyError: 'right'`). CTP2 repaints
+   damaged regions only, so a freshly loaded map is BLACK under intact chrome
+   until something forces a redraw; arrow-scroll is the cheapest trigger. Without
+   arrows a map frame is literally uncapturable.
+2. Four post-`enter` frames came back byte-identical — the turn never advanced.
+   That is `ctp2-endturn-needs-mouse-input` again: post a click at inert chrome
+   (600,6) BEFORE the key. Order matters; the key advances, the ping makes it count.
+
+**Falsified along the way, kept on purpose.** Thesis "the unit is offset
+horizontally by a wrong `hot_x`" — dead. `hot_x - cx ~= 0` for stock AND ours
+(exactly frame-centre for `GU92`). The horizontal complaint was width, not anchor.
+Also: colour segmentation of a lone unit on grass FAILED (masks ate the mountain
+and the unit's own orange body, returning the whole crop as the bbox). The
+engine's own selection ring is the instrument; invented colour thresholds are not.
+
+**Same root-cause family as the 54-icon over-zoom** (fit-to-fill normalization).
+`_normalize_to_stock_extent` is the template for that fix — measure the stock
+envelope, scale to it, correct the anchor in the same change.
+
 ## 2026-07-26 — every building was a 1-turn build: the rescale ran 1300 lines before the ingest
 
 **Symptom.** Build Manager showed Barracks / Merchant's Guild / Coastal Fortress

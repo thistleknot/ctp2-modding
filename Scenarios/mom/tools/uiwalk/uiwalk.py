@@ -533,6 +533,12 @@ VK = {
     "tab": win32con.VK_TAB, "space": win32con.VK_SPACE, "ctrl": win32con.VK_CONTROL,
     "shift": win32con.VK_SHIFT, "alt": win32con.VK_MENU,
     "apostrophe": 0xDE, "tilde": 0xC0, "minus": 0xBD, "equals": 0xBB,
+    # Arrow keys scroll the map view. Added 2026-07-26: the in-game viewport only
+    # paints damaged regions, so a freshly loaded map is BLACK under intact chrome
+    # until something forces a redraw -- scrolling is the cheapest trigger, and
+    # without these a map frame cannot be captured at all.
+    "left": win32con.VK_LEFT, "right": win32con.VK_RIGHT,
+    "up": win32con.VK_UP, "down": win32con.VK_DOWN,
     **{c: ord(c.upper()) for c in "abcdefghijklmnopqrstuvwxyz0123456789"},
 }
 

@@ -102,6 +102,23 @@ MIN_OPAQUE_WARN  = 50     # fewer surviving pixels than this => likely near-blan
 CONTENT_MAX_W_FRAC = float(os.environ.get("MOM_SPRITE_MAX_W_FRAC", 1.0))
 CONTENT_MAX_H_FRAC = float(os.environ.get("MOM_SPRITE_MAX_H_FRAC", 1.0))
 
+# Vanilla unit-art envelope, MEASURED 2026-07-26 by decoding the 95 shipped
+# GU0*.SPR MOVE frames (medians; shadow runs excluded from the content bbox, since
+# the shadow is the ground blob and would drag the measured bottom down):
+#
+#     content height 55   content bottom row 64   (content top row 9)
+#     content width  32   hot_x - content_cx == 0 for 110/155 files, +-1 for 135
+#     bottom - hot_y = 12   <- the anchor sits ~12px ABOVE the art's feet
+#
+# The last line is the one that matters and the one we had wrong: we anchored at
+# the exact content bottom (bottom - hot_y == 0), which draws every MoM unit ~12px
+# too high on its tile. Vanilla's own spread is wide (+1..+30), so these are the
+# distribution's centre, not a law -- but centring on it is strictly better than
+# sitting at one tail of it, which is where we were.
+STOCK_CONTENT_H      = 55
+STOCK_CONTENT_BOT    = 64
+STOCK_FEET_TO_ANCHOR = 12
+
 # SPRITE_ names whose extracted source art faces LEFT and must be flipped to face
 # right (else the unit appears to walk backwards when moving left/right — Kull #2b).
 LEFT_FACING: set[str] = set()
@@ -301,6 +318,75 @@ def _fit_content(img: "Image.Image") -> "Image.Image":
     return out
 
 
+def _normalize_to_stock_extent(img: "Image.Image") -> "Image.Image":
+    """
+    Rescale and reposition a keyed facing so its opaque content occupies the same
+    region of the 96x72 frame that vanilla CTP2 unit art occupies.
+
+    Require  : `img` is RGBA, 96x72, already keyed (background alpha == 0).
+    Guarantee: returns a same-size RGBA frame whose content is aspect-preserved,
+               <= STOCK_CONTENT_H tall, horizontally centred on the frame, and
+               bottom-aligned to row STOCK_CONTENT_BOT.
+    Maintain : scale is clamped to <= 1.0 -- content is never blown UP, so art
+               already inside the stock envelope comes back untouched.
+    Failure  : a fully transparent frame has no bbox and is returned unchanged.
+
+    WHY THIS EXISTS. `_facing_images` does `resize((96, 72))`, which stretches the
+    whole source TGA edge-to-edge regardless of how much of it is actually the
+    unit. Measured 2026-07-26 by decoding the shipped SPRs (medians, content bbox,
+    shadow runs excluded):
+
+                       content w   content h   top   bot
+        stock (n=95)          32          55     9     64
+        ours  GU9x  (n=9)     56          68     1     68
+        ours  GU1xx (n=50)    70          70     1     70
+
+    i.e. our units render 1.75-2.2x wider and ~1.25x taller than every unit the
+    engine was art-directed around, with their silhouettes jammed against the
+    frame edges. That is the reported "too far to the right": the anchor is
+    correct (hot_x - content_cx ~= 0 for stock AND for ours) but the visual mass
+    overhangs the tile. Bounding the extent -- not moving the anchor -- is the fix
+    for the horizontal half of the complaint.
+
+    This is NOT the reverted 2026-07-25 change. That one bound `_fit_content` to
+    0.80/0.97 and left the anchor at the content's own feet, so shrinking the art
+    also walked the unit off the draw anchor and it was backed out the same day.
+    Extent and anchor are COUPLED: `_content_anchor` is corrected in the same
+    commit to sit STOCK_FEET_TO_ANCHOR above the content bottom. Changing either
+    alone reintroduces the regression.
+    """
+    box = img.getbbox()
+    if box is None:
+        return img
+    x0, y0, x1, y1 = box                      # right/bottom-EXCLUSIVE
+    bw, bh = x1 - x0, y1 - y0
+    if bw <= 0 or bh <= 0:
+        return img
+
+    cw, ch = img.size
+    # Height governs (aspect preserved); width is only a guard so an unusually
+    # wide unit cannot overhang the frame after scaling.
+    scale = min(1.0, STOCK_CONTENT_H / bh, cw / bw)
+    nw, nh = max(1, int(round(bw * scale))), max(1, int(round(bh * scale)))
+
+    content = img.crop(box).resize((nw, nh), Image.LANCZOS)
+    out = Image.new("RGBA", (cw, ch), (0, 0, 0, 0))
+    px_ = max(0, min(cw - nw, int(round((cw - nw) / 2.0))))
+    py_ = max(0, min(ch - nh, STOCK_CONTENT_BOT + 1 - nh))
+    out.paste(content, (px_, py_), content)
+
+    # LANCZOS blends toward the transparent (0,0,0,0) surround, so a downscale can
+    # manufacture opaque-but-pure-black edge pixels, which makespr's chromakey test
+    # would eat -- punching holes in the silhouette. Re-apply the DARK_FLOOR nudge.
+    p = out.load()
+    for y in range(ch):
+        for x in range(cw):
+            r, g, b, a = p[x, y]
+            if a and r == 0 and g == 0 and b == 0:
+                p[x, y] = (DARK_FLOOR, DARK_FLOOR, DARK_FLOOR, a)
+    return out
+
+
 def _facing_images(tga: Path, flip: bool) -> list["Image.Image"]:
     """
     Return one keyed 96×72 RGBA image per facing (N,NE,E,SE,S).
@@ -310,37 +396,63 @@ def _facing_images(tga: Path, flip: bool) -> list["Image.Image"]:
     exists later, load each facing's own source here and return n distinct images
     (n:n) — nothing else in the pipeline needs to change.
 
-    Content extent normalisation (_fit_content) is INERT by default: both
-    CONTENT_MAX_*_FRAC are 1.0, so the image is returned pixel-identical to the
-    bare-resize path. It was briefly bound to 0.80/0.97 on 2026-07-25 and reverted
-    the same day -- shrinking the shared source art also moved the unit off the
-    map's draw anchor. Placement is governed by SPRITE_HOT_POINTS instead (see the
-    _GU_SCRIPT comment), which is the engine's actual anchor mechanism.
+    Two normalisation steps run after keying, in order:
+
+      _fit_content            INERT by default (both CONTENT_MAX_*_FRAC are 1.0).
+                              Kept as the env-var escape hatch for one-off
+                              experiments; it is not the extent mechanism.
+      _normalize_to_stock_extent
+                              THE extent mechanism. Bounds content to vanilla's
+                              measured envelope and bottom-aligns it. See its
+                              docstring for the stock-vs-ours measurement.
+
+    The 2026-07-25 attempt bound _fit_content to 0.80/0.97 and was reverted the
+    same day because it shrank the art without correcting the anchor. Extent and
+    anchor are coupled; _content_anchor moves with this.
     """
     img = Image.open(str(tga)).convert("RGBA").resize((96, 72), Image.LANCZOS)
     if flip:
         img = img.transpose(Image.FLIP_LEFT_RIGHT)   # left-facing source -> right-facing
     _key_background(img)
     img = _fit_content(img)
+    img = _normalize_to_stock_extent(img)
     return [img] * N_FACINGS   # 1:n cast; replace with n distinct images for true facings
 
 
 def _content_anchor(img: "Image.Image") -> tuple[int, int]:
     """
     Return the (x, y) draw anchor of a keyed facing image: the horizontal centre
-    of its opaque bounding box, and the box's bottom row (the unit's feet).
+    of its opaque bounding box, and STOCK_FEET_TO_ANCHOR rows ABOVE the box's
+    bottom — not the bottom row itself.
 
     Require:   img is RGBA, already background-keyed (transparent surround).
     Guarantee: the returned point lies inside the image bounds.
     Failure:   a fully transparent image has no content, so it falls back to the
                canvas floor-centre — a blank frame draws nothing either way, and
                _spr_move_nonempty_rows already hard-fails that case downstream.
+
+    The engine blits the frame so the hot-point pixel lands on the tile anchor,
+    so hot_y is a pure translation: a LARGER hot_y draws the unit further UP.
+    Anchoring at the literal content bottom (what this returned until 2026-07-26)
+    put MoM's hot_y at a median of 68 against vanilla's 48, drawing every unit
+    ~12px too high — the reported "a little to the top". Vanilla's measured
+    convention is bottom-12: the anchor is the unit's lower shin where it meets
+    the tile, not the last opaque pixel (which is toe, cloak hem, or spear butt).
+    `build_unit_sprite.py` independently arrived at the same shape with
+    FEET_TO_HOTPOINT = 16; the 12 here is measured from the shipped art rather
+    than assumed, so it supersedes that constant.
+
+    Coupled to _normalize_to_stock_extent(): that bounds the content to vanilla's
+    envelope, this anchors within it. Changing one without the other is what made
+    the 2026-07-25 attempt regress.
     """
     box = img.getbbox()
     if box is None:
         return (img.width // 2, img.height - 1)
     x0, y0, x1, y1 = box                      # getbbox is right/bottom-EXCLUSIVE
-    return (int(round((x0 + x1 - 1) / 2.0)), y1 - 1)
+    bottom = y1 - 1
+    hot_y = max(y0, bottom - STOCK_FEET_TO_ANCHOR)   # never above the content top
+    return (int(round((x0 + x1 - 1) / 2.0)), hot_y)
 
 
 def _convert_tga_to_tifs(tga: Path, num: int, work_dir: Path, flip: bool = False) -> int:
