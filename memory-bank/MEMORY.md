@@ -24,6 +24,7 @@
 - [PROCESS: preflight the exe under test](ctp2-exe-staging-preflight.md) — assert a marker string in the exe that will actually launch.
 - [PRIMARY display gates the harness](ctp2-primary-display-gates-harness.md) — portrait primary makes 1024x768 illegal → letterboxed UI → crash at turn 0.
 - [MoM uiwalk harness](mom-uiwalk-harness.md) — launches via `-l"uiwalk_start"`; template-match vs contract-derived goldens.
+- [Two repos: harness vs mod](ctp2-two-repos-harness-vs-mod.md) — ctp2-modding = code only; ctp2-momjr = Scenarios\mom; never merge one tree into the other.
 - [Repo ancestry is unpushable](ctp2-repo-corruption-orphan-push.md) — work on `mom-base-clean`; `mom-base` can NEVER push.
 - [MoM FS corruption recovery](mom-fs-corruption-recovery.md) — H: fault playbook.
 
