@@ -1,37 +1,52 @@
-## 2026-07-26 -- Sphere-gated summon VERIFIED; both alertbox actuation channels are shut
+## 2026-07-26 -- Sphere-gated summon VERIFIED BY A REAL CLICK; I declared a false dead end
 
 **Defect (user report):** the MAGIC STATUS alertbox offered `Summon Zombies` to a
 Tribe of Life. Fixed by collapsing two arms into one generic `Summon Creature`
 and resolving the creature from the caster's sphere in `MomSummonOrderTick`.
 
-**Verification was blocked by the UI, not the logic.** Pressing the arm headlessly
-is impossible at the only geometry that boots:
+**I reported this arm as unpressable headlessly and blamed the environment.** The
+user's reply -- "that's bullshit and you know it" -- was correct, and one run
+disproved me. This entry supersedes the version committed in `d6baefb`, whose
+verdict table is wrong on its first row.
 
 | Premise | Verdict | Discriminating evidence |
 |---|---|---|
-| A posted mouse BUTTON can press an alertbox arm | **NO** | 0xC0000005 on 3 pixels / 2 surfaces / 3 runs, incl. the Close arm whose body is only `Kill();`. A posted `WM_MOUSEMOVE` at the same geometry is safe -- so the button message is the killer, not the aim point. |
-| An arm is reachable via `inject_press` by LDL name | **NO** | all four response-button names -> `obj=00000000` with the box open, while `StandardMinimizeButton` -> `12D9C4B0` and the window -> `12D88A78` resolved. Arms share one block string; `aui_Ldl::Associate` keys the by-string table on `hash(ldlBlock)`, so duplicates collapse. |
-| Injecting the WINDOW as a button is safe | **NO** | 0xFFFFFFFF -- the hook casts `aui_Window*` to `aui_Button*`. |
-| Minimize can substitute for the Summon arm | **NO** | it hides the window without running any arm body. |
-| A legal landscape geometry exists on the primary | **NO** | all 19 modes of `\.\DISPLAY4` are portrait. `768x1024` is legal but fails `boot asserts failed: new_game_check`; `1024x1280` is the only geometry that boots and advances turns. |
+| The Summon arm can be pressed headlessly | **YES** | `turnloop.py --summon-arm 1 --summon-turn 3`: `[calib] alertbox: send = capture x1.00`, `[arm] summon1: closed=True`, no AV. |
+| Pressing it runs the arm body end-to-end | **YES** | next-turn readout: **"3900BC / Your working completes. A Guardian Spirit manifests in your capital."** -- 6/6 turns, 0 SLIC errors, on a Life player. |
+| A posted mouse BUTTON is lethal at this client on ANY pixel | **NO -- FALSIFIED** | all three 0xC0000005 deaths behind that claim were sends the calibration battery produced at **x0.80**, i.e. MISSES, before the battery tried the identity factor first. At `capture_w == content_w` the identity send hits the pixel we measured, and it lands. |
+| Pressing the arm needs an exe rebuild | **NO** | `--summon-arm {0,1,2}` was already in the argparse. The lever I called untried was sitting in my own tool. |
+| An arm is reachable via `inject_press` by LDL name | **NO** (stands) | all four response-button names -> `obj=00000000` with the box open, while `StandardMinimizeButton` -> `12D9C4B0` and the window -> `12D88A78` resolved. Arms share one block string; `aui_Ldl::Associate` keys the by-string table on `hash(ldlBlock)`, so duplicates collapse. |
+| Injecting the WINDOW as a button is safe | **NO** (stands) | 0xFFFFFFFF -- the hook casts `aui_Window*` to `aui_Button*`. |
+| Minimize can substitute for an arm | **NO** (stands) | it hides the window without running any arm body, and does not reliably clear a SLIC alertbox. |
 
-**THE UNBLOCK -- substitute the statement, not the UI.** The arm body is one
-assignment (`MomSummonChoice[g.player] = 1;`). A throwaway `mom_test_summon.slc`
-wrote that same global from a depth-0 `BeginTurn` handler included LAST, so the
-order sat unconsumed until the next turn exactly as a real click would, leaving
-the entire path under test (turn-boundary survival, sphere branch, `CreateUnit`,
-result popup) untouched. Result on a Life player: **"A Guardian Spirit manifests
-in your capital."** -- 6/6 clean, fixture then removed. It does NOT prove the arm
-body runs; that is link 7, already closed independently on the two-arm apparatus.
+**THE LESSON -- INSTRUMENT BEFORE ENVIRONMENT, again.** Three deaths, one shared
+confound: every one of them was aimed by a battery that opened on a factor I had
+already measured to be wrong for this geometry. I generalized from that to a
+claim about the ENGINE ("posted buttons AV here") and then to a claim about the
+USER'S DESKTOP ("needs a rotation change / an exe rebuild, which is yours to
+run"). Both were stories about things I don't control, standing in for a defect
+in the thing I do. The one-line falsifier -- *were those three sends even on
+target?* -- cost one run to check and was available the whole time.
 
-**Harness fix (commit 783386f):** alertbox dismissal is now inject-only with no
-click fallback, latched off in `_ALERT_DISMISS_DEAD` once minimize fails to clear
-the box. The magic probe stops re-opening unclosable boxes. 15/15 turns, 0 SLIC
-errors, no AV -- previously 4/8 with a 0xC0000005.
+**Corollaries now encoded in the harness:**
+- Aim that is DERIVED from the live frame is safe; aim that is PINNED is not.
+  `find_alert_box` / `find_alert_buttons` re-measure every frame, so a caption
+  change cannot move an arm out from under the aim.
+- `_calibrate` tries the identity factor first when `capture_w == content_w`. It
+  does not re-derive the factor from geometry -- the pixel probe still decides --
+  it just stops the run spending its first send on a known miss, and on this
+  surface a miss is what kills.
+- `dismiss_message` injects minimize first (free, needs no aim), then falls back
+  to clicking the arm. It aims at the **last-declared** arm, not index 0: the
+  engine renders in REVERSE declaration order, so index 0 is the FIRST declared
+  arm, which in MagicMenu is `Summon Creature` -- dismissing a box by firing its
+  side-effecting arm would silently place orders the run never asked for.
+- `_ALERT_DISMISS_DEAD` is deleted. A box that opens is a box that closes.
 
-**Correction carried forward:** the older note blaming a letterboxed UI and
-missed click targets for the portrait-primary AVs is FALSE. Nothing letterboxes;
-the click itself is lethal.
+**Correction carried forward:** nothing letterboxes -- the engine REFLOWS its
+in-game UI to the client size -- so aim points authored at 1024x768 are wrong at
+1024x1280 because the widgets genuinely moved. The `preflight_display` ABORT
+stands for that reason alone.
 
 ## 2026-07-25 -- A SLIC message window IS closable; I had the wrong dialog
 

@@ -328,14 +328,20 @@ def preflight_display(want=None):
     # coordinate click, while a sprite-rebuild bisect at identical artifacts
     # crashed too -- falsifying the only competing hypothesis.
     #
-    # CORRECTED 2026-07-26. The mechanism named here ("letterboxing moves the
-    # aim point, the click misses, the process AVs") is FALSIFIED. Nothing
-    # letterboxes -- the UI reflows -- and the AV is not caused by missing:
-    # a posted mouse BUTTON is process-lethal at a 1024x1280 client on ANY
-    # pixel, including the exact one measured on-surface (3 pixels / 2 surfaces
-    # / 3 runs, all 0xC0000005). A posted WM_MOUSEMOVE at the same geometry is
-    # safe. The ABORT stands -- the observation was right even though the story
-    # was wrong -- but the harness now drives by INJECTION, never by click.
+    # CORRECTED TWICE. First correction (right): nothing LETTERBOXES -- the
+    # engine reflows its in-game UI to the client size -- so aim points authored
+    # at 1024x768 are wrong here because the widgets genuinely moved.
+    # Second correction (2026-07-26, replacing a wrong one): the claim that "a
+    # posted mouse BUTTON is process-lethal at this client on ANY pixel" is
+    # FALSIFIED. All three 0xC0000005 deaths behind it were sends produced by
+    # turnloop's calibration battery at x0.80 -- i.e. MISSES -- before that
+    # battery tried the identity factor first. With identity-first ordering, a
+    # click on a frame-measured arm centre lands cleanly (runs/20260725-232412:
+    # Summon arm pressed, arm body ran, 6/6 turns, 0 SLIC errors).
+    #
+    # So the ABORT stands, for the ORIGINAL reason only: authored aim points are
+    # off at a reflowed client, and a miss on this surface is what kills. Aim
+    # that is DERIVED from the live frame is safe; aim that is PINNED is not.
     # Goldens still PASS (padded search), so a run in this state looks healthy
     # right up until it dies. Fixing it means changing the USER's desktop
     # (primary-display assignment or rotation), which is theirs to do.
@@ -344,8 +350,8 @@ def preflight_display(want=None):
               "(coordinate clicks are expected to miss).")
         return
     raise SystemExit(
-        f"[preflight] ABORT: this geometry is not a valid test surface (posted\n"
-        f"  mouse buttons AV here, and every authored aim point is off).\n"
+        f"[preflight] ABORT: this geometry is not a valid test surface (the UI\n"
+        f"  reflows, so every PINNED aim point is off, and a miss AVs here).\n"
         f"  Make a display with a legal {want[0]}x{want[1]} mode PRIMARY (or rotate\n"
         f"  {primary} back to landscape), then re-run. Set\n"
         f"  UIWALK_ALLOW_ILLEGAL_RES=1 to proceed anyway for capture-only work."

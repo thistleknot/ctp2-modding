@@ -259,10 +259,10 @@ def engine_ping(inp):
 # whole TURN_DID_NOT_ADVANCE_AT_6 stall.
 RESEARCH_OK_LDL = "SciAdvanceScreen.Background.BackButton"  # captioned str_ldl_CAPS_OK
 _RESEARCH_INJECT_DEAD = False   # latched True once an inject fails to close the box
-# Latched True the first time a SLIC alertbox refuses to close. There is no
-# second channel to fall back to (see the alertbox branch in dismiss_message),
-# so the only useful response is to stop opening new ones.
-_ALERT_DISMISS_DEAD = False
+# (_ALERT_DISMISS_DEAD removed 2026-07-26. It latched "this box can never be
+# closed" after one failed minimize, on the false premise that clicking an
+# alertbox arm is process-lethal here. There IS a second channel: click the
+# frame-measured Close arm centre at the identity send scale. See dismiss_message.)
 
 # In DECLARATION order from messagebox.ldl:10 -- LeftButton (xpix 220) is the
 # rightmost on screen and is the OK/close arm for a one-button SLIC message.
@@ -470,10 +470,14 @@ def _calibrate(game, inp, x, y, probe, what) -> bool:
     # post-candidate screenshot (the calib dump was armed and wrote nothing).
     # The x0.80/x1.25 candidates were latched on runs whose capture and content
     # geometry DISAGREED (1280-wide capture over a 1024-wide surface); at 1:1
-    # they are pure misses. CORRECTED 2026-07-26: it is not the MISS that kills
-    # -- a posted mouse BUTTON is process-lethal at this client on ANY pixel,
-    # including the exact measured one. Reordering only removes a send that
-    # carries no information; it does not make clicking safe here.
+    # they are pure misses -- and MISSING is what kills on this surface. The
+    # earlier "a posted mouse BUTTON is lethal here on ANY pixel" reading is
+    # FALSIFIED: all three deaths behind it were sends this battery produced at
+    # x0.80, i.e. off-target, before this reorder existed. With identity first,
+    # runs/20260725-232412 clicked the Summon arm centre at x1.00, closed=True,
+    # the arm body ran, and the next turn read "A Guardian Spirit manifests in
+    # your capital." -- 6/6 turns, 0 SLIC errors, no AV. This reorder is not
+    # cosmetic; it is the whole difference between a hit and a crash.
     if abs(derived - 1.0) < 0.01:
         order = tuple([1.00] + [f for f in order if f != 1.00])
     print(f"  [calib] {what}: capture_w={frame0.shape[1]} "
@@ -939,7 +943,7 @@ def dismiss_message(game: uiwalk.Game, inp) -> int:
     reports TURN_DID_NOT_ADVANCE with a large delta (the delta is the box closing,
     not the turn advancing). So: close until the surface is clear, not once.
     """
-    global _RESEARCH_INJECT_DEAD, _ALERT_DISMISS_DEAD
+    global _RESEARCH_INJECT_DEAD
     total = 0
     misses = 0
     # Cap raised 6 -> 30 (2026-07-25): six was not enough by turn 6. Unread SLIC
@@ -1021,43 +1025,54 @@ def dismiss_message(game: uiwalk.Game, inp) -> int:
                 break
             continue
         if what == "alertbox":
-            # DISMISS BY INJECTION, never by click. A posted mouse BUTTON is
-            # process-lethal at the 1024x1280 client -- measured on 3 distinct
-            # pixels across 2 surfaces and 3 runs, every one 0xC0000005,
-            # including ALERT_CLOSE_CAPTURE itself, whose entire SLIC body is
-            # `Kill();`. A posted WM_MOUSEMOVE at the same geometry is safe, so
-            # the lethal ingredient is the button message, not the aim point.
+            # TRY INJECTION FIRST, THEN CLICK. Injection costs nothing and needs
+            # no aim, but it can only ever reach StandardMinimizeButton: a probe
+            # with the box visibly open returned obj=00000000 for all four
+            # response-button names and obj=12D9C4B0 for minimize, because every
+            # arm is newed from the same block string
+            # "StandardMessageWindow.StandardResponseButton" and aui_Ldl keys the
+            # by-string table on hash(ldlBlock). Minimize also does not reliably
+            # clear a SLIC alertbox (the shared entry lands on whichever window
+            # registered last), so the click fallback is the one that works.
             #
-            # StandardMinimizeButton is used rather than an arm because it is
-            # the ONLY alertbox control that resolves: a probe run with the box
-            # visibly open returned obj=00000000 for all four response-button
-            # names and obj=12D9C4B0 for minimize (arms all share the block
-            # string "StandardMessageWindow.StandardResponseButton", and
-            # aui_Ldl::Associate keys the by-string table on hash(ldlBlock), so
-            # the duplicates collapse to one entry). Minimize hides the window
-            # WITHOUT running any arm body -- which is exactly right for a
-            # dismissal (Close's body is `Kill();` and nothing else) and exactly
-            # why it can NOT stand in for the Summon arm.
-            if _ALERT_DISMISS_DEAD:
-                # Already proven unclosable this process; retrying every turn
-                # only adds ~8s of wait_stable per turn for a known answer.
-                break
+            # CORRECTED 2026-07-26. The previous body refused to click at all,
+            # on the claim that a posted mouse BUTTON is process-lethal at a
+            # 1024x1280 client on any pixel. That is FALSIFIED: all three deaths
+            # behind it were sent by the calibration battery at x0.80 -- i.e.
+            # misses -- and once _calibrate tries the IDENTITY factor first at
+            # 1:1 geometry, a click on the arm centre find_alert_buttons measures
+            # lands cleanly. Measured runs/20260725-232412: Summon arm clicked
+            # at x1.00, closed=True, the arm body ran, and the next turn read
+            # "A Guardian Spirit manifests in your capital." 6/6 turns, 0 SLIC
+            # errors. It is MISSING that kills on this surface, not clicking.
             print(f"  [aim] alertbox -> inject press:{ALERT_MINIMIZE_LDL}",
                   flush=True)
             uiwalk.inject_press(game.hwnd, ALERT_MINIMIZE_LDL)
             time.sleep(1.0)
             uiwalk.wait_stable(game, 6000)
             after = game.screenshot()
-            d = frame_delta(before, after)
             gone = not probe(after)
-            print(f"dismiss alertbox -> delta={d} closed={gone}", flush=True)
-            total += d
+            total += frame_delta(before, after)
+            if gone:
+                print("dismiss alertbox -> closed=True via inject", flush=True)
+                continue
+            # AIM AT THE LAST-DECLARED ARM, NOT INDEX 0. Index 0 is the FIRST
+            # declared arm, which in MagicMenu is Summon Creature -- dismissing a
+            # box by firing its side-effecting arm would silently place orders
+            # the run never asked for. Close is declared last in these boxes and
+            # the engine renders in REVERSE declaration order, so it is the
+            # LEFTMOST button and decl_index len-1. Both the count and the centre
+            # come from this frame, so a caption change cannot move the aim.
+            arms = find_alert_buttons(after)
+            if not arms:
+                print("  [aim] alertbox: no arms found to click", flush=True)
+                break
+            print(f"  [aim] alertbox: minimize did not clear it -- clicking the "
+                  f"last-declared (Close) arm of {len(arms)}", flush=True)
+            gone = click_alert_arm(game, inp, len(arms) - 1, "dismiss")
+            total += frame_delta(before, game.screenshot())
+            print(f"dismiss alertbox -> closed={gone}", flush=True)
             if not gone:
-                _ALERT_DISMISS_DEAD = True
-                print("  [aim] alertbox: minimize did not clear it -- NOT "
-                      "falling back to a click (posted buttons are lethal "
-                      "here); leaving the box up and suppressing further "
-                      "magic probes.", flush=True)
                 break
             continue
         if what == "message" and not os.environ.get("UIWALK_MSG_NOINJECT"):
@@ -1489,16 +1504,15 @@ def main() -> int:
                 print(f"  [peek] captured {args.peek_units_count} unit previews",
                       flush=True)
 
-            if (args.probe_every and turn % args.probe_every == 0
-                    and not _ALERT_DISMISS_DEAD):
-                # Probe ONCE-per-N, and stop entirely once dismissal is known
-                # impossible. A SLIC alertbox has no working close channel at
-                # this geometry -- clicking it is process-lethal and minimize is
-                # the only control in the by-string table, which presses but
-                # does not clear it (the table entry is shared, so the press
-                # lands on whichever window registered it last). Re-probing
-                # after that just stacks unclosable boxes over the map region
-                # the visibility checks measure.
+            if args.probe_every and turn % args.probe_every == 0:
+                # Probe ONCE-per-N to keep the map region the visibility checks
+                # measure mostly clear. The old extra guard (_ALERT_DISMISS_DEAD:
+                # stop probing forever after one failed dismissal) is GONE --
+                # it rested on "a SLIC alertbox has no working close channel at
+                # this geometry", which is falsified: minimize alone does not
+                # clear the box, but clicking the measured Close arm centre at
+                # the identity send scale does. dismiss_message now falls back to
+                # that click, so a box that opens is a box that closes.
                 inp.hotkey(["j"])
                 time.sleep(1.5)
                 uiwalk.wait_stable(game, 8000)
