@@ -1,3 +1,38 @@
+## 2026-07-26 -- Sphere-gated summon VERIFIED; both alertbox actuation channels are shut
+
+**Defect (user report):** the MAGIC STATUS alertbox offered `Summon Zombies` to a
+Tribe of Life. Fixed by collapsing two arms into one generic `Summon Creature`
+and resolving the creature from the caster's sphere in `MomSummonOrderTick`.
+
+**Verification was blocked by the UI, not the logic.** Pressing the arm headlessly
+is impossible at the only geometry that boots:
+
+| Premise | Verdict | Discriminating evidence |
+|---|---|---|
+| A posted mouse BUTTON can press an alertbox arm | **NO** | 0xC0000005 on 3 pixels / 2 surfaces / 3 runs, incl. the Close arm whose body is only `Kill();`. A posted `WM_MOUSEMOVE` at the same geometry is safe -- so the button message is the killer, not the aim point. |
+| An arm is reachable via `inject_press` by LDL name | **NO** | all four response-button names -> `obj=00000000` with the box open, while `StandardMinimizeButton` -> `12D9C4B0` and the window -> `12D88A78` resolved. Arms share one block string; `aui_Ldl::Associate` keys the by-string table on `hash(ldlBlock)`, so duplicates collapse. |
+| Injecting the WINDOW as a button is safe | **NO** | 0xFFFFFFFF -- the hook casts `aui_Window*` to `aui_Button*`. |
+| Minimize can substitute for the Summon arm | **NO** | it hides the window without running any arm body. |
+| A legal landscape geometry exists on the primary | **NO** | all 19 modes of `\.\DISPLAY4` are portrait. `768x1024` is legal but fails `boot asserts failed: new_game_check`; `1024x1280` is the only geometry that boots and advances turns. |
+
+**THE UNBLOCK -- substitute the statement, not the UI.** The arm body is one
+assignment (`MomSummonChoice[g.player] = 1;`). A throwaway `mom_test_summon.slc`
+wrote that same global from a depth-0 `BeginTurn` handler included LAST, so the
+order sat unconsumed until the next turn exactly as a real click would, leaving
+the entire path under test (turn-boundary survival, sphere branch, `CreateUnit`,
+result popup) untouched. Result on a Life player: **"A Guardian Spirit manifests
+in your capital."** -- 6/6 clean, fixture then removed. It does NOT prove the arm
+body runs; that is link 7, already closed independently on the two-arm apparatus.
+
+**Harness fix (commit 783386f):** alertbox dismissal is now inject-only with no
+click fallback, latched off in `_ALERT_DISMISS_DEAD` once minimize fails to clear
+the box. The magic probe stops re-opening unclosable boxes. 15/15 turns, 0 SLIC
+errors, no AV -- previously 4/8 with a 0xC0000005.
+
+**Correction carried forward:** the older note blaming a letterboxed UI and
+missed click targets for the portrait-primary AVs is FALSE. Nothing letterboxes;
+the click itself is lethal.
+
 ## 2026-07-25 -- A SLIC message window IS closable; I had the wrong dialog
 
 User: "you always leave me with something open / why the fuck are you not able to

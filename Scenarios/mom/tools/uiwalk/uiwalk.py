@@ -312,13 +312,13 @@ def preflight_display(want=None):
         f"  CTP2 enumerates legal modes from display 0 only (display.cpp\n"
         f"  display_EnumerateDisplayModes), so userprofile ScreenResWidth/Height\n"
         f"  is honoured only if it names a mode of THAT display. The window will\n"
-        f"  be some other legal size, and the engine LETTERBOXES its fixed UI inside\n"
-        f"  it at a per-surface offset (measured: menus +2,+264; in-game alertbox\n"
-        f"  +2,+8). Goldens authored at 1024x768 still match at 1.000 because\n"
-        f"  match_template searches with padding -- an assert asks 'is this UI\n"
-        f"  present', not 'is it at this exact pixel'. CLICK coords are NOT padded,\n"
-        f"  so coordinate clicks are the thing this window size actually breaks.\n"
-        f"  Captures are still READABLE (software renderer) -- not a blocker."
+        f"  be some other legal size, and the engine REFLOWS its in-game UI to the\n"
+        f"  client (it does NOT letterbox a fixed surface), so every constant and\n"
+        f"  every height-fraction aim point authored at 1024x768 is wrong.\n"
+        f"  Goldens still match at 1.000 because match_template searches with\n"
+        f"  padding -- an assert asks 'is this UI present', not 'is it at this\n"
+        f"  exact pixel'. Captures are READABLE (software renderer).\n"
+        f"  Captures are fine; POINTING is what breaks."
     )
     # RE-UPGRADED TO AN ABORT 2026-07-25, on a causal chain that is now measured
     # rather than assumed. The 2026-07-24 downgrade was correct about what it
@@ -326,18 +326,26 @@ def preflight_display(want=None):
     # radius: three runs on a PORTRAIT primary (\\.\DISPLAY4 1080x1920, where
     # 1024x768 is illegal) all died 0xC0000005 at turns_reached=0 on the FIRST
     # coordinate click, while a sprite-rebuild bisect at identical artifacts
-    # crashed too -- falsifying the only competing hypothesis. Letterboxing
-    # moves every fraction-derived aim point, the click lands off-target, and
-    # the process AVs. Goldens still PASS (padded search), so a run in this
-    # state looks healthy right up until it dies: it is not a valid observation
-    # of anything. Fixing it means changing the USER's desktop (primary-display
-    # assignment or rotation), which is theirs to do -- so abort and say so.
+    # crashed too -- falsifying the only competing hypothesis.
+    #
+    # CORRECTED 2026-07-26. The mechanism named here ("letterboxing moves the
+    # aim point, the click misses, the process AVs") is FALSIFIED. Nothing
+    # letterboxes -- the UI reflows -- and the AV is not caused by missing:
+    # a posted mouse BUTTON is process-lethal at a 1024x1280 client on ANY
+    # pixel, including the exact one measured on-surface (3 pixels / 2 surfaces
+    # / 3 runs, all 0xC0000005). A posted WM_MOUSEMOVE at the same geometry is
+    # safe. The ABORT stands -- the observation was right even though the story
+    # was wrong -- but the harness now drives by INJECTION, never by click.
+    # Goldens still PASS (padded search), so a run in this state looks healthy
+    # right up until it dies. Fixing it means changing the USER's desktop
+    # (primary-display assignment or rotation), which is theirs to do.
     if os.environ.get("UIWALK_ALLOW_ILLEGAL_RES") == "1":
         print("[preflight] UIWALK_ALLOW_ILLEGAL_RES=1 -- continuing anyway "
               "(coordinate clicks are expected to miss).")
         return
     raise SystemExit(
-        f"[preflight] ABORT: coordinate clicks cannot be aimed at this geometry.\n"
+        f"[preflight] ABORT: this geometry is not a valid test surface (posted\n"
+        f"  mouse buttons AV here, and every authored aim point is off).\n"
         f"  Make a display with a legal {want[0]}x{want[1]} mode PRIMARY (or rotate\n"
         f"  {primary} back to landscape), then re-run. Set\n"
         f"  UIWALK_ALLOW_ILLEGAL_RES=1 to proceed anyway for capture-only work."

@@ -172,7 +172,12 @@ MSG_PROBE_CAPTURE = (250, 120)  # interior of that box: parchment when open, bla
 # buttons, which change on unit selection, so turn advance was scored off a
 # widget that has nothing to do with the date. Fractions of the detected render
 # rect survive both geometries.
-DATE_FRACTION = (0.4668, 0.8568, 0.5430, 0.8984)   # x0,y0,x1,y1 of the RENDER
+# SUPERSEDED 2026-07-26 by date_rect(), which anchors to the BOTTOM edge instead.
+# A height FRACTION is only correct while the render is 768 tall; the engine
+# reflows its in-game UI to the client size, so at 1024x1280 the same fraction
+# lands ~85px above the widget. Kept only as the provenance of date_rect's
+# numbers -- nothing reads it.
+# DATE_FRACTION = (0.4668, 0.8568, 0.5430, 0.8984)  # x0,y0,x1,y1 of the RENDER
 
 # END TURN is pressed up to this many times per turn, waiting between attempts.
 # A press that resolves the LDL path and returns OK but does not advance the date
@@ -465,8 +470,10 @@ def _calibrate(game, inp, x, y, probe, what) -> bool:
     # post-candidate screenshot (the calib dump was armed and wrote nothing).
     # The x0.80/x1.25 candidates were latched on runs whose capture and content
     # geometry DISAGREED (1280-wide capture over a 1024-wide surface); at 1:1
-    # they are pure misses, and a miss on this surface is process-lethal. Trying
-    # a known-miss before the identity is a cost with no information in it.
+    # they are pure misses. CORRECTED 2026-07-26: it is not the MISS that kills
+    # -- a posted mouse BUTTON is process-lethal at this client on ANY pixel,
+    # including the exact measured one. Reordering only removes a send that
+    # carries no information; it does not make clicking safe here.
     if abs(derived - 1.0) < 0.01:
         order = tuple([1.00] + [f for f in order if f != 1.00])
     print(f"  [calib] {what}: capture_w={frame0.shape[1]} "
