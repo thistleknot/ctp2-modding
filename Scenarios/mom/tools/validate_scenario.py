@@ -118,6 +118,13 @@ def check_icon_refs(scen: Path, fails: list[str]) -> None:
          "default/gamedata/uniticon.txt"),
         ("default/gamedata/Wonder.txt", r"Icon\s+(ICON_WONDER_[A-Z0-9_]+)",
          "default/gamedata/uniticon.txt"),
+        # Advance.txt was the blind spot: the advance-deletion prune drops any
+        # ICON_ADVANCE_* line whose ident is not a live advance, which ate the
+        # engine's fallback ICON_ADVANCE_DEFAULT (referenced by the ADVANCE_NA
+        # sentinel, not by any advance record). The scenario then died at load on
+        # a native "DB Error" modal that no static gate could see.
+        ("default/gamedata/Advance.txt", r"Icon\s+(ICON_ADVANCE_[A-Z0-9_]+)",
+         "default/gamedata/uniticon.txt"),
     )
     for src_rel, pattern, db_rel in lanes:
         src, db = scen / src_rel, scen / db_rel
@@ -238,6 +245,505 @@ def check_gl_str(scen: Path, fails: list[str]) -> None:
             fails.append(f"gl_str.txt:{i}: bad entry {s[:70]!r}")
 
 
+def check_faction_gating(scen: Path, fails: list[str]) -> None:
+    """Gate 10: the five tribes get different things and the wall has no holes.
+
+    Delegates to gate_faction_gating.audit, which borrows its predicate from
+    ctp2_generator -- the writer owns the policy, so the wall and the prereq
+    rewrite cannot drift apart. Skipped (not failed) when the generator is not
+    importable, because this validator is scenario-generic and MoM's control
+    plane is not guaranteed to be alongside it.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import gate_faction_gating as F
+    except Exception:
+        return
+    fails.extend(F.audit(scen))
+
+
+def _momjr_csv() -> Path:
+    return TOOLS_DIR / "momjr_csv"
+
+
+def _advance_blocks(scen: Path) -> dict[str, list[str]]:
+    """ident -> its Prerequisites values, parsed from the generated Advance.txt."""
+    path = scen / "default/gamedata/Advance.txt"
+    if not path.exists():
+        return {}
+    blocks: dict[str, list[str]] = {}
+    cur = None
+    for line in path.read_text(encoding="latin-1", errors="replace").splitlines():
+        s = line.strip()
+        m = re.match(r"^(ADVANCE_[A-Za-z0-9_]+)\s*\{", s)
+        if m:
+            cur = m.group(1)
+            blocks[cur] = []
+            continue
+        if s.startswith("}"):
+            cur = None
+            continue
+        if cur:
+            p = re.match(r"^Prerequisites\s+([A-Za-z0-9_]+)", s)
+            if p:
+                blocks[cur].append(p.group(1))
+    return blocks
+
+
+def check_disabled_advances_closed(scen: Path, fails: list[str]) -> None:
+    """Gate 18: an advance civ2 marked `no` must never ship researchable.
+
+    `nil` and `no` are OPPOSITE sentinels in civ2 Rules.txt -- `nil` = no
+    prerequisite (a researchable root), `no` = never available. Collapsing them
+    once shipped ADVANCE_GLYPHS as a free AGE_ONE root. CTP2's disable idiom is
+    the self-prerequisite (Advances.cpp::ResetCanResearch forces
+    canResearch=FALSE) with the block still in the DB so references resolve.
+
+    Require: advances.csv alongside this tool and a generated Advance.txt.
+    Guarantee: every disabled row's block lists ITSELF as a prerequisite.
+    The predicate is imported from ctp2_generator so the gate cannot disagree
+    with the writer about what "disabled" means.
+    """
+    csv_path = _momjr_csv() / "advances.csv"
+    if not csv_path.exists():
+        return
+    try:
+        sys.path.insert(0, str(TOOLS_DIR))
+        from ctp2_generator import _advance_row_is_disabled, sanitize
+    except Exception:
+        return
+    blocks = _advance_blocks(scen)
+    if not blocks:
+        return
+    import csv as _csv
+    with csv_path.open(newline="", encoding="utf-8-sig") as fh:
+        for row in _csv.DictReader(fh):
+            name = (row.get("name") or "").split(";")[0].strip()
+            if not name or not _advance_row_is_disabled(row):
+                continue
+            ident = f"ADVANCE_{sanitize(name)}"
+            if ident not in blocks:
+                continue
+            if ident not in blocks[ident]:
+                fails.append(f"Advance.txt: {ident} is disabled in advances.csv "
+                             f"(`no` prerequisite) but ships researchable -- "
+                             f"prereqs {blocks[ident] or 'NONE'}")
+
+
+def check_advance_code_map(scen: Path, fails: list[str]) -> None:
+    """Gate 19: every civ2 short code resolves to a live advance.
+
+    advance_code_map.csv carries two lanes, `prereq` and `unit`, which disagree
+    ON PURPOSE (the prereq lane holds stock-CTP2 names for several codes).
+    Consumers try `prereq` first and fall through to `unit` when the target is
+    absent or disabled, so a code is only broken when NEITHER lane lands on an
+    advance that exists and is researchable.
+
+    Scoped to codes a consumer actually CITES as a prerequisite. An uncited map
+    row whose only target is deliberately disabled (`FP` -> ADVANCE_GLYPHS) is
+    dead weight, not a defect; flagging it would train the operator to ignore
+    this gate. A cited code that cannot resolve, by contrast, silently falls
+    back to ADVANCE_WARRIOR_CODE and ships the wrong tech tree.
+
+    Require: advance_code_map.csv alongside this tool, generated Advance.txt.
+    Guarantee: no CITED code is left without a resolvable target.
+    """
+    csv_path = _momjr_csv() / "advance_code_map.csv"
+    if not csv_path.exists():
+        return
+    blocks = _advance_blocks(scen)
+    if not blocks:
+        return
+    import csv as _csv
+    cited: set[str] = set()
+    for consumer in ("units.csv", "improvements.csv", "advances.csv"):
+        cpath = _momjr_csv() / consumer
+        if not cpath.exists():
+            continue
+        with cpath.open(newline="", encoding="utf-8-sig") as fh:
+            for row in _csv.DictReader(fh):
+                for col in ("prereq1", "prereq2"):
+                    v = (row.get(col) or "").split(";")[0].strip()
+                    if v and v not in ("nil", "no"):
+                        cited.add(v)
+
+    lanes: dict[str, dict[str, str]] = {}
+    with csv_path.open(newline="", encoding="utf-8-sig") as fh:
+        for row in _csv.DictReader(fh):
+            lane = (row.get("lane") or "").strip()
+            code = (row.get("code") or "").strip()
+            adv = (row.get("advance") or "").strip()
+            if lane and code and adv:
+                lanes.setdefault(code, {})[lane] = adv
+
+    def live(ident: str) -> bool:
+        return ident in blocks and ident not in blocks[ident]
+
+    for code in sorted(cited):
+        targets = lanes.get(code)
+        if not targets:
+            fails.append(f"advance_code_map.csv: code {code!r} is cited as a "
+                         f"prerequisite but has no row in either lane")
+            continue
+        if any(live(t) for t in targets.values()):
+            continue
+        shown = ", ".join(f"{k}={v}" for k, v in sorted(targets.items()))
+        fails.append(f"advance_code_map.csv: code {code!r} has no live target "
+                     f"in either lane ({shown})")
+
+
+def check_building_effects(scen: Path, fails: list[str]) -> None:
+    """Gate 13: no building charges upkeep and does nothing.
+
+    Two halves, and both matter:
+
+    a) Every live improvement carries at least one effect field. Before this
+       gate all 21 shipped blocks were DefaultIcon/Description/EnableAdvance/
+       ProductionCost/Upkeep and nothing more -- a 270-production Barracks with
+       no mechanical effect at all. Nothing in the pipeline noticed, because an
+       inert block is perfectly well-formed.
+
+    b) Every field a block does carry is declared in the engine's own record
+       schema (gs/newdb/building.cdb, transcribed as
+       ctp2_generator.BUILDING_EFFECT_FIELDS plus the five structural fields).
+       An undeclared field aborts scenario load, so a typo here is fatal in
+       game and invisible on disk.
+
+    Retired 'x' sentinels are exempt from (a): they exist only to hold their DB
+    index and are obsoleted from turn 1, so an effect on one is unreachable.
+    """
+    path = scen / "default/gamedata/buildings.txt"
+    if not path.exists():
+        return
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from ctp2_generator import BUILDING_EFFECT_FIELDS
+    except Exception:
+        return
+    structural = {"DefaultIcon", "Description", "EnableAdvance", "ObsoleteAdvance",
+                  "PrerequisiteBuilding", "ProductionCost", "Upkeep"}
+    text = re.sub(r"//.*", "", path.read_text(encoding="latin-1"))
+    for m in re.finditer(r"^(IMPROVE_\w+)\s*\{(.*?)^\}", text, re.S | re.M):
+        ident, body = m.group(1), m.group(2)
+        fields = [ln.split()[0] for ln in body.splitlines() if ln.strip()]
+        unknown = [f for f in fields if f not in structural and f not in BUILDING_EFFECT_FIELDS]
+        for f in unknown:
+            fails.append(f"buildings.txt: {ident} names field {f!r}, absent from building.cdb")
+        if "ObsoleteAdvance" in fields:
+            continue  # retired sentinel: unreachable by construction
+        if not [f for f in fields if f in BUILDING_EFFECT_FIELDS]:
+            fails.append(f"buildings.txt: {ident} has no effect -- it costs upkeep and does nothing")
+
+
+def check_wonder_effects(scen: Path, fails: list[str]) -> None:
+    """Gate 14: the same inert-block check, against Wonder.txt.
+
+    A wonder is 2160-3240 production and one per civilisation; an inert one is
+    a worse deal than an inert building by an order of magnitude. Live wonders
+    must carry an effect, and every field they carry must be declared in
+    gs/newdb/wonder.cdb (transcribed as ctp2_generator.WONDER_EFFECT_FIELDS).
+
+    Retired 'X'-prefixed sentinels hold a DB index only and are exempt.
+    """
+    path = scen / "default/gamedata/Wonder.txt"
+    if not path.exists():
+        return
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from ctp2_generator import WONDER_EFFECT_FIELDS, WONDER_STRUCTURAL_FIELDS
+    except Exception:
+        return
+    text = re.sub(r"//.*", "", path.read_text(encoding="latin-1"))
+    for m in re.finditer(r"^(WONDER_\w+)\s*\{(.*?)^\}", text, re.S | re.M):
+        ident, body = m.group(1), m.group(2)
+        fields = [ln.split()[0] for ln in body.splitlines() if ln.strip()]
+        for f in fields:
+            if f not in WONDER_STRUCTURAL_FIELDS and f not in WONDER_EFFECT_FIELDS:
+                fails.append(f"Wonder.txt: {ident} names field {f!r}, absent from wonder.cdb")
+        if ident.startswith("WONDER_X"):
+            continue  # retired sentinel
+        if not [f for f in fields if f in WONDER_EFFECT_FIELDS]:
+            fails.append(f"Wonder.txt: {ident} has no effect -- it costs thousands of production and does nothing")
+
+
+def check_advance_prereqs(scen: Path, fails: list[str]) -> None:
+    """Gate 15: every prereq advances.csv declares survives into Advance.txt.
+
+    RawBlockTextFile.add_advance is append-only, so an advance that already
+    exists in the seeded tree silently discards its whole CSV-derived block.
+    The loss is invisible in-game -- the tech simply researches earlier than the
+    design says -- which is exactly why it needs a gate rather than a reading.
+
+    The expected-edge set comes from ctp2_generator.csv_advance_prereq_edges, the
+    same function the generator pass uses, so gate and writer cannot disagree.
+    """
+    path = scen / "default/gamedata/Advance.txt"
+    if not path.exists():
+        return
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        from ctp2_generator import csv_advance_prereq_edges, _scan_advance_blocks
+    except Exception:
+        return
+    text = re.sub(r"//.*", "", path.read_text(encoding="latin-1"))
+    blocks = _scan_advance_blocks(text)
+    for ident, wanted in csv_advance_prereq_edges().items():
+        block = blocks.get(ident)
+        if block is None:
+            continue  # masked out by the tech cap; not this gate's business
+        have = set(re.findall(r"^\s*Prerequisites\s+(ADVANCE_[A-Z0-9_]+)\s*$",
+                              block, re.M))
+        for prereq in wanted:
+            if prereq not in have:
+                fails.append(
+                    f"Advance.txt: {ident} lost its control-plane prerequisite {prereq}")
+    # Second arm, over EVERY block: a prereq naming an advance no block defines
+    # is a dangling ref, and dangling refs abort scenario load.
+    for ident, block in blocks.items():
+        for prereq in re.findall(r"^\s*Prerequisites\s+(ADVANCE_[A-Z0-9_]+)\s*$",
+                                 block, re.M):
+            if prereq not in blocks:
+                fails.append(
+                    f"Advance.txt: {ident} requires {prereq}, which no block defines")
+
+
+def check_gl_icon_keys(scen: Path, fails: list[str]) -> None:
+    """Gate 16: an icon record must cite the Great Library section we wrote for it.
+
+    The GL panel key is the icon record's field verbatim -- SetTechMode copies
+    iconRec->GetGameplay() and hands it straight to Look_Up_Data
+    (greatlibrarywindow.cpp:343,187). Nothing derives `IDENT_GAMEPLAY`. So an icon
+    record still carrying a stock `GAMEA011.txt`-style key renders base-tree prose
+    (or blank) while our generated section sits unreferenced -- invisible unless
+    someone opens that exact entry in-game.
+
+    Scope: only records whose matching `<IDENT>_GAMEPLAY` section exists in our GL.
+    A legacy record with no counterpart section is not this gate's business.
+    """
+    gl = scen / "english/gamedata/Great_Library.txt"
+    if not gl.exists():
+        return
+    sections = set(re.findall(r"^\[([A-Z0-9_]+)\]", gl.read_text(encoding="latin-1"), re.M))
+    for name in ("advanceicon.txt", "improveicon.txt", "wondericon.txt", "uniticon.txt"):
+        path = scen / "default/gamedata" / name
+        if not path.exists():
+            continue
+        for line in path.read_text(encoding="latin-1").splitlines():
+            m = re.match(r"^(ICON_[A-Z0-9_]+)\b", line.strip())
+            if not m:
+                continue
+            ident = m.group(1)[len("ICON_"):]
+            want = f"{ident}_GAMEPLAY"
+            if want not in sections:
+                continue
+            # The three icon-file dialects (named fields, tab-quoted, quote-run)
+            # all put the key inside double quotes, so compare on quoted tokens.
+            # Stock deliberately points some Gameplay tabs at that ident's own
+            # HISTORICAL section (the age concepts); text that resolves to a real
+            # section of the SAME ident is reachable -- not this gate's business.
+            cited = re.findall(r'"([^"]*)"', line)
+            if not any(c == want or (c.startswith(ident + "_") and c in sections)
+                       for c in cited):
+                fails.append(
+                    f"{name}: {m.group(1)} does not cite {want}; its Great Library "
+                    f"text is unreachable")
+
+
+def check_tga_assets(scen: Path, fails: list[str]) -> None:
+    """Gate 12: every .tga the scenario names resolves, and every .tga it ships loads.
+
+    Require: the scenario's own gamedata/uidata name their art by filename.
+    Guarantee: each named .tga resolves to something the engine can open, and no
+    shipped .tga has a header the engine would reject.
+    Maintain: the base tree is never written -- it is read-only evidence here.
+
+    Two halves, because the engine has two distinct TGA failure modes and an
+    existence check alone catches neither reliably:
+
+    ABSENT. Art resolves from three places, not one: a loose .tga under the
+    scenario, a loose .tga in the base tree, or -- and this is the half that
+    makes a naive sweep useless -- a PACKED entry inside a .zfs archive. The
+    archives are `ZFS3` containers whose name table stores `.rim` files, so
+    grepping them for `.tga` returns zero and every packed asset reads as
+    missing. Scanning scen0000 alone against loose files only reported 256
+    missing of 541 referenced, ~100% false positives; counting .rim stems cut
+    that to 22, all of them stock refs the base tree makes identically.
+
+    MALFORMED. The engine's only two TGA diagnostics -- `Bad TGA Sprite File(%s)`
+    and `TGA Sprite File not 32-bits(%s)` -- both fire on a file that EXISTS.
+    A zero-byte or truncated .tga is therefore invisible to an existence gate;
+    the base tree ships exactly one (UPCB47X.tga, 0 bytes, dated 2000-11-01,
+    referenced by nothing but badTGA.txt). Only scenario-shipped files are
+    asserted, since the base tree's oddities are Activision's and unfixable here.
+
+    Scope: references are read from the scenario's own .txt/.ldl/.slc only.
+    Base-tree files are not scanned for references -- unlike dangling record
+    idents, which abort the load, missing art degrades to a blank cell, so the
+    stock tree's own latents are noise rather than a crash class. `//` comments
+    are stripped before tokenising, per gate 11.
+    """
+    base = None
+    for anc in scen.resolve().parents:
+        if (anc / "ctp2_data/default/gamedata").exists():
+            base = anc / "ctp2_data"
+            break
+
+    have: set[str] = {p.name.lower() for p in scen.rglob("*.tga")}
+    if base is not None:
+        have |= {p.name.lower() for p in base.rglob("*.tga")}
+        for archive in base.rglob("*.zfs"):
+            blob = archive.read_bytes()
+            if not blob.startswith(b"ZFS3"):
+                continue
+            for raw in re.findall(rb"[A-Za-z0-9_\-]{2,40}\.rim", blob):
+                have.add(raw.decode("latin-1").lower()[:-4] + ".tga")
+
+    refs: dict[str, str] = {}
+    for src in sorted(scen.rglob("*")):
+        if src.suffix.lower() not in (".txt", ".ldl", ".slc"):
+            continue
+        try:
+            text = src.read_text(encoding="latin-1")
+        except OSError:
+            continue
+        text = re.sub(r"//[^\n]*", "", text)
+        for name in re.findall(r"[A-Za-z0-9_.\-]+\.tga", text):
+            refs.setdefault(name.lower(), src.name)
+
+    base_named: set[str] = set()
+    if base is not None:
+        for rel in ("default/gamedata", "default/uidata"):
+            for src in (base / rel).rglob("*"):
+                if src.suffix.lower() not in (".txt", ".ldl"):
+                    continue
+                try:
+                    text = re.sub(r"//[^\n]*", "", src.read_text(encoding="latin-1"))
+                except OSError:
+                    continue
+                base_named.update(n.lower() for n in
+                                  re.findall(r"[A-Za-z0-9_.\-]+\.tga", text))
+
+    for name, src_name in sorted(refs.items()):
+        # A ref the stock tree makes identically is Activision's latent, not the
+        # mod's regression -- flagging it would train the operator to ignore this
+        # gate, which is how a gate dies.
+        if name not in have and name not in base_named:
+            fails.append(f"{src_name}: references {name}, which is neither a "
+                         f"loose .tga nor a .rim entry in any .zfs archive")
+
+    for art in sorted(scen.rglob("*.tga")):
+        blob = art.read_bytes()
+        if len(blob) < 18:
+            fails.append(f"{art.name}: {len(blob)}-byte .tga -- header is 18 "
+                         f"bytes, the engine reports this as a Bad TGA Sprite File")
+
+
+def check_effective_tree_advance_refs(scen: Path, fails: list[str]) -> None:
+    """Gate 11: no DB the ENGINE parses cites a record any prune deleted.
+
+    Require: the scenario's gamedata holds the live DB for each family below.
+    Guarantee: for every file in the engine's parse list, the copy the engine
+    will actually load -- the scenario's override if it ships one, else the
+    base-tree file -- contains no dangling reference in ANY of those families.
+    Why: every other gate here only inspects files the scenario overrides, and
+    the engine aborts on the FIRST dangling ref, so launching the game finds
+    these one at a time at ~5 min each. Three modals came from this one blind
+    spot: base Pop.txt -> deleted ADVANCE_INDUSTRIAL_REVOLUTION, base
+    aidata/ImprovementLists.txt -> deleted TILEIMP_LISTENING_POSTS, and the
+    ICON_ADVANCE_DEFAULT sentinel. Base-tree fallback is the defect, not a file.
+
+    Scope is deliberately narrow on both axes. Files: only DBs Parse()d in
+    civapp.cpp plus the aidata lists -- Improve.txt, endgame.txt, order.txt, the
+    *icon.txt exports (uniticon.txt is the sole runtime icon DB) and
+    Units_{historic,release}.txt all carry dead refs and are harmless because
+    nothing parses them. Tokens: `//` comments are stripped first (strategies.txt
+    lists seven deleted governments, all commented out), and the exclusion
+    regex drops field names (ADVANCE_CHANCES, CONCEPT_DEFAULT_ICON,
+    UNIT_RATIONS), enum values (UNIT_CATEGORY_*), Great Library string keys
+    (*_GAMEPLAY/_SUMMARY/_ADVICE/...), AI list record names (*_LIST_*), the
+    per-good terrain slots (TERRAIN_*_GOOD_ONE..FOUR) and the city styles
+    (AGE_*_STYLE_*, defined in agecitystyle.txt rather than age.txt).
+    Skipped when the base tree is not locatable, since this validator is
+    scenario-generic.
+    """
+    # Walk up rather than index a fixed depth: --scenario is routinely passed as
+    # a relative path, whose .parents chain is one element long, so any fixed
+    # index silently no-ops the whole gate.
+    base = None
+    for anc in scen.resolve().parents:
+        if (anc / "ctp2_data/default/gamedata").exists():
+            base = anc / "ctp2_data"
+            break
+    if base is None:
+        return
+    def effective(rel: str) -> tuple[Path | None, str]:
+        if (scen / rel).exists():
+            return scen / rel, "scenario"
+        if (base / rel).exists():
+            return base / rel, "BASE"
+        return None, ""
+
+    def body(rel: str) -> str:
+        eff, _ = effective(rel)
+        if eff is None:
+            return ""
+        return re.sub(r"//[^\n]*", "",
+                      eff.read_text(encoding="latin-1"))
+
+    # family -> the file that DEFINES its records.
+    families = {
+        "ADVANCE": "Advance.txt", "TILEIMP": "tileimp.txt",
+        "UNIT": "Units.txt", "ICON": "uniticon.txt",
+        "WONDER": "Wonder.txt", "GOVERNMENT": "govern.txt",
+        "IMPROVE": "buildings.txt", "TERRAIN": "terrain.txt",
+        "POP": "Pop.txt", "FEAT": "feat.txt", "ORDER": "Orders.txt",
+        "CONCEPT": "concept.txt", "AGE": "age.txt",
+    }
+    live: dict[str, set[str]] = {}
+    for fam, defining in families.items():
+        found = set(re.findall(rf"^({fam}_[A-Z0-9_]+)\s*\{{",
+                               body(f"default/gamedata/{defining}"), re.M))
+        if found:
+            live[fam] = found
+    if "ADVANCE" not in live:
+        return
+    live["ADVANCE"].add("ADVANCE_NA")
+
+    # Tokens that look like record references but are not. See the docstring.
+    noise = re.compile(
+        r"_(GAMEPLAY|HISTORICAL|PREREQ|STATISTICS|SUMMARY|DESCRIPTION)$"
+        r"|_(HIGHER|SAME)_RANK_ADVICE$"
+        r"|^UNIT_CATEGORY_|_LIST_|_STYLE_"
+        r"|_GOOD_(ONE|TWO|THREE|FOUR)$"
+        r"|^(CONCEPT_DEFAULT_ICON|GOVERNMENT_TYPE|POP_HUNGER)$"
+        r"|^UNIT_(RATIONS|WAGES|WORKDAY|RUSH_MODIFIER)$"
+        r"|^WONDER_(RUSH_MODIFIER|VICTORY_BONUS)$"
+        r"|^ADVANCE_(CHANCES|CHOICES_MAX|CHOICES_MIN)$")
+
+    parsed = [f"default/gamedata/{n}" for n in (
+        "Pop.txt", "buildings.txt", "Units.txt", "Wonder.txt", "govern.txt",
+        "tileimp.txt", "terrain.txt", "feat.txt", "goods.txt", "concept.txt",
+        "age.txt", "Orders.txt", "civilisation.txt", "EndGameObjects.txt",
+        "risks.txt", "citysize.txt", "citystyle.txt", "pollution.txt",
+        "uniticon.txt", "Advance.txt")]
+    parsed += [f"default/aidata/{n}" for n in (
+        "AdvanceLists.txt", "BuildingBuildLists.txt", "UnitBuildLists.txt",
+        "WonderBuildLists.txt", "ImprovementLists.txt", "Goals.txt",
+        "strategies.txt", "buildlistsequences.txt")]
+    for rel in parsed:
+        eff, src = effective(rel)
+        if eff is None:
+            continue
+        text = body(rel)
+        for fam, ls in live.items():
+            dead = {m for m in set(re.findall(rf"\b{fam}_[A-Z0-9_]+\b", text))
+                    if m not in ls and not noise.search(m)}
+            for missing in sorted(dead):
+                fails.append(
+                    f"{rel} ({src} copy the engine will load): {missing} not in "
+                    f"{families[fam]} (DB-Error crash at load)")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scenario", type=Path, required=True)
@@ -257,6 +763,15 @@ def main() -> int:
     check_buildlist_refs(scen, fails)
     check_city_unit_coverage(scen, fails)
     check_gl_str(scen, fails)
+    check_faction_gating(scen, fails)
+    check_effective_tree_advance_refs(scen, fails)
+    check_building_effects(scen, fails)
+    check_wonder_effects(scen, fails)
+    check_gl_icon_keys(scen, fails)
+    check_advance_prereqs(scen, fails)
+    check_tga_assets(scen, fails)
+    check_disabled_advances_closed(scen, fails)
+    check_advance_code_map(scen, fails)
 
     if fails:
         for f in fails:
@@ -264,7 +779,7 @@ def main() -> int:
         print(f"\n{len(fails)} failure(s).")
         return 1
     print("all scenario gates pass (newsprite grammar, ident charset, "
-          "reserved tokens, string-ref integrity, gl_str grammar)")
+          "reserved tokens, string-ref integrity, gl_str grammar, faction gating)")
     return 0
 
 
