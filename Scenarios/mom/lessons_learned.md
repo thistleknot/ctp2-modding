@@ -1,3 +1,134 @@
+## 2026-07-26 — The SLIC mod hooks: `theCity.owner` works, `thePlayer` is a lie
+
+**Context:** per-tribe "who gets what" gating rides CTP2's four SLIC mod
+functions (`mod_CanPlayerHaveAdvance`, `mod_CanCityBuild{Unit,Building,Wonder}`).
+A six-probe campaign, one variable each, prediction written before every run.
+Readout was always the same frame: a turn-0 city's Units tab
+(`steps/verify_build_costs.json`, `runs/<stamp>/03_city_founded_units_tab.png`),
+whose control baseline is three rows — Spearmen, **Minotaur**, Peasants.
+
+**CLOSED — a scenario-defined mod function binds and is called.** B1: an
+unconditional `theUnit == UnitDB(UNIT_MINOTAUR) -> 0` dropped Minotaur from the
+list. Scenario segments compile before `AddModFuncs()` runs (`SlicEngine.cpp:1020`),
+so no base-tree edit is needed.
+
+**CLOSED — `theCity.owner` resolves.** B2 added `theCity.owner == 1` and the
+outcome was unchanged. Previously unproven, because the only shipped reference
+(`AlexanderTheGreat/AG_mod.slc`) matches cities by *location* and never reads the
+field. No `GetCityOwner` fallback is required.
+
+**CLOSED — the advance hook intercepts scenario-start seeding.** B4 denied
+`ADVANCE_WARRIOR_CODE` and the Units tab went *empty*, not down to one row as
+predicted: `UNIT_PEASANTS.EnableAdvance` is also `ADVANCE_WARRIOR_CODE`, via the
+generator's `_NO_ADVANCE -> WARRIOR_CODE` fallback. So `Player.cpp:539`'s
+`GiveAdvance(CAUSE_SCI_INITIAL)` does route through the hook, and **seed advances
+are unnecessary** — the veto covers the initial grant too.
+
+**THE TRAP — the `thePlayer` parameter cannot carry identity.** Two dead ends,
+both of which hang the headless harness, because a native modal stops the
+engine's message pump and every later capture is a byte-identical stale frame:
+
+- `player_t` is not a SLIC type. The lexer defines only `Unit_t`, `City_t`,
+  `Location_t`, `Int_t`, `Void_t`, `Army_t`. Declaring it is a compile-time
+  *"SLIC Error: syntax error"*.
+- Declared `int_t`, **reading** it raises *"mod_CanPlayerHaveAdvance#thePlayer:
+  is not an integer"* and evaluates to `0`.
+
+The source says exactly why. `CallMod` builds the argument as
+`new SlicSymbolData(SLIC_SYM_PLAYER)` and then calls `SetIntValue`
+(`SlicEngine.cpp:3148-3152`) — but `SetIntValue` only writes when the type is
+`SLIC_SYM_IVAR` (`SlicSymbol.cpp:182`). **The player index is never stored.**
+`GetIntValue` returns FALSE and `SlicStack::Eval` falls through to `return 0`
+(`SlicStack.cpp:94-123`). `AG_mod.slc` ships an `int_t` declaration and survives
+only because it never reads the parameter. `CallExcludeFunc` has the same defect.
+
+**The replacement — `g.player`, with its negative control.** B5 guarded the same
+deny with `g.player == 1`: empty tab, as predicted. But "empty" is also what a
+degenerate always-true comparison produces, so B6 flipped it to `g.player == 2`
+and predicted the units would **return** — they did. That pair, not B5 alone, is
+what makes the claim evidence.
+
+> **Scope, honestly:** confirmed for the scenario-start seeding path, player 1.
+> **Untested** during an AI turn and inside `Advances::ResetCanResearch`. The AI
+> stall check (~turn 40) must assert per-tribe denial there before this is
+> claimed global.
+
+**Design consequence.** Per-player *advance* gating is expressed as `g.player`,
+never as the parameter. Per-tribe *unit/building/wonder* gating rides
+`theCity.owner`, which is independently proven.
+
+**Method note.** The dialog text was the whole game, and it is not in any log —
+`EnumWindows` for a title containing "error", then `EnumChildWindows` to read the
+static, is what turned an opaque hang into a one-line diagnosis. Match the title
+**case-insensitively**: the runtime modal is titled `Slic Error` and the compile
+modal `SLIC Error`, and a case-sensitive probe silently sees only one of them.
+
+## 2026-07-26 — Great Library text colour lives in the CONTENT, not the LDL
+
+**Symptom:** GL article body text is dark grey (50,50,50) on MoM's dark brown
+article pane — nearly invisible.
+
+**Two theses falsified before the right one.**
+1. "the scenario tree's `greatlibrary.ldl` overrides the base tree" — FALSIFIED.
+   A `widthpix 415 → 300` marker in `Scenarios/mom/scen0000/default/uidata/layouts/`
+   produced no visual change. **LDL is loaded from the BASE tree only.**
+2. "so set `fontcolor*` on `GREAT_BOX`/`GREAT_BIG_BOX` in the base tree" —
+   FALSIFIED. The same file over the base tree visibly narrowed the pane (proving
+   the file was live) while the text stayed dark. A geometry change applying and a
+   colour change not applying, from one edit, is the discriminating observation.
+
+**Root cause, from the engine source** (`ui/aui_ctp2/ctp2_hypertextbox.cpp`):
+`ctp2_HyperTextBox::InitCommon` hardcodes `m_hyperColor = RGB(50,50,50)` and
+`LoadFromLdl` never reads `fontcolor*`. **The colour cannot be set from LDL at
+all.** The only supported override is the in-text markup the parser consumes:
+`<c:r,g,b>` colour, `<h:r,g,b>` shadow, plus `<t:> <p:> <b:> <i:> <s:> <u:>`.
+Links are separately hardcoded to `RGB(0,0,100)` and restore `m_hyperColorOld`
+at `<e>`, so a leading `<c:>` survives every link in the section.
+
+**Fix:** `gl_descriptions.apply_text_color()` stamps `<c:245,240,225><h:0,0,0>`
+on every section, idempotently (strips any prior colour prefix first, so output
+stays byte-stable when the constant changes). `strip_markup()` now drops every
+`<x:...>` control tag, not just `<L:...>`, so the filler gate keeps measuring
+prose rather than markup.
+
+**Confirmed in-game headlessly** — Barracks GAME PLAY and a HISTORICAL panel both
+render near-white and legible. `steps/newgame_gl_descriptions.json --save none`.
+
+## 2026-07-26 — Two repos: ctp2-modding is the HARNESS, ctp2-momjr is the MOD
+
+I merged the game tree into `ctp2-modding`'s `main` and destroyed the toolkit
+repo: no README, no `wiki/`, no `memory-bank/`, no control-plane scripts. The
+mistake was treating one checkout as one project. It is two.
+
+- **`ctp2-modding`** holds the *code*: `tools/` (pipeline + `tools/uiwalk/`),
+  `docs/`, `wiki/lessons_learned.md`, `memory-bank/`, and
+  `examples/<mod>/control-plane/` with a README **pointing at** the mod's repo.
+  Scenario data never lands here; `.gitignore` blocks `Scenarios/` and
+  `scen0000/`.
+- **`ctp2-momjr`** *is* `Scenarios\mom` — the scenario, the workbook, `mom.zip`.
+  There is no separate `Scenarios/momjr` folder.
+
+Recovery only worked because `archive/toolkit-main` (`123db97`) still held the
+original layout. It was restored as `92d3e1d` **on top of** the bad merge, so
+history is intact and only the tree changed: 267 files.
+
+What made it recoverable, and what would have made it avoidable:
+
+- Archive a branch before doing anything structural to it. That one branch was
+  the difference between a bad afternoon and losing the harness.
+- `git remote -v` in **both** repos before any push. The parent checkout had
+  picked up a `momjr` remote and had been pushing the entire game install into
+  the scenario repo.
+- **Never `git checkout` a small branch in the parent** — its working tree *is*
+  the game install, so checkout would delete it. `git commit-tree` builds a
+  commit from a chosen tree with chosen parents and touches zero working files.
+  That is the tool for merging across trees you cannot afford to materialise.
+- Harness-vs-live file comparisons are mostly CRLF noise. `diff
+  --strip-trailing-cr` cut 40-odd "changed" tools down to the 8 that really
+  were.
+- Curate, never bulk-copy. `tools/uiwalk/runs/` alone is 1.8 GB of captures and
+  logs. Scripts, step JSON and goldens are tracked; run output is ignored.
+
 ## 2026-07-26 — SLIC is a control-plane dimension, and it flows BACKWARD
 
 The control plane is `mom_dimension_inventory.xlsx`: one tab per dimension, and
@@ -2311,3 +2442,112 @@ round-robined over the other 10 MoM-generated looks (MoM aesthetic preserved, ad
 dupes broken). **Rule: fix the complained-about set, nothing more — "correct" is what the
 user sees, not what a tier ladder scores.** The desc=0x00 normalization of the 63 recovered
 loose TGAs stands (GL-crash guard).
+
+## 2026-07-26 — Great Library descriptions for EVERY element, and the harness lessons that got us there
+
+**Symptom:** the Barracks article rendered a blank GAME PLAY panel. Root cause was
+coverage, not rendering: most MoM elements had only a link-stub section.
+
+**Design:** GAMEPLAY prose is **derived** from the live DB blocks on every generator run
+(so it stays true when costs are retuned); HISTORICAL prose is **authored once** in the
+control plane (`tools/momjr_csv/gl_descriptions.csv`, 293 rows). One shared filler
+predicate, `gl_descriptions.is_filler()`, defines "missing" for both the writer and the
+gate — anything under 60 characters. Final state: 593 sections written (298 derived,
+293 authored), gate 800/800 PASS, output byte-stable across two runs.
+
+**Pass ordering (again).** The description pass must run LAST, immediately before
+`reg.save_all()`. A PREREQ section written by an earlier pass says "No advance required"
+for elements the advance-patch pass later gives a prerequisite; the last-running pass has
+to reconcile it.
+
+**Display labels come from the stock GL link stubs, not `gl_str`.** Several terrain idents
+have no `gl_str` entry, so `humanize()` fell back to the raw ident and the article titled
+"Desert Mountain" opened with "A Brown Mountain tile produces…". `_harvest_labels()` now
+reads labels back out of the stock articles' own `<L:DATABASE_X,IDENT>Name<e>` stubs. Two
+follow-ons: (a) among non-stub occurrences, first-wins is wrong — prose pluralises
+("found in Desert Mountains") while PREREQ "Location:" lists carry the singular, so vote
+by frequency and break ties on the shorter string; (b) terraform tileimps have neither a
+`gl_str` entry nor a stub, so name them from their `TerraformTerrain` field.
+
+**Harness lessons (all measured this session):**
+- `ctrl+5` does NOT open the Great Library. Use
+  `ControlPanelWindow.ControlPanel.ShortcutPad.GreatLibraryButton`.
+- GL search *filters* the index but does not *select* an article; a `select` on
+  `GreatLibrary.IndexSheet` is required. The first search after opening returns an empty
+  index — search twice.
+- GL tab buttons are `Tabs.<Name>.TabButton`, not `Tabs.<Name>`
+  (greatlibrary.ldl:403-442). Pressing the bare tab path is a silent no-op.
+- Selecting an index row resets the panel to GAME PLAY, and the first select after a
+  filter does not always load the article. Select, select again, *then* press the tab.
+- **With the vanilla-guard Targa modal gone, main-menu clicks are process-lethal**
+  (0xC0000005). The whole boot must be injection-driven. Working path:
+  `InitPlayWindow.NewGameButton` → `SPNewGameWindow.ScenarioButton` →
+  `ScenarioWindow.AvailableListBox` index 3 → `LoadButton` → index 0 → `LoadButton` →
+  `SPNewGameWindow.StartButton`. Frozen as `steps/newgame_mom_inject.json`.
+- The scenario dialog is TWO-LEVEL: the outer list holds *packs*, `LoadButton` descends
+  into that pack's scenario list. Pack order is case-insensitive alphabetical by folder
+  (0=AE_Mod, 1=AlexanderTheGreat, 2=MagnificentSamurai, **3=mom**, 4=NuclearDetente,
+  5=smm, 6=WorldMaps); `archived/` is skipped.
+- `uiwalk.py --save none` is required for any menu-entry walk; the default `uiwalk_start`
+  save is stale and raises a native "Load save game Error" modal.
+- `_assert_no_blocking_modal()` reports only the dialog TITLE. Dump the body with a Win32
+  `EnumWindows`+`EnumChildWindows` sweep — that is how the SMM defect below was read.
+
+**Backlog opened:** `Scenarios/smm/scen0000/default/gamedata/mom_turns.slc:19: Array index
+1 out of bounds` raises a SLIC Error modal and makes the SMM scenario unlaunchable.
+
+## Derived tier must never override an AUTHORED ladder rung (2026-07-26)
+
+Plan item 2 said "tier from the existing `cost_to_tier`". Measured it against the
+20 summon units whose prereq already sits on a sphere ladder — a deliberate
+authoring act: **agree 12, disagree 8, and every disagreement is a demotion of a
+master-tier summon.** Undead Dragon (cost 3) would have landed on `lore` — a
+turn-1 dragon. Deriving tier from cost would have quietly dismantled the summon
+grid the plan itself calls "already perfect… needs no work."
+
+**Law: the authored rung wins; `cost_to_tier` is a seed only for rows with no
+ladder prereq.** The original author hit this too — `assign_unit_factions.py`
+already carries a hardcoded `"dragon" -> master` special case, which is a patch
+on exactly this defect.
+
+Corollary evidence rule, established while writing the `sphere` column: a prereq
+on a **sphere** ladder is decisive. A prereq on the **neutral** ladder
+(`War`/`Bro`/`Iro`/`Feu`/`Chi`) or `nil`/`no` encodes **no intent** — it is the
+default that *produced* the reported defect. Minotaur is offered to a
+Tribe-of-Life city precisely because its prereq is `War`. Those rows must be
+decided by name and lore, never by trusting the existing prereq.
+
+## civ2 `nil` vs `no` — opposite sentinels, one union bug (2026-07-27)
+
+`nil` = **no prerequisite** (researchable root). `no` = **never available**.
+Stock `RULES.TXT` ~line 419 settles it: *"If these units are given prerequisites
+other than 'no' they will appear in the game..."*
+
+`ctp2_generator.py` held `_NO_ADVANCE = {'nil','no',''}` — their union. That is
+right for "is this slot a usable code?" and wrong for "does this advance have
+prerequisites?". Using it for the second question shipped `ADVANCE_GLYPHS` as a
+free cost-455 AGE_ONE root.
+
+**The rule was derived, not assumed:** disabled iff at least one slot is `no` AND
+no slot carries a real code. `no,no` selects exactly three rows; a lone `no`
+beside a real code (`Animism = Uni,no`) is an unused second slot.
+
+**Disable, don't delete.** `Advances.cpp::ResetCanResearch` forces
+`canResearch=FALSE` for any advance listing itself as a prerequisite, and the
+block stays in the DB so every reference resolves — deletion instead produces the
+in-game *"not found in Advance database"* dialog.
+
+**The gate is scoped to CITED codes.** `advance_code_map.csv` code `FP` points
+only at the correctly-disabled `ADVANCE_GLYPHS`, and nothing cites `FP`. That is
+dead weight, not a defect. A gate that fires on harmless rows teaches the
+operator to ignore it.
+
+**Collateral finding.** A placeholder cull had swept `Ecognomics` along with 12
+genuine placeholders — a fully enabled advance (`Uni,Ban`) — which is what
+dangled the `Eco` prereq of Merchant's Guild and Gnome Treasury. The lesson is
+that a cull predicate needs a negative control as much as a gate does.
+
+**Process note.** The "headless confirmation is blocked on the portrait primary
+display" blocker was carried across a compaction and was **stale**. One
+`Screen::AllScreens` call killed it and the probe then ran end-to-end. Re-measure
+inherited blockers before reporting them as OPEN.
