@@ -213,6 +213,39 @@ def _advance_row_is_disabled(row) -> bool:
     real = [s for s in slots if s and s not in _UNSPEC_SLOTS and s != _DISABLED_SLOT]
     return any(s == _DISABLED_SLOT for s in slots) and not real
 
+
+def self_prereq_advances(advance_text: str) -> set[str]:
+    """Advances closed by CTP2's self-prerequisite idiom (Advances.cpp:498).
+
+    Require: `advance_text` is the full text of the Advance.txt an entity will
+    ship against.
+    Guarantee: every ident that lists ITSELF as a prerequisite, i.e. every
+    advance `ResetCanResearch` forces to canResearch=FALSE.
+    """
+    return {
+        m.group(1)
+        for m in re.finditer(r'^(ADVANCE_\w+) \{(.*?)^\}', advance_text, re.S | re.M)
+        if re.search(r'Prerequisites\s+' + m.group(1) + r'\b', m.group(2))
+    }
+
+
+def never_buildable_gate(disabled: set[str], fallback: str) -> str:
+    """EnableAdvance for an entity civ2 marks `no` — never available.
+
+    Require: `disabled` is `self_prereq_advances` over the SAME Advance.txt.
+    Guarantee: a deterministic ident that exists in the DB and can never be
+    researched, so the block stays resolvable (no "not found in Advance
+    database" dialog) while being permanently unbuildable.
+
+    The unit and improvement lanes had the same `nil`/`no` union bug the advance
+    lane did: both collapsed into _NO_ADVANCE and gated on ADVANCE_WARRIOR_CODE,
+    which is buildable on turn one. `Coastal Fortress` shipped that way.
+
+    Falls back to `fallback` only when nothing is disabled — impossible in MoM
+    (169 base advances are closed) but must not crash a stock tree.
+    """
+    return sorted(disabled)[0] if disabled else fallback
+
 # Engine-required unit slots that must stay visible even in a MoM-only scenario.
 _ENGINE_REQUIRED_UNITS = {
     "UNIT_CITY",
@@ -653,11 +686,7 @@ def _merge_mom_improvements_into_buildings() -> int:
     advances = set(_adv_file.blocks) or set(
         _re.findall(r'^(ADVANCE_[A-Z0-9_]+)', _advance_text, _re.M))
     # Advances disabled by self-prerequisite — see the prereq resolution below.
-    _disabled_advances = {
-        _m.group(1)
-        for _m in _re.finditer(r'^(ADVANCE_\w+) \{(.*?)^\}', _advance_text, _re.S | _re.M)
-        if _re.search(r'Prerequisites\s+' + _m.group(1) + r'\b', _m.group(2))
-    }
+    _disabled_advances = self_prereq_advances(_advance_text)
 
     # RECONSTRUCT FROM NOTHING: Start with a completely empty file.
     bld = P.RawBlockTextFile()
@@ -714,7 +743,13 @@ def _merge_mom_improvements_into_buildings() -> int:
                 desc = f"DESCRIPTION_{ident}"
                 
                 prereq = row.get("prereq", "").strip()
-                if prereq in _NO_ADVANCE:
+                if prereq == _DISABLED_SLOT:
+                    # `no` = NEVER available, the OPPOSITE of `nil`. Gate on a
+                    # self-prerequisite advance so the block still resolves but
+                    # can never be built. Collapsing the two sentinels is what
+                    # shipped Coastal Fortress as a turn-one buildable.
+                    adv = never_buildable_gate(_disabled_advances, fallback_adv)
+                elif prereq in _NO_ADVANCE:
                     adv = "ADVANCE_WARRIOR_CODE"
                 else:
                     # Resolution CHAIN, most specific first. A flat override of
@@ -4181,6 +4216,8 @@ def main():
 
     # --- Units from units.csv ---
     adv_db = reg.load("default/gamedata/Advance.txt")
+    _unit_disabled_advances = self_prereq_advances(
+        getattr(adv_db, "_text", "") or _read_rel("default/gamedata/Advance.txt"))
     mom_unit_idents: set[str] = set()
     mom_unit_display_names: dict[str, str] = {}  # ident -> display name for gl_str backfill
 
@@ -4216,7 +4253,13 @@ def main():
 
             # Advance prereq — heroes (nil/no) default to earliest advance so
             # EnableAdvance is always present (required in 97% of reference blocks).
-            if prereq in _NO_ADVANCE:
+            if prereq == _DISABLED_SLOT:
+                # civ2 `no` — never available. Same sentinel split as the
+                # improvement lane above; no unit ships this way today, but the
+                # rule must hold in both lanes or the next `no` row leaks.
+                advance = never_buildable_gate(_unit_disabled_advances,
+                                               _default_advance)
+            elif prereq in _NO_ADVANCE:
                 advance = _default_advance
             else:
                 advance = MOM_UNIT_ADVANCE.get(prereq, _default_advance)

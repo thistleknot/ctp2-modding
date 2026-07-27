@@ -355,14 +355,30 @@ def check_advance_code_map(scen: Path, fails: list[str]) -> None:
     if not blocks:
         return
     import csv as _csv
+    # The three consumers do NOT share a prereq schema: advances.csv carries the
+    # civ2 two-slot pair (prereq1/prereq2), units.csv and improvements.csv carry a
+    # single `prereq`. Reading the wrong column name yields an empty set and a
+    # gate that silently checks nothing, so derive the columns from the header
+    # instead of hardcoding one shape.
     cited: set[str] = set()
     for consumer in ("units.csv", "improvements.csv", "advances.csv"):
         cpath = _momjr_csv() / consumer
         if not cpath.exists():
             continue
         with cpath.open(newline="", encoding="utf-8-sig") as fh:
-            for row in _csv.DictReader(fh):
-                for col in ("prereq1", "prereq2"):
+            reader = _csv.DictReader(fh)
+            # Exact names only. A substring match on "prereq" also catches
+            # `prereq_str`, which holds Great Library STRING KEYS
+            # (ADVANCE_X_PREREQ), not civ2 codes -- the same string-key-as-ident
+            # confusion that once produced a bogus 619-dangling-ref report.
+            cols = [c for c in (reader.fieldnames or [])
+                    if c in ("prereq", "prereq1", "prereq2")]
+            if not cols:
+                fails.append(f"{consumer}: no prerequisite column -- the code-map "
+                             f"gate cannot see this consumer")
+                continue
+            for row in reader:
+                for col in cols:
                     v = (row.get(col) or "").split(";")[0].strip()
                     if v and v not in ("nil", "no"):
                         cited.add(v)
@@ -390,6 +406,83 @@ def check_advance_code_map(scen: Path, fails: list[str]) -> None:
         shown = ", ".join(f"{k}={v}" for k, v in sorted(targets.items()))
         fails.append(f"advance_code_map.csv: code {code!r} has no live target "
                      f"in either lane ({shown})")
+
+
+def check_disabled_entities_unbuildable(scen: Path, fails: list[str]) -> None:
+    """Gate 20: nothing civ2 marks `no` ships buildable.
+
+    `no` is the OPPOSITE of `nil` (see check_disabled_advances_closed): `nil`
+    means "no prerequisite", `no` means "never available". The unit and
+    improvement lanes collapsed both into the ADVANCE_WARRIOR_CODE fallback,
+    which is researched on turn one -- `Coastal Fortress` shipped as a turn-one
+    buildable though civ2 marks it unavailable.
+
+    Require: units.csv / improvements.csv alongside this tool, and a generated
+    Advance.txt plus the file the entity ships in.
+    Guarantee: every `no`-prereq row either does not ship at all, or ships gated
+    on an advance closed by self-prerequisite.
+
+    The gate reads the SHIPPED EnableAdvance rather than trusting the generator,
+    so a future emitter that reintroduces the union bug fails here even if its
+    own predicate says otherwise.
+    """
+    blocks = _advance_blocks(scen)
+    if not blocks:
+        return
+    disabled = {a for a, prereqs in blocks.items() if a in prereqs}
+
+    import csv as _csv
+    try:
+        sys.path.insert(0, str(TOOLS_DIR))
+        from ctp2_generator import sanitize
+    except Exception:
+        return
+
+    lanes = (("units.csv", "UNIT_", "default/gamedata/Units.txt"),
+             ("improvements.csv", "IMPROVE_", "default/gamedata/buildings.txt"))
+    for fname, prefix, rel in lanes:
+        csv_path = _momjr_csv() / fname
+        target = scen / rel
+        if not csv_path.exists() or not target.exists():
+            continue
+        text = target.read_text(encoding="latin-1", errors="replace")
+        gates: dict[str, str] = {}
+        cur = None
+        for line in text.splitlines():
+            s = line.strip()
+            m = re.match(rf"^({prefix}[A-Za-z0-9_]+)\s*\{{", s)
+            if m:
+                cur = m.group(1)
+                gates[cur] = ""
+                continue
+            if s.startswith("}"):
+                cur = None
+                continue
+            if cur:
+                e = re.match(r"^EnableAdvance\s+([A-Za-z0-9_]+)", s)
+                if e:
+                    gates[cur] = e.group(1)
+        with csv_path.open(newline="", encoding="utf-8-sig") as fh:
+            reader = _csv.DictReader(fh)
+            if "prereq" not in (reader.fieldnames or []):
+                fails.append(f"{fname}: no `prereq` column -- the disabled-entity "
+                             f"gate cannot see this lane")
+                continue
+            for row in reader:
+                if (row.get("prereq") or "").split(";")[0].strip() != "no":
+                    continue
+                name = (row.get("name") or "").split(";")[0].strip()
+                if not name:
+                    continue
+                ident = f"{prefix}{sanitize(name)}"
+                if ident not in gates:
+                    continue  # does not ship at all -- fine
+                gate = gates[ident]
+                if gate and gate in disabled:
+                    continue
+                fails.append(f"{rel}: {ident} is `no` (never available) in "
+                             f"{fname} but ships buildable -- "
+                             f"EnableAdvance {gate or 'NONE'}")
 
 
 def check_building_effects(scen: Path, fails: list[str]) -> None:
@@ -772,6 +865,7 @@ def main() -> int:
     check_tga_assets(scen, fails)
     check_disabled_advances_closed(scen, fails)
     check_advance_code_map(scen, fails)
+    check_disabled_entities_unbuildable(scen, fails)
 
     if fails:
         for f in fails:
