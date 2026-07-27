@@ -485,6 +485,72 @@ def check_disabled_entities_unbuildable(scen: Path, fails: list[str]) -> None:
                              f"EnableAdvance {gate or 'NONE'}")
 
 
+def check_gl_statistics_match_db(scen: Path, fails: list[str]) -> None:
+    """Gate 21: the Great Library's printed stats match the advance DB.
+
+    Require: a generated Advance.txt and english/gamedata/Great_Library.txt.
+    Guarantee: every ADVANCE_*_STATISTICS section prints the Cost, Age and
+    Branch of the block it describes.
+
+    ctp2_parser stamped these lines when the advance was registered, ~1300 lines
+    before `_retune_mom_advance_costs` rewrote the costs -- ADVANCE_WRITING
+    advertised `Cost: 1000` against a DB `Cost 1025`. The player has no way to
+    see the DB, so a drifted line is simply a lie in the encyclopaedia.
+
+    Reads both SHIPPED artifacts rather than the reconcile pass's own output, so
+    a future writer that re-stamps stale values still fails here.
+    """
+    adv = scen / "default/gamedata/Advance.txt"
+    gl = scen / "english/gamedata/Great_Library.txt"
+    if not adv.exists() or not gl.exists():
+        return
+    try:
+        sys.path.insert(0, str(TOOLS_DIR))
+        from ctp2_generator import gl_age_display
+    except Exception:
+        return
+    age_path = scen / "default/gamedata/age.txt"
+    ages = gl_age_display(
+        age_path.read_text(encoding="latin-1", errors="replace")
+        if age_path.exists() else "")
+
+    live: dict[str, dict[str, str]] = {}
+    text = adv.read_text(encoding="latin-1", errors="replace")
+    for m in re.finditer(r'^(ADVANCE_\w+) \{(.*?)^\}', text, re.S | re.M):
+        body, fields = m.group(2), {}
+        for key in ("Cost", "Age", "Branch"):
+            f = re.search(rf'^\s*{key}\s+(\S+)', body, re.M)
+            if f:
+                fields[key] = f.group(1)
+        live[m.group(1)] = fields
+
+    section = None
+    for line in gl.read_text(encoding="latin-1", errors="replace").splitlines():
+        s = line.strip()
+        m = re.match(r"^\[(ADVANCE_\w+)_STATISTICS\]$", s)
+        if m:
+            section = m.group(1)
+            continue
+        if s == "[END]":
+            section = None
+            continue
+        if not section:
+            continue
+        f = re.match(r'^(?:<[ch]:\d+,\d+,\d+>)*(Cost|Age|Branch):\s*(.*)$', s)
+        if not f:
+            continue
+        key, shown = f.group(1), f.group(2).strip()
+        want = (live.get(section) or {}).get(key)
+        if want is None:
+            continue
+        if key == "Age":
+            want = ages.get(want, want)
+        if shown != want:
+            fails.append(f"english/gamedata/Great_Library.txt: "
+                         f"{section}_STATISTICS says {key}: {shown} but "
+                         f"Advance.txt says {want}")
+
+
 def check_building_effects(scen: Path, fails: list[str]) -> None:
     """Gate 13: no building charges upkeep and does nothing.
 
@@ -866,6 +932,7 @@ def main() -> int:
     check_disabled_advances_closed(scen, fails)
     check_advance_code_map(scen, fails)
     check_disabled_entities_unbuildable(scen, fails)
+    check_gl_statistics_match_db(scen, fails)
 
     if fails:
         for f in fails:

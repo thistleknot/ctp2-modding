@@ -246,6 +246,90 @@ def never_buildable_gate(disabled: set[str], fallback: str) -> str:
     """
     return sorted(disabled)[0] if disabled else fallback
 
+
+def gl_age_display(age_text: str) -> dict[str, str]:
+    """AGE_* -> the number the Great Library prints, derived from age.txt.
+
+    Require: `age_text` is the scenario's age.txt.
+    Guarantee: one entry per declared age, mapping the ident to its ordinal.
+
+    ctp2_parser hardcoded five era WORDS (Ancient/Medieval/Renaissance/
+    Industrial/Modern). Two problems, both measured: MoM ships SEVEN ages, so
+    AGE_SIX and AGE_SEVEN printed as raw idents; and `age.txt` carries no
+    display name at all -- the AGE_* record is purely ordinal (`Age N`), so
+    those words were invented, not derived. The engine's own AGE_NAME_* strings
+    in ldl_str.txt are a different, five-valued concept and do not line up.
+
+    The ordinal is the only claim the data actually supports, and it stays
+    correct when the ladder is re-laid out (AGE_FIVE becomes a magic tier, not
+    "Modern").
+    """
+    return {
+        m.group(1): m.group(2)
+        for m in re.finditer(r'^(AGE_\w+) \{(?:.*?)^\s*Age\s+(\d+)',
+                             age_text, re.S | re.M)
+    }
+
+
+def reconcile_advance_statistics(gl_library, advance_text: str,
+                                 age_text: str = "") -> int:
+    """Re-derive every ADVANCE_*_STATISTICS Cost/Age/Branch from the live DB.
+
+    Require: `advance_text` is the FINAL Advance.txt -- call after every cost
+    rescale and prereq pass, alongside the Great Library description pass.
+    Guarantee: no _STATISTICS line disagrees with the block it describes.
+    Returns the number of sections changed.
+
+    ctp2_parser.Advance.register stamps these three lines at REGISTRATION time,
+    but `_retune_mom_advance_costs` rewrites Cost ~1300 lines later, so the
+    Library shipped `Cost: 1000` for an advance the DB priced at 1025. Same
+    pass-ordering class as the improvement rescale; the fix is the same one --
+    derive from the artifact at the end, never carry a value forward.
+
+    Rewrites only the numeric tail of each line, so the `<c:...><h:...>` colour
+    tag gl_descriptions prefixes survives regardless of which pass runs first.
+    """
+    ages = gl_age_display(age_text)
+    live: dict[str, dict[str, str]] = {}
+    for m in re.finditer(r'^(ADVANCE_\w+) \{(.*?)^\}', advance_text, re.S | re.M):
+        body = m.group(2)
+        fields = {}
+        for key, pat in (("Cost", r'^\s*Cost\s+(\S+)'),
+                         ("Age", r'^\s*Age\s+(\S+)'),
+                         ("Branch", r'^\s*Branch\s+(\S+)')):
+            f = re.search(pat, body, re.M)
+            if f:
+                fields[key] = f.group(1)
+        live[m.group(1)] = fields
+
+    changed = 0
+    for section, text in list((getattr(gl_library, "sections", None) or {}).items()):
+        if not section.endswith("_STATISTICS"):
+            continue
+        fields = live.get(section[: -len("_STATISTICS")])
+        if not fields:
+            continue
+        out = []
+        for line in (text or "").splitlines():
+            for key in ("Cost", "Age", "Branch"):
+                if key not in fields:
+                    continue
+                m = re.match(rf'^(.*?){key}:\s*(.*)$', line)
+                if not m:
+                    continue
+                value = fields[key]
+                if key == "Age":
+                    value = ages.get(value, value)
+                line = f"{m.group(1)}{key}: {value}"
+                break
+            out.append(line)
+        new_text = "\n".join(out)
+        if new_text != text:
+            gl_library.sections[section] = new_text
+            changed += 1
+    return changed
+
+
 # Engine-required unit slots that must stay visible even in a MoM-only scenario.
 _ENGINE_REQUIRED_UNITS = {
     "UNIT_CITY",
@@ -5452,6 +5536,15 @@ def main():
     _gl_desc_report = gl_descriptions.apply_descriptions(
         _gl_desc_text, gl_library, gl_str, MOMJR,
     )
+
+    # Same reason, same anchor: the STATISTICS lines were stamped at advance
+    # registration, before the cost retune, so they have to be re-derived here
+    # from the final Advance.txt rather than trusted.
+    _stats_fixed = reconcile_advance_statistics(
+        gl_library, _adv._text, _read_rel("default/gamedata/age.txt"))
+    if _stats_fixed:
+        print(f"  + reconciled {_stats_fixed} Great Library _STATISTICS section(s) "
+              f"against the final advance DB")
 
     reg.save_all()
     final_gl_scrubbed = 0

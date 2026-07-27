@@ -185,7 +185,13 @@ def _harvest_labels(gl_library) -> dict:
     for ident, counts in fallback.items():
         best = sorted(counts.items(), key=lambda kv: (-kv[1], len(kv[0]), kv[0]))
         labels.setdefault(ident, best[0][0])
-    return labels
+    # A display name must never contain an underscore. This harvest reads the
+    # PREVIOUS generation's Great_Library.txt, so a raw-ident label written once
+    # is re-harvested every run and never decays -- 39 names ("Bronze_Working",
+    # "Chaos_Magic", ...) survived that way. They are invisible inside an
+    # underlined link, which is why it went unnoticed, but the no-prereq sentence
+    # prints the bare name: "Bronze_Working needs no prior research".
+    return {ident: label.replace("_", " ") for ident, label in labels.items()}
 
 
 def _link(db: str, ident: str, label: str) -> str:
