@@ -1,10 +1,105 @@
 # ctp2-momjr — Master of Magic total conversion for Call to Power 2
 
-CTP2 port of the Civ2 **MoM Junior** scenario (Master of Magic), built on the
-Apolyton Edition.
+**v3.6.1** — CTP2 port of the Civ2 **MoM Junior** scenario (Master of Magic),
+built on the Apolyton Edition.
+
+> **What 3.6 adds — summoning takes preparation.** A summon used to resolve next
+> turn no matter what it was, so a Great Wyrm and a Warbears arrived on the same
+> schedule. Committing one now debits the mana, rolls the creature, and starts a
+> countdown equal to its sphere rung: a rung-1 Warbears still arrives next turn,
+> a rung-5 Great Wyrm takes five. One at a time, and no cancel. **Upkeep bounds
+> how many creatures you can keep; preparation bounds how fast you can get
+> them.** See `CHANGELOG.md`.
+
+> **What 3.5 does — mana became an economy instead of a deposit box.** Summoning
+> cost 75 mana *once* and nothing afterwards, so mana had exactly one sink, the
+> sink was repeatable, and nothing bounded it — a tribe with no other use for the
+> pool piled up identical creatures, and at sphere rung 1 Nature's pool is one
+> creature. Now a summoned creature costs mana **every turn it lives**, scaled by
+> the rung it was rolled at; the sphere's own buildings generate mana so you can
+> invest in income; and the `j` panel shows the whole ledger — income, upkeep,
+> net. Over-summon and one creature evaporates, chosen by a draw **weighted by
+> its own upkeep**, so the hungriest is the likeliest to go. The AI checks
+> whether it can *feed* a creature, not just afford it — so its army goes back to
+> being mostly city-built troops, with summons as the parlor trick they were
+> meant to be. Saves load unchanged. See `CHANGELOG.md`.
+
+> **What 3.4 does — the sentinel wonders are gone.** Five "wonders" whose names
+> literally began with the civ2 disabled marker — `Xlighthouse`, `Xapollo
+> Program`, `Xstatue Of Liberty`, `Xwomens Suffrage`, `Xcure For Cancer` — were
+> being shown to players in the Great Library. They were never buildable and are
+> now culled: **28 → 23 wonders**. The MAGIC STATUS panel also tells you your
+> sphere rung, since that decides which creatures a summon can roll.
+
+> **What 3.3 fixed — a tribe can finally build its own troops.** Every sphere
+> unit had been locked behind the magic ladder, so a Nature city's build list was
+> literally two items, `Spearmen` and `Peasants`, and stayed that way until 1865
+> science. MoM splits racial troops (built, the mainstay) from fantastic
+> creatures (summoned) — and MOMJR always encoded which is which. 23 units move
+> back onto the mundane advance the source specified: Centaurs at 455 science
+> instead of 1865, **Minotaur on turn one**. They stay faction-walled, so only
+> Nature fields Elven Archers. See `CHANGELOG.md`.
+
+> **What 3.2 added — the ladder starts mattering, and the AI starts casting.** The
+> 75-mana summon used to be five constants: Nature always got Warbears, the
+> cheapest of its 13 units, at every rung of a six-rung ladder. It now rolls,
+> weighted, over everything you have unlocked. And the AI, which had been accruing
+> mana every turn since 1.0 and could never spend a point of it — the only thing
+> that authorises a summon sat in a button body, which only a human click reaches
+> — now has a magic brain of its own, paying the same prices you do. Saves load
+> unchanged. See `CHANGELOG.md`.
+
+> **What 3.1.1 fixed — every wonder message printed its name twice.** The
+> rival-wonder warning read `Bardic CollegeBardic College`. `#ARTICLE` turns out
+> to be an ident-suffix lookup, not a computed article: the engine reads
+> `<IDENT>_ARTICLE` from `gl_str.txt` and falls back to the *name* when it is
+> missing, so the eleven messages written as `{name#ARTICLE}{name}` doubled it.
+> MoM's string file overrides the base one and shipped none of those keys — two
+> separate lanes, one deleting the inherited keys and one never writing our own.
+> Saves are unaffected. See `CHANGELOG.md`.
+
+> **What 3.1.0 fixed — the victory nobody could reach.** Every one of the AI's
+> seven wonder build lists shipped empty, so no AI player could build any of the
+> 23 MoM wonders — including `WONDER_RUNE_OF_RULERSHIP`, which
+> `EndGameObjects.txt` makes the scenario's win condition. An AI-only game
+> therefore had no reachable ending except the year 2300 (turn 1000). The lists
+> are now derived from the scenario's own wonder database. Saves are unaffected.
+> The same release fixes a diplomatic-proposal modal that froze the headless
+> turn loop, and adds the first balance audit. See `CHANGELOG.md`.
+
+> **What 3.0.1 fixes — the diplomacy screen every tribe could not open.** All
+> five tribes pointed at a parchment image that does not exist, and because the
+> engine builds that filename at runtime, nothing in the database dangled and no
+> gate could see it. The symptom was a frozen frame with an empty console,
+> because the missing-art modal *is* the freeze. Saves are unaffected. The same
+> release took the harness from a 40-turn ceiling to a full **200-turn**
+> playthrough. See `CHANGELOG.md`.
+
+> **What's new in 3.0 — the Renaissance cap actually applies.** 2.0 announced
+> that mundane tech ends at the Renaissance; the code that enforced it asked the
+> wrong question ("did MoM author this advance?" — MoM authored nearly all of
+> them) and so enforced nothing. Ages 5–7 are now magic-only: every one of the 19
+> advances above AGE_FOUR is a sphere-ladder rung or transitively requires one,
+> confirmed in-game. See `CHANGELOG.md`.
+
+> **What 2.0 brought — the tribes became real.** Faction identity used to live
+> only in SLIC's player index; now it is in the data. Every unit, building and
+> wonder carries a `sphere`, four engine `mod_Can*` hooks fence what each tribe
+> may research and build, and mundane tech ends at the Renaissance so Ages 5–10
+> belong entirely to the magic ladder. That cap deleted 113 advances, which in
+> turn exposed and closed the whole DB-Error crash class. Full detail in
+> [`CHANGELOG.md`](CHANGELOG.md).
 
 ![MoM running in CTP2: the MAGIC STATUS panel with a live mana pool and a
 Summon Creature arm, beside a Life Tribe city](docs/img/mom_magic_status_ingame.png)
+
+![The mod in play at 3775BC: two tribe cities, Eudoria and Silvermere, on an
+isometric map with a mana node visible, and Knights queued in the unit
+panel](docs/img/mom_ingame_3775bc.png)
+
+*3775BC. Tribe cities Eudoria and Silvermere with Spearmen garrisons; a mana
+node east of the ridge; Knights — a neutral unit every tribe may field — in the
+build panel. Captured headlessly through `tools/uiwalk/uiwalk.py`.*
 
 ## What this mod adds
 
