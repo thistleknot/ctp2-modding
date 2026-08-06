@@ -246,6 +246,90 @@ def never_buildable_gate(disabled: set[str], fallback: str) -> str:
     """
     return sorted(disabled)[0] if disabled else fallback
 
+
+def gl_age_display(age_text: str) -> dict[str, str]:
+    """AGE_* -> the number the Great Library prints, derived from age.txt.
+
+    Require: `age_text` is the scenario's age.txt.
+    Guarantee: one entry per declared age, mapping the ident to its ordinal.
+
+    ctp2_parser hardcoded five era WORDS (Ancient/Medieval/Renaissance/
+    Industrial/Modern). Two problems, both measured: MoM ships SEVEN ages, so
+    AGE_SIX and AGE_SEVEN printed as raw idents; and `age.txt` carries no
+    display name at all -- the AGE_* record is purely ordinal (`Age N`), so
+    those words were invented, not derived. The engine's own AGE_NAME_* strings
+    in ldl_str.txt are a different, five-valued concept and do not line up.
+
+    The ordinal is the only claim the data actually supports, and it stays
+    correct when the ladder is re-laid out (AGE_FIVE becomes a magic tier, not
+    "Modern").
+    """
+    return {
+        m.group(1): m.group(2)
+        for m in re.finditer(r'^(AGE_\w+) \{(?:.*?)^\s*Age\s+(\d+)',
+                             age_text, re.S | re.M)
+    }
+
+
+def reconcile_advance_statistics(gl_library, advance_text: str,
+                                 age_text: str = "") -> int:
+    """Re-derive every ADVANCE_*_STATISTICS Cost/Age/Branch from the live DB.
+
+    Require: `advance_text` is the FINAL Advance.txt -- call after every cost
+    rescale and prereq pass, alongside the Great Library description pass.
+    Guarantee: no _STATISTICS line disagrees with the block it describes.
+    Returns the number of sections changed.
+
+    ctp2_parser.Advance.register stamps these three lines at REGISTRATION time,
+    but `_retune_mom_advance_costs` rewrites Cost ~1300 lines later, so the
+    Library shipped `Cost: 1000` for an advance the DB priced at 1025. Same
+    pass-ordering class as the improvement rescale; the fix is the same one --
+    derive from the artifact at the end, never carry a value forward.
+
+    Rewrites only the numeric tail of each line, so the `<c:...><h:...>` colour
+    tag gl_descriptions prefixes survives regardless of which pass runs first.
+    """
+    ages = gl_age_display(age_text)
+    live: dict[str, dict[str, str]] = {}
+    for m in re.finditer(r'^(ADVANCE_\w+) \{(.*?)^\}', advance_text, re.S | re.M):
+        body = m.group(2)
+        fields = {}
+        for key, pat in (("Cost", r'^\s*Cost\s+(\S+)'),
+                         ("Age", r'^\s*Age\s+(\S+)'),
+                         ("Branch", r'^\s*Branch\s+(\S+)')):
+            f = re.search(pat, body, re.M)
+            if f:
+                fields[key] = f.group(1)
+        live[m.group(1)] = fields
+
+    changed = 0
+    for section, text in list((getattr(gl_library, "sections", None) or {}).items()):
+        if not section.endswith("_STATISTICS"):
+            continue
+        fields = live.get(section[: -len("_STATISTICS")])
+        if not fields:
+            continue
+        out = []
+        for line in (text or "").splitlines():
+            for key in ("Cost", "Age", "Branch"):
+                if key not in fields:
+                    continue
+                m = re.match(rf'^(.*?){key}:\s*(.*)$', line)
+                if not m:
+                    continue
+                value = fields[key]
+                if key == "Age":
+                    value = ages.get(value, value)
+                line = f"{m.group(1)}{key}: {value}"
+                break
+            out.append(line)
+        new_text = "\n".join(out)
+        if new_text != text:
+            gl_library.sections[section] = new_text
+            changed += 1
+    return changed
+
+
 # Engine-required unit slots that must stay visible even in a MoM-only scenario.
 _ENGINE_REQUIRED_UNITS = {
     "UNIT_CITY",
@@ -269,6 +353,95 @@ def _parse_int_stat(s: str) -> int:
 def _parse_move(s: str) -> int:
     """Parse MoM move float string ('1.', '1.5', '2') → CTP2 MaxMovePoints."""
     return int(float(s.strip()) * 100)
+
+
+# --------------------------------------------------------------------------
+# STAT RANK-CAST
+#
+# The civ2 source and CTP2 use different magnitudes for the same concepts
+# (civ2 attack runs 1..15, CTP2's own units run 10..100), so the port has to
+# rescale. It used to do that with a flat multiplier -- `attack_raw * 5`,
+# `max(5, def_raw * 5)`, `hp = 10` -- and that is what produced the balance the
+# operator reported:
+#
+#   * LINEAR MULTIPLY LETS THE TOP RUN AWAY. civ2's attack median is 5.5, so
+#     x5 pins most of the roster at 5-30 while a 15a Great Wyrm reaches 75. The
+#     gap between a dragon and an army grows without bound instead of saturating.
+#   * A FLOOR CRUSHES THE BOTTOM. civ2's defense median is 2-3, so `max(5, d*5)`
+#     put nearly every buildable unit at 5-15 and threw away the real spread the
+#     source has (built units run 0d-8d: War Troll 5d, Iron Golem 5d, Ariel 8d).
+#   * hp_raw WAS PARSED AND DISCARDED. Every unit shipped MaxHP 10, so civ2's
+#     own durability axis -- 1h Spearmen through 6h Great Wyrm -- was lost. The
+#     engine does honour MaxHP (UnitData.cpp:6256), stock simply never varies it.
+#
+# The replacement places each unit by its RANK POSITION within the civ2
+# distribution and re-casts that onto the CTP2 target range, anchored so source
+# min/median/max land exactly on target min/median/max. Ordering is the
+# designer's; only the range and the curve are ours.
+#
+# The warp is smoothstep, w = p^2 * (3 - 2p). Its GRADIENT rises to a peak at the
+# midpoint and decays after -- power climbs steeply out of the trash tier and
+# then saturates, so massed cheap units stay relevant against a top-tier
+# creature. That is the shape asked for: S-curve up to a peak, decay past it.
+#
+# Require: MOD_POLICY["unit_stat_scaling"]["stat_curve"] carries a [min, median,
+#   max] target per axis and a source_outlier_cutoff.
+# Guarantee: returns an int within the axis target range; monotonic in `raw`, so
+#   a unit stronger in the source is never weaker in the output.
+# --------------------------------------------------------------------------
+_STAT_SOURCE_CACHE: dict[str, tuple[float, float, float]] = {}
+
+
+def _stat_source_dist(axis: str) -> tuple[float, float, float]:
+    """(min, median, max) of the civ2 values for `axis`, outliers excluded.
+
+    Measured from the control plane itself rather than hardcoded, so editing
+    units.csv reshapes the scale instead of silently disagreeing with it. The
+    cutoff keeps one broken row from stretching the range for all 63 units --
+    Infernal Device is 99a where the next attack is 15a.
+    """
+    if axis in _STAT_SOURCE_CACHE:
+        return _STAT_SOURCE_CACHE[axis]
+    import statistics as _st
+    cut = int(MOD_POLICY["unit_stat_scaling"]["stat_curve"]["source_outlier_cutoff"])
+    vals = []
+    for row in _policy_csv_rows("units.csv"):
+        name = (row.get("name") or "").strip()
+        if not name or name.lower() == "blah":
+            continue
+        if len(name) == 2 and name[0].upper() == "B" and name[1].isdigit():
+            continue
+        v = _parse_int_stat(row.get(axis, "") or "0")
+        if 0 < v < cut:
+            vals.append(v)
+    if not vals:                      # degenerate control plane; caller floors it
+        vals = [1]
+    dist = (float(min(vals)), float(_st.median(vals)), float(max(vals)))
+    _STAT_SOURCE_CACHE[axis] = dist
+    return dist
+
+
+def _stat_cast(raw: int, axis: str) -> int:
+    """Cast one civ2 stat onto its CTP2 target range by rank position."""
+    lo, mid, hi = _stat_source_dist(axis)
+    tlo, tmid, thi = (float(x) for x in
+                      MOD_POLICY["unit_stat_scaling"]["stat_curve"][axis])
+    if raw <= lo or hi == lo:
+        p = 0.0
+    elif raw >= hi:
+        p = 1.0
+    elif raw <= mid:
+        # Two half-ranges so the SOURCE median lands exactly on the TARGET
+        # median. A single min->max interpolation would drift the middle
+        # wherever the distribution happens to be skewed, and civ2's stats are
+        # heavily bottom-skewed (attack median 5.5 against a max of 15).
+        p = 0.5 * (raw - lo) / (mid - lo) if mid > lo else 0.0
+    else:
+        p = 0.5 + 0.5 * (raw - mid) / (hi - mid) if hi > mid else 1.0
+    w = p * p * (3.0 - 2.0 * p)
+    out = (tlo + (tmid - tlo) * (w / 0.5) if w <= 0.5
+           else tmid + (thi - tmid) * ((w - 0.5) / 0.5))
+    return int(round(out))
 
 
 _AVAILABLE_SPRITES_CACHE = None
@@ -1108,6 +1281,26 @@ def _prune_gl_sections(library: P.LibraryFile, keep_ids: set[str], prefixes: tup
     return removed
 
 
+def _wonder_article(display_name: str) -> str:
+    """The `#ARTICLE` string for a wonder, derived from its display name.
+
+    Require: the wonder's gl_str display name.
+    Guarantee: `""` for a name that already reads definite, `"the "` otherwise.
+
+    `#ARTICLE` is an ident-suffix lookup -- the engine reads `<IDENT>_ARTICLE`
+    out of gl_str.txt -- so this value IS the article, not a hint. Derived
+    rather than authored in a csv column so a rename can never desync the two.
+
+    Matches the base game's own convention exactly: WONDER_PYRAMIDS_ARTICLE
+    "the ", WONDER_THE_APPIAN_WAY_ARTICLE "" (already definite),
+    WONDER_ARISTOTLES_LYCEUM_ARTICLE "" (possessive).
+    """
+    name = display_name.strip()
+    if name.lower().startswith("the ") or "'s" in name.lower():
+        return ""
+    return "the "
+
+
 def _prune_gl_strings(strings: P.StringDBFile, keep_ids: set[str], prefixes: tuple[str, ...]) -> int:
     removed = 0
     for key in list(strings.entries):
@@ -1118,6 +1311,14 @@ def _prune_gl_strings(strings: P.StringDBFile, keep_ids: set[str], prefixes: tup
                 matched_id = candidate
         elif key.startswith(prefixes):
             matched_id = key
+        # `<IDENT>_ARTICLE` belongs to <IDENT>, the same way `DESCRIPTION_<IDENT>`
+        # does. Without this the suffixed key never matches a keep_id, so every
+        # inherited article string was deleted on every run -- and any we write
+        # later would be pruned straight back out. gl_str shipped ZERO articles,
+        # which made `{name#ARTICLE}{name}` fall back to the name and render it
+        # twice: `Bardic CollegeBardic College` (2026-07-28).
+        if matched_id and matched_id.endswith("_ARTICLE"):
+            matched_id = matched_id[:-len("_ARTICLE")]
         if matched_id and matched_id not in keep_ids:
             del strings.entries[key]
             removed += 1
@@ -1459,48 +1660,111 @@ def _prune_strategy_government_lines(rel: str, keep_ids: set[str]) -> int:
     return removed
 
 
-def _write_empty_wonder_build_lists() -> None:
-    """Write a scenario aidata override so stock wonder AI lists cannot leak in."""
+# Effect keyword -> AI wonder-list category. The engine picks wonders for a goal
+# out of these seven lists, so a wonder in NO list is a wonder the AI can never
+# choose. Categories are matched against the wonder's own effect lines, so a
+# wonder that gains or loses an effect re-files itself on the next generate --
+# a hand-typed roster would silently desync the moment Wonder.txt changed.
+WONDER_LIST_EFFECTS: dict[str, tuple[str, ...]] = {
+    "HAPPINESS": ("IncHappinessEmpire", "AllCitizensContent",
+                  "TemporaryFullHappiness", "IncreaseCathedrals",
+                  "IncreaseRegard", "NoPollutionUnhappiness"),
+    "GROWTH": ("IncreaseFoodAllCities",),
+    "PRODUCTION": ("IncreaseProduction", "DecreaseMaintenance"),
+    "GOLD": ("BonusGold", "GoldPerWaterTradeRoute", "IncreaseBrokerages",
+             "GoldPerInternationalTrade"),
+    "SCIENCE": ("IncKnowledgePercent", "RandomAdvanceChance",
+                "IncreaseScientists", "IncreaseSpecialists"),
+    "OFFENSE": ("IncreaseHp", "ReduceReadinessCost", "IncreaseBoatMovement",
+                "AllBoatsD"),
+    "DEFENSE": ("ProtectFromBarbarians", "PreventConversion",
+                "DecCrimePercent", "SpiesEverywhere", "EmbassiesEverywhere",
+                "FreeSlaves", "ProhibitSlavers", "GlobalRadar"),
+}
+
+WONDER_LIST_ORDER = ("HAPPINESS", "GROWTH", "PRODUCTION", "GOLD",
+                     "OFFENSE", "DEFENSE", "SCIENCE")
+
+
+def _write_wonder_build_lists() -> int:
+    """Populate the scenario's AI wonder lists FROM the generated Wonder.txt.
+
+    Require: default/gamedata/Wonder.txt has been written.
+    Guarantee: every emitted `Wonder WONDER_*` ident is a block that exists in
+      that file, and every live non-disabled wonder appears in at least one list.
+
+    WHY THIS IS NOT EMPTY ANY MORE. The override used to write seven empty
+    lists. The stated reason was sound -- an empty scenario file stops the
+    engine falling back to stock aidata, whose wonder idents do not exist in the
+    MoM WonderDB and would dangle. But empty lists do not merely avoid stock
+    wonders; they leave the AI with no candidates at all, so the AI never builds
+    ANY of the 23 live MoM wonders.
+
+    That has one consequence past cosmetics: EndGameObjects.txt defines the
+    scenario's victory as holding WONDER_RUNE_OF_RULERSHIP for 10 turns. With
+    every list empty, no AI can ever build it, so in an AI-only game the wonder
+    victory is unreachable BY CONSTRUCTION and the only terminal state left is
+    END_OF_GAME_YEAR (turn 1000 under this scenario's TIME_SCALE). Two headless
+    playthroughs ran to turn 200 and 600 without an ending, which is exactly
+    what this predicts.
+
+    Deriving the lists from the live DB keeps the original guarantee -- no stock
+    ident can appear, because every ident is read out of Wonder.txt itself.
+    """
+    text = _read_rel("default/gamedata/Wonder.txt")
+    blocks = re.findall(r'^(WONDER_[A-Z0-9_]+)\s*\{(.*?)^\}', text,
+                        re.S | re.M)
+
+    lists: dict[str, list[str]] = {k: [] for k in WONDER_LIST_ORDER}
+    skipped: list[str] = []
+    for ident, body in blocks:
+        enable = re.search(r'\bEnableAdvance\s+(\S+)', body)
+        obsolete = re.search(r'\bObsoleteAdvance\s+(\S+)', body)
+        # A wonder whose ObsoleteAdvance IS its EnableAdvance is obsolete the
+        # instant it becomes available -- the disabled-stub idiom the X* wonders
+        # use. Offering those to the AI would burn its production on a dead end.
+        if enable and obsolete and enable.group(1) == obsolete.group(1):
+            skipped.append(ident)
+            continue
+        hit = False
+        for cat in WONDER_LIST_ORDER:
+            if any(re.search(r'\b' + kw, body) for kw in WONDER_LIST_EFFECTS[cat]):
+                lists[cat].append(ident)
+                hit = True
+        if not hit:
+            # Never orphan a live wonder: an uncategorised one is still worth
+            # building, and PRODUCTION is the least opinionated bucket.
+            lists["PRODUCTION"].append(ident)
+
+    out = [
+        "#" + "-" * 76,
+        "#",
+        "# MoM scenario override -- GENERATED by ctp2_generator.py.",
+        "# Do not hand-edit, and do not edit the ctp2_data version for scenario",
+        "# changes; regenerate instead.",
+        "#",
+        "# Every ident below is read out of this scenario's own Wonder.txt, so no",
+        "# stock aidata wonder reference can leak in. Wonders disabled by the",
+        f"# self-obsoleting idiom are excluded ({len(skipped)}).",
+        "#",
+        "#" + "-" * 76,
+        "",
+        "# 7",
+        "",
+    ]
+    for cat in WONDER_LIST_ORDER:
+        out.append(f"WONDER_BUILD_LIST_{cat} {{")
+        for ident in lists[cat]:
+            out.append(f"  Wonder {ident}")
+        out.append("}")
+        out.append("")
+    out.append("### ALL WONDERS DONE ###")
+
     rel = Path("default/aidata/WonderBuildLists.txt")
     path = SCENARIO / rel
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#----------------------------------------------------------------------------\n"
-        "#\n"
-        "# MoM scenario override -- do not edit ctp2_data version for scenario changes.\n"
-        "# Sync this file whenever the scenario wonder lane changes.\n"
-        "#\n"
-        "# The current MOMJR translation owns a 28-entry WonderDB lane. Keep these lists\n"
-        "# empty so the engine does not fall back to stock aidata wonder references.\n"
-        "#\n"
-        "#----------------------------------------------------------------------------\n"
-        "\n"
-        "# 7\n"
-        "\n"
-        "WONDER_BUILD_LIST_HAPPINESS {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_GROWTH {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_PRODUCTION {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_GOLD {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_OFFENSE {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_DEFENSE {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_SCIENCE {\n"
-        "}\n"
-        "\n"
-        "### ALL WONDERS DONE ###\n",
-        encoding='latin-1',
-    )
+    path.write_text("\n".join(out) + "\n", encoding='latin-1')
+    return sum(len(v) for v in lists.values())
 
 
 def _scan_unit_blocks(text: str) -> dict[str, str]:
@@ -2147,6 +2411,16 @@ def _sphere_cost_tier(cost: int) -> str:
     return "master"
 
 
+# block ident -> owning sphere, populated as a side effect of
+# sphere_gate_targets(). The wall MUST read the sphere from here rather than
+# reverse-looking it up from the gate advance: a NORMAL racial troop gates on a
+# mundane advance that belongs to no ladder, so the reverse lookup silently
+# returns None and drops the unit out of mod_CanCityBuildUnit entirely. That
+# regression shipped for exactly one generator run on 2026-07-29 -- the wall fell
+# from 87 idents to 59 -- and gate_faction_gating's A9 caught it.
+_BLOCK_SPHERE: dict[str, str] = {}
+
+
 def sphere_gate_targets() -> dict[str, str]:
     """THE SHARED PREDICATE: block ident -> the advance it must gate on.
 
@@ -2154,8 +2428,33 @@ def sphere_gate_targets() -> dict[str, str]:
     writes; the two cannot drift apart. Rows whose sphere is `neutral` (or
     blank) are absent from the result -- they are deliberately universal and
     keep whatever prereq they already had.
+
+    NORMAL vs FANTASTIC (added 2026-07-29, and the whole point of this pass).
+    A sphere row is NOT automatically a magic creature. MoM's own design splits
+    a race's troops -- built in cities, the mainstay -- from its fantastic
+    creatures, which are summoned. MOMJR already encodes which is which, in the
+    `unit` lane of advance_code_map.csv: Centaurs -> SHAMANISM, Elven Archers ->
+    PANTHEISM, Minotaur -> WARRIOR_CODE, War Troll -> LEADERSHIP are RACIAL
+    TROOPS gated on mundane advances, while Warbears -> NATURE_LORE, Cockatrice
+    -> NATURE_ADEPT, Great Wyrm -> NATURE_MASTER already name a ladder rung.
+
+    This pass used to ignore that and push EVERY sphere row onto a rung derived
+    from its cost. The result shipped and was caught in play: all 13 Nature units
+    sat behind NATURE_LORE (1865 science, itself behind GRAND_MASTERY and
+    ELDRITCH_LORE), so for the entire early game a Nature city could build only
+    the 13 neutral units and produced nothing but Spearmen -- twelve of them,
+    until it hit the units-per-tile cap. A tribe with no racial troops has no
+    identity until the mid game, which is the opposite of what the faction work
+    was for. The cost-derived tier is a LAST RESORT now, not the default
+    ([[mom-authored-rung-beats-derived-tier]] -- same lesson, other direction).
+
+    Faction gating is UNAFFECTED: a normal unit still appears in this map, so
+    mod_CanCityBuildUnit still walls it to its own tribe. Only Nature may build
+    Elven Archers -- it may just do so from turn one instead of at 1865 science.
     """
+    ladder_advances = {a for s in _SPHERE_PLAYER for a in _sphere_ladder_idents(s)}
     targets: dict[str, str] = {}
+    _BLOCK_SPHERE.clear()
     for csv_name, prefixes in (("units.csv", ("UNIT_",)),
                                ("improvements.csv", ("IMPROVE_", "WONDER_"))):
         path = MOMJR / csv_name
@@ -2167,22 +2466,36 @@ def sphere_gate_targets() -> dict[str, str]:
                 if sphere not in {"life", "nature", "death", "chaos", "sorcery"}:
                     continue
                 prereq = (row.get("prereq") or "").strip()
+                mapped = MOM_UNIT_ADVANCE.get(prereq) or PREREQ_CODE_MAP.get(prereq)
                 if prereq in _SPHERE_LADDER_CODES:
                     # Authored rung wins outright.
-                    tier = _SPHERE_LADDER_CODES[prereq][1]
+                    advance = _sphere_rung_advance(
+                        sphere, _SPHERE_LADDER_CODES[prereq][1])
+                elif mapped and mapped not in ladder_advances:
+                    # NORMAL racial troop: the source gates it on a mundane
+                    # advance, so keep that. Buildable early, still tribe-walled.
+                    advance = mapped
+                elif mapped:
+                    # FANTASTIC: the source already names a ladder rung.
+                    advance = mapped
                 else:
-                    tier = _sphere_cost_tier(
-                        int(re.sub(r"[^0-9]", "", str(row.get("cost", "0"))) or 0))
-                advance = _sphere_rung_advance(sphere, tier)
+                    # No mapping at all -- fall back to the cost-derived rung.
+                    advance = _sphere_rung_advance(sphere, _sphere_cost_tier(
+                        int(re.sub(r"[^0-9]", "", str(row.get("cost", "0"))) or 0)))
                 base = sanitize(row.get("name", ""))
                 for prefix in prefixes:
                     targets[prefix + base] = advance
+                    _BLOCK_SPHERE[prefix + base] = sphere
     return targets
 
 
 # Tribe player index, fixed by the SLIC faction predicates (mom_func.slc
 # MomPlayerIsLife is p == 1, ... MomPlayerIsChaos is p == 5) and corroborated by
 # the summon table in mom_msg.slc. Player 0 is the barbarian.
+# Chaos's WildRoll chance, in percent. One knob, documented where the sphere
+# seating is, because it is a property OF Chaos rather than of the roll.
+_WILDROLL_PCT = 15
+
 _SPHERE_PLAYER = {"life": 1, "nature": 2, "sorcery": 3, "death": 4, "chaos": 5}
 
 _GATING_SLC_REL = "default/gamedata/mom_gating.slc"
@@ -2229,15 +2542,51 @@ def _emit_mom_gating_slc() -> int:
         by_sphere[sphere]["advance"] = [a for a in _sphere_ladder_idents(sphere)
                                         if a in live_adv]
     for ident, advance in sorted(targets.items()):
-        # The sphere is read back off the gate advance, so the wall and the
-        # prereq rewrite cannot disagree about which tribe owns a block.
-        sphere = next((s for s in _SPHERE_PLAYER
-                       if advance in _sphere_ladder_idents(s)), None)
+        # The sphere comes from _BLOCK_SPHERE, recorded by the same pass that
+        # chose the advance. It must NOT be reverse-looked-up from the advance:
+        # a NORMAL racial troop gates on a mundane advance (Centaurs ->
+        # SHAMANISM) that belongs to no ladder, so the lookup would return None
+        # and silently drop it from the wall -- which is precisely how 23 units
+        # briefly became buildable by every tribe.
+        sphere = _BLOCK_SPHERE.get(ident)
         if sphere is None:
             continue
         for kind, (idents, _) in live.items():
             if ident in idents:
                 by_sphere[sphere][kind].append(ident)
+
+    def _vessel_block(indent: str = "    ") -> list[str]:
+        """Emit the unconditional never-build wall for artifact vessels.
+
+        A vessel is FOUND, or left behind when a genie is defeated -- never
+        produced in a city by anyone. That is a property of the vessel, not of
+        any tribe, so unlike `_deny_block` this carries no sphere test and no
+        owner term.
+
+        Sourced from `mod_policy.json:unit_roles.vessels`, and filtered against
+        the live unit DB the same way the sphere walls are, so a vessel that was
+        declared in policy but never emitted as a unit cannot leave a dangling
+        `UnitDB()` reference here (mom-db-error-class).
+        """
+        declared = MOD_POLICY.get("unit_roles", {}).get("vessels", [])
+        live_units = live["unit"][0]
+        idents = [i for i in declared if i in live_units]
+        missing = [i for i in declared if i not in live_units]
+        if missing:
+            raise ValueError(
+                f"unit_roles.vessels names {missing}, which the unit DB does not "
+                f"contain. Either add the unit to units.csv or drop it from policy "
+                f"-- emitting it here would be a dangling UnitDB() reference."
+            )
+        if not idents:
+            return []
+        out = [f"{indent}// VESSELS -- {len(idents)}, never buildable by anyone"]
+        terms = [f"theUnit == {live['unit'][1]}({i})" for i in idents]
+        out.append(f"{indent}if ({terms[0]}")
+        for term in terms[1:]:
+            out.append(f"{indent}|| {term}")
+        out.append(f"{indent}) {{ return 0; }}")
+        return out
 
     def _deny_block(kind: str, var: str, owner: str, indent: str = "    ") -> list[str]:
         db = "AdvanceDB" if kind == "advance" else live[kind][1]
@@ -2248,7 +2597,12 @@ def _emit_mom_gating_slc() -> int:
                 continue
             terms = [f"{var} == {db}({i})" for i in idents]
             out.append(f"{indent}// {sphere.upper()} -- {len(idents)} block(s)")
-            out.append(f"{indent}if ({owner} != {index}) {{")
+            # SPHERE, NOT SEAT. `owner` is a player index and the seat a
+            # tribe occupies is chosen at setup, so comparing it to a
+            # sphere number walled the wrong civ -- a Nature player at
+            # seat 1 was handed Life's roster. MomSphere[] is resolved
+            # from PlayerCivilization once per turn (mom_func.slc).
+            out.append(f"{indent}if (MomSphere[{owner}] != {index}) {{")
             out.append(f"{indent}    if ({terms[0]}")
             for term in terms[1:]:
                 out.append(f"{indent}    || {term}")
@@ -2282,13 +2636,20 @@ def _emit_mom_gating_slc() -> int:
         "int_f mod_CanPlayerHaveAdvance(int_t thePlayer, int_t theAdvance)",
         "{",
         "    // Barbarians and any out-of-range player are unrestricted.",
-        "    if (g.player < 1 || g.player > 5) { return 1; }",
+        "    if (MomSphere[g.player] < 1) { return 1; }",
         *_deny_block("advance", "theAdvance", "g.player"),
         "    return 1;",
         "}",
         "",
         "int_f mod_CanCityBuildUnit(city_t theCity, int_t theUnit)",
         "{",
+        # VESSELS FIRST, ahead of the owner guard. A vessel is FOUND or left
+        # behind by a defeated genie -- it is never produced. This block sits
+        # before the guard deliberately: the guard ALLOWS out-of-range owners
+        # through (it exists to keep barbarians out of the sphere walls), so a
+        # vessel rule placed after it would leave a hole for exactly the players
+        # the sphere system does not model.
+        *_vessel_block(),
         "    if (theCity.owner < 1 || theCity.owner > 5) { return 1; }",
         *_deny_block("unit", "theUnit", "theCity.owner"),
         "    return 1;",
@@ -2311,6 +2672,301 @@ def _emit_mom_gating_slc() -> int:
     ]
     _write_rel(_GATING_SLC_REL, "\n".join(lines))
     return sum(len(v[k]) for v in by_sphere.values() for k in v)
+
+
+_SUMMON_SLC_REL = "default/gamedata/mom_summon.slc"
+
+
+def _summon_pool_by_rung() -> dict[str, list[list[str]]]:
+    """Per sphere, the summonable creatures at each ladder rung.
+
+    Require: Units.txt is FINAL and sphere_gate_targets() reflects the prereq
+      rewrite, so a masked unit cannot be resurrected into a summon pool.
+    Guarantee: index r holds the units whose gate advance IS rung r; heroes are
+      excluded; every ident is a live Units.txt block.
+
+    The rung is READ BACK off each unit's gate advance rather than recomputed, so
+    the summon table and the who-gets-what wall in mom_gating.slc cannot disagree
+    about which rung owns a creature -- the same discipline _emit_mom_gating_slc
+    uses when it reads the sphere back off the advance.
+
+    Heroes are excluded because they are unique tribe leaders: a repeatable
+    summon that could roll Ariel would let a Life player field an army of its own
+    founder. There is no hero flag in any data file, so the roster lives in
+    mod_policy.json's unit_roles -- policy, where this mod's other taxonomies
+    already live, and machine-visible to the gate.
+    """
+    live = set(re.findall(r"^(UNIT_[A-Z0-9_]+)\s*\{",
+                          _read_rel("default/gamedata/Units.txt"), re.M))
+    # THE EARNED LANE. A sphere's roster splits into what the roll may return and
+    # what must be earned some other way. Heroes were always excluded; champions
+    # (a Death Knight) and capstones (a Lich) join them, because handing either
+    # out on a 70% per-turn roll makes the top of the ladder indistinguishable
+    # from its bottom. Each list has real members, so this guarantee enforces
+    # something rather than shipping as decoration.
+    _roles = MOD_POLICY.get("unit_roles", {})
+    heroes = (set(_roles.get("heroes", []))
+              | set(_roles.get("champions", []))
+              | set(_roles.get("capstones", [])))
+    targets = sphere_gate_targets()
+    pools: dict[str, list[list[str]]] = {}
+    for sphere in _SPHERE_PLAYER:
+        ladder = _sphere_ladder_idents(sphere)
+        pools[sphere] = [
+            sorted(i for i, adv in targets.items()
+                   if adv == rung and i in live and i not in heroes
+                   and i.startswith("UNIT_"))
+            for rung in ladder
+        ]
+    return pools
+
+
+def _emit_mom_summon_slc() -> int:
+    """Write mom_summon.slc: rung tracking + the weighted summon roll.
+
+    Require: Advance.txt and Units.txt are FINAL (same contract as
+      _emit_mom_gating_slc -- every ident is filtered against live blocks).
+    Guarantee: two segments, both FLAT. MomSphereRungTick calls NOTHING;
+      MomSummonRoll calls NOTHING and only returns an index.
+
+    WHY A RETURNED INDEX AND NOT A void_f THAT SPAWNS: a 2-level user-function
+    chain from a HandleEvent body is a 0xC0000005 (slic-two-crash-classes), and
+    MomSummonOrderTick already spends its one level on MomSpawnSphereUnit. So the
+    roll must hand an index BACK to the handler, which then makes its own
+    one-level spawn call. Both calls sit at depth 1.
+
+    WHY RUNGS ARE TRACKED IN AN ARRAY AND NOT READ WITH HasAdvance: HasAdvance is
+    used ZERO times in this codebase and every mod that does use it passes an
+    ID_ADVANCE_* bare ident. Two things make that unsafe here -- the engine
+    SILENTLY AUTO-CREATES unknown symbols (so a name that does not resolve returns
+    a permanent false rather than erroring), and validate_all_surfaces.py's
+    surface-7 regex is anchored `\\bADVANCE_`, which cannot match inside
+    ID_ADVANCE_*, so nothing would catch the typo. Comparing value[0] against
+    AdvanceDB() in a GrantAdvance handler uses only primitives this mod has
+    already proven, and IS covered by surface 7.
+
+    Rung 0 is the sphere root; it carries no creature of its own (the root's
+    milestone unit is granted once by mom_city_effects.slc, which is correct for
+    a milestone). The roll therefore only fires from rung 1 up.
+    """
+    pools = _summon_pool_by_rung()
+    lines = [
+        "// mom_summon.slc -- GENERATED by tools/ctp2_generator.py. DO NOT HAND-EDIT.",
+        "//",
+        "// Makes the six-rung sphere ladder govern what 75 mana buys. Before this,",
+        "// MomSummonOrderTick held five CONSTANTS -- Nature always summoned Warbears,",
+        "// the CHEAPEST of its units, at every rung -- so researching NATURE_ADEPT",
+        "// through NATURE_MASTER changed nothing and 12 of Nature's creatures were",
+        "// unreachable by summoning (reported in play 2026-07-28).",
+        "//",
+        "// CONSTRAINTS honoured here (slic-two-crash-classes):",
+        "//   * both bodies are FLAT -- neither calls a user function at all.",
+        "//   * MomSummonRoll RETURNS an index; the caller does the spawning, so the",
+        "//     handler's single call level is not already spent when it spawns.",
+        "//   * every comparison goes through AdvanceDB() / UnitDB(), never a bare ident.",
+        "//",
+        "// Every ident below was filtered against the live generated DB at emit time.",
+        "",
+        "// Highest ladder rung each player has reached, 0 = none. Written here and",
+        "// read by MomSummonRoll and mom_ai_magic.slc.",
+        "int_t MomSphereRung[31];",
+        "",
+        "// Rung attainment. A separate handler from mom_city_effects.slc's milestone",
+        "// blessings on purpose: that one fires once per sphere root, this one must see",
+        "// every rung. value[0] IS the granted advance index -- GrantAdvance does NOT",
+        "// populate advance[], and assigning value[0] into it does not make it readable",
+        "// (measured 2026-07-25).",
+        "HandleEvent(GrantAdvance) 'MomSphereRungTick' post {",
+        "    int_t p;",
+        "",
+        "    p = player[0];",
+        "    if (p >= 1 && p <= 5 && value[0] != 0) {",
+    ]
+    for sphere, index in sorted(_SPHERE_PLAYER.items(), key=lambda kv: kv[1]):
+        ladder = _sphere_ladder_idents(sphere)
+        lines.append(f"        // {sphere.upper()} (player {index})")
+        for rung, adv in enumerate(ladder):
+            # The ROOT counts as rung 1, not rung 0. Rung 0 owns no creature of
+            # its own, so leaving the root at 0 would make MomSummonRoll return
+            # 0 for a tribe that has only its *_MAGIC advance -- i.e. every tribe
+            # at the start -- and the summon would silently do nothing where it
+            # previously always produced that sphere's constant. Mapping the root
+            # onto rung 1 keeps the old creature reachable and merely widens the
+            # pool around it.
+            effective = max(rung, 1)
+            lines.append(
+                f"        if (MomSphere[p] == {index} && value[0] == AdvanceDB({adv})"
+                f" && MomSphereRung[p] < {effective})"
+                f" {{ MomSphereRung[p] = {effective}; }}")
+    lines += [
+        "    }",
+        "}",
+        "",
+        "// The weighted roll. Bands are cut from the COUNT of unlocked rungs, not from",
+        "// hardcoded percentages, so adding a rung cannot leave a dead band: the newest",
+        "// unlocked rung takes the widest slice and every older rung keeps a floor.",
+        "// Returns 0 when nothing is unlocked yet -- the caller must treat 0 as 'no",
+        "// summon' and leave the pool alone.",
+        "int_f MomSummonRoll(int_t p)",
+        "{",
+        "    int_t r;",
+        "    int_t roll;",
+        "    int_t wild;",
+        "",
+        "    r = MomSphereRung[p];",
+        "    // NO FLOOR. Rung 0 means 'this tribe has learned no magic of its own",
+        "    // sphere', and it must fall through every band below so this function",
+        "    // returns 0 -- which every caller already reads as 'no summon' and",
+        "    // which leaves the pool undebited (mom_msg.slc gates the 75 on",
+        "    // summonPick != 0, mom_ai_magic.slc on pick != 0).",
+        "    //",
+        "    // A `if (r < 1) { r = 1; }` FLOOR LIVED HERE from v3.2.0 until",
+        "    // 2026-08-02 and was the whole reason a tribe's army was creatures it",
+        "    // could never have built. A Warbears costs 1970 science to BUILD",
+        "    // (ADVANCE_NATURE_LORE) and, with the floor, 0 science to SUMMON: every",
+        "    // tribe had rung-1 summoning from turn one and the summon path skipped",
+        "    // the tech tree entirely.",
+        "    //",
+        "    // The floor was justified as 'a tribe that starts holding its sphere",
+        "    // root never fires the GrantAdvance that would raise it off 0'. That",
+        "    // premise is FALSE in this scenario -- nothing anywhere grants a",
+        "    // *_MAGIC or *_LORE advance and there is no starting-advance mechanism,",
+        "    // so no tribe ever starts holding its root. It guarded a case that does",
+        "    // not exist and cost a whole tech gate. Do not restore it; if a",
+        "    // starting-advance mechanism is ever added, seed MomSphereRung[] there",
+        "    // rather than flooring here (gate_mana_upkeep.py assertion 12).",
+        "    roll = Random(100);",
+        "",
+    ]
+    for sphere, index in sorted(_SPHERE_PLAYER.items(), key=lambda kv: kv[1]):
+        pool = pools[sphere]
+        lines.append(f"    // {sphere.upper()} (player {index})")
+        lines.append(f"    if (MomSphere[p] == {index}) {{")
+        if sphere == "chaos":
+            # THE WILDROLL -- Chaos, and only Chaos, may draw from ANY sphere.
+            #
+            # This is the x-factor that makes Chaos itself rather than "Death
+            # with better numbers": it can call a demon or an angel and does not
+            # get to choose. It is the one mechanic where a sphere reaches
+            # outside its own roster, which is exactly why no other sphere gets
+            # it, and it pairs with Chaos already paying the most (92%) and
+            # earning the fastest (140%) -- high variance on every axis is one
+            # identity rather than three unrelated bonuses.
+            #
+            # A SEPARATE Random() rather than a slice of `roll`: carving the wild
+            # case out of the low band would silently rob whichever creature owns
+            # that band, so Chaos's own ladder would quietly change shape as a
+            # side effect. Two independent draws keep the normal distribution
+            # exactly what every other sphere's is.
+            #
+            # Draws are restricted to rung <= r, so the wild roll widens WHAT
+            # answers, never how far up the ladder Chaos can reach.
+            wild_by_rung: dict[int, list[str]] = {}
+            for rung in range(1, 6):
+                union: list[str] = []
+                for other in sorted(_SPHERE_PLAYER):
+                    if other == "chaos":
+                        continue
+                    for lo in range(1, rung + 1):
+                        union.extend(pools[other][lo] if lo < len(pools[other]) else [])
+                if union:
+                    wild_by_rung[rung] = sorted(set(union))
+            if wild_by_rung:
+                lines.append(f"        wild = Random(100);")
+                lines.append(f"        if (wild < {_WILDROLL_PCT}) {{")
+                for rung in sorted(wild_by_rung, reverse=True):
+                    units = wild_by_rung[rung]
+                    lines.append(f"            if (r == {rung}) {{")
+                    lines.append(f"                wild = Random({len(units)});")
+                    for k, unit in enumerate(units):
+                        lines.append(
+                            f"                if (wild < {k + 1}) {{ return UnitDB({unit}); }}")
+                    lines.append("            }")
+                lines.append("        }")
+        # Walk rungs high -> low. At rung r the top populated rung wins the widest
+        # band; each lower populated rung keeps an equal share of the remainder.
+        for cur in range(len(pool) - 1, 0, -1):
+            populated = [(rung, pool[rung]) for rung in range(1, cur + 1) if pool[rung]]
+            if not populated:
+                continue
+            lines.append(f"        if (r == {cur}) {{")
+            n = len(populated)
+            # Top rung takes half the band when there is anything below it to
+            # share with; the rest split the remainder evenly. Derived from n, so
+            # no magic constant survives a change to the ladder.
+            top_share = 100 if n == 1 else 50
+            rest = 100 - top_share
+            lower = populated[:-1]
+            floor_share = rest // len(lower) if lower else 0
+            cursor = 0
+            bands: list[tuple[int, list[str]]] = []
+            for rung, units in lower:
+                cursor += floor_share
+                bands.append((cursor, units))
+            bands.append((100, populated[-1][1]))
+            prev = 0
+            for hi, units in bands:
+                pick = units[0] if len(units) == 1 else None
+                if pick is not None:
+                    lines.append(
+                        f"            if (roll < {hi}) {{ return UnitDB({pick}); }}")
+                else:
+                    # Even split inside the band across this rung's creatures.
+                    step = max(1, (hi - prev) // len(units))
+                    inner = prev
+                    for k, unit in enumerate(units):
+                        inner = hi if k == len(units) - 1 else inner + step
+                        lines.append(
+                            f"            if (roll < {inner}) {{ return UnitDB({unit}); }}")
+                prev = hi
+            lines.append("        }")
+        lines.append("    }")
+        lines.append("")
+    lines += [
+        "    return 0;",
+        "}",
+        "",
+    ]
+
+    # ------------------------------------------------------------------
+    # Creature -> rung, the rate table for mana upkeep.
+    #
+    # Upkeep is scaled by the rung the CREATURE belongs to, not by the caster's
+    # current rung, so a master summoner who happens to roll a Guardian Spirit
+    # pays the Guardian Spirit's keep. Emitted from the same `pools` structure
+    # the roll is built from, so the two cannot disagree about which rung owns a
+    # creature -- recomputing it in SLIC or hand-typing it would reintroduce
+    # exactly the drift this generator exists to prevent.
+    #
+    # FLAT and returns an int, for the same reason MomSummonRoll does: the
+    # handler calls both at depth 1 and neither may call a user function.
+    # Returns 0 for anything not summonable, which the ledger reads as
+    # "do not charge" -- the correct answer for a milestone gift or a built unit.
+    unit_rung: dict[str, int] = {}
+    for pool in pools.values():
+        for rung, units in enumerate(pool):
+            for unit in units:
+                # Lowest rung wins: a creature reachable at rung 2 is charged at
+                # rung 2 even if it also appears in the rung-5 pool.
+                if rung and (unit not in unit_rung or rung < unit_rung[unit]):
+                    unit_rung[unit] = rung
+    lines += [
+        "// Rung that owns each summonable creature -- the mana-upkeep rate table.",
+        "// GENERATED alongside the roll above from the same pools, so the rate a",
+        "// creature is charged can never drift from the rung it was rolled at.",
+        "int_f MomSummonRungOf(int_t unitType)",
+        "{",
+    ]
+    for unit in sorted(unit_rung):
+        lines.append(
+            f"    if (unitType == UnitDB({unit})) {{ return {unit_rung[unit]}; }}")
+    lines += [
+        "    return 0;",
+        "}",
+        "",
+    ]
+    _write_rel(_SUMMON_SLC_REL, "\n".join(lines))
+    return sum(len(u) for pool in pools.values() for u in pool)
 
 
 _ADVANCE_MASK ={r["id"] for r in _policy_csv_rows("advance_mask.csv")}
@@ -2398,7 +3054,9 @@ def _relayout_advance_ages(adv_file: "P.AdvanceFile") -> tuple[int, dict[str, in
 
     Require: _apply_advance_mask has run, so the graph holds only kept advances.
     Guarantee: (a) every sphere-ladder rung sits on its fixed age, MAGIC=2
-    through MASTER=7; (b) no mundane (base-CTP2) advance exceeds AGE_FOUR;
+    through MASTER=7; (b) no MUNDANE advance exceeds AGE_FOUR, where mundane
+    means "does not transitively require a sphere rung" -- NOT "inherited from
+    base CTP2", which was the original and wrong test;
     (c) no advance is in an earlier age than one of its own prerequisites.
     Idempotent -- the layout is a pure function of the graph.
 
@@ -2453,6 +3111,22 @@ def _relayout_advance_ages(adv_file: "P.AdvanceFile") -> tuple[int, dict[str, in
         for parent in prereqs[ident]:
             bound[parent] = min(bound[parent], bound[ident])
 
+    # MAGICAL closure: a rung, or anything that transitively needs one. This --
+    # not `ident in momjr` -- is what the Renaissance cap must key on. MoM
+    # authored essentially the WHOLE tree, so `momjr` is true for almost every
+    # ident and the `else` branch below was dead: the cap applied to nothing,
+    # and four mundane advances (Ecognomics, Sanitation, Sea Lore, Greater
+    # Fauna Lore) drifted to AGE_FIVE on pure depth banding. `order` is
+    # topological, so one forward pass settles it.
+    # The closure is also what keeps the cap CONSISTENT with guarantee (c): a
+    # mundane advance's prerequisites are mundane by construction (a magical
+    # prerequisite would have made it magical), so clamping to AGE_FOUR can
+    # never place it below a parent.
+    magical: dict[str, bool] = {}
+    for ident in order:
+        magical[ident] = (_ladder_rung_age(ident) is not None
+                          or any(magical.get(p, False) for p in prereqs[ident]))
+
     ages: dict[str, int] = {}
     for ident in order:
         rung = _ladder_rung_age(ident)
@@ -2468,6 +3142,8 @@ def _relayout_advance_ages(adv_file: "P.AdvanceFile") -> tuple[int, dict[str, in
         age = min(bound[ident], want)
         if parent_ages:
             age = max(age, max(parent_ages))
+        if not magical[ident]:
+            age = min(age, _MUNDANE_MAX_AGE)
         ages[ident] = max(1, min(len(_AGE_NAMES) - 1, age))
 
     changed = 0
@@ -2559,6 +3235,44 @@ def _apply_sphere_gating(reg) -> tuple[int, list[str]]:
     buildings.txt and Wonder.txt.
     """
     targets = sphere_gate_targets()
+
+    # THE LORE RUNG IS DEMOTED TO THE SPHERE ROOT -- BUILD GATE ONLY (2026-08-02).
+    #
+    # A tribe now begins play holding its sphere root (mom_magic.slc
+    # MomSphereRootGrant), which opens rung-1 SUMMONING at turn one. Leaving the
+    # same creature's BUILD gate on the lore advance is the asymmetry the
+    # operator reported: a Warbears cost 1970 science to build and nothing but
+    # mana to summon, so the summon path bypassed the tech tree outright.
+    # Pointing both at the root makes the choice an honest trade -- 75 mana plus
+    # preparation against 350 shields -- instead of a bypass. The creature is
+    # still production-gated by its shield cost.
+    #
+    # It also closes a gap measured across the AI build lists: before this, NO
+    # tribe had a single racial unit buildable under 455 science, so every early
+    # army was neutral Spearmen and Swordsmen and the only sphere-flavoured units
+    # on the map were summoned ones. Same lesson as the cost-derived-tier
+    # regression recorded in _sphere_gate_targets, from the other direction.
+    #
+    # IT LIVES HERE, NOT IN sphere_gate_targets(), AND THAT PLACEMENT IS THE
+    # WHOLE POINT. This function is the only consumer that WRITES a build gate.
+    # The other two read the same map as the ladder and each breaks if the lore
+    # rung moves under them:
+    #   * _emit_mom_gating_slc  -- collapsing lore to the root DELETES the lore
+    #     advance from mod_CanPlayerHaveAdvance, letting a Death tribe research
+    #     ADVANCE_LIFE_LORE, and emits a duplicate dead branch in
+    #     MomSphereRungTick.
+    #   * _summon_pool_by_rung  -- reads the rung back off this map, so demoting
+    #     it moves every rung-1 creature into the root's pool, which the emitted
+    #     roll never reads; the entire lowest tier silently stops being
+    #     summonable.
+    # Both were observed: the first from putting this in _sphere_rung_advance,
+    # the second from putting it in sphere_gate_targets one attempt later.
+    _lore_to_root = {
+        _sphere_rung_advance(s, "lore"): _sphere_ladder_idents(s)[0]
+        for s in _SPHERE_PLAYER
+    }
+    targets = {k: _lore_to_root.get(v, v) for k, v in targets.items()}
+
     # Registry-backed files, rewritten through ._text so reg.save_all() emits
     # them. buildings.txt is deliberately NOT here: it has no PARSER_MAP entry
     # (it is produced wholesale by _merge_mom_improvements_into_buildings and
@@ -3524,6 +4238,18 @@ def _ensure_runtime_wonder_gl_surfaces(
                 added_strings += 1
             gl_strings.entries[ident] = display_name
 
+        # Eleven messages in info_str.txt interpolate the name TWICE --
+        # `{wonder[0].name#ARTICLE}{wonder[0].name}` -- and #ARTICLE resolves
+        # `<IDENT>_ARTICLE` from here. A missing key falls back to the name, so
+        # the message reads `Bardic CollegeBardic College`. Wonders are the only
+        # database the engine uses this modifier for.
+        article_key = f"{ident}_ARTICLE"
+        article = _wonder_article(display_name)
+        if gl_strings.entries.get(article_key) != article:
+            if article_key not in gl_strings.entries:
+                added_strings += 1
+            gl_strings.entries[article_key] = article
+
         description_text = str(spec.get("gl_description") or "").strip() or gl_strings.entries.get(
             description_key,
             f"{display_name} is a {MOD_DISPLAY_NAME} world wonder.",
@@ -4089,7 +4815,6 @@ def main():
 
     hidden_advances = 0
     goody_excluded_advances = 0
-    unresearchable_foreign = 0
     for ident in sorted(adv_file.blocks):
         if ident in momjr_visible_idents:
             continue
@@ -4097,14 +4822,10 @@ def main():
             hidden_advances += 1
         if adv_file.ensure_flags(ident, ["GoodyHutExcluded"]):
             goody_excluded_advances += 1
-        if adv_file.ensure_self_prerequisite(ident):
-            unresearchable_foreign += 1
     if hidden_advances:
         print(f"  + hid {hidden_advances} foreign advance(s) from Great Library index")
     if goody_excluded_advances:
         print(f"  + excluded {goody_excluded_advances} foreign advance(s) from goody-hut rewards")
-    if unresearchable_foreign:
-        print(f"  + made {unresearchable_foreign} foreign advance(s) unresearchable (self-prereq)")
 
     # Sphere-home exclusivity (mod_policy "sphere_home_exclusivity"): each
     # magic sphere's research ladder additionally requires an unresearchable
@@ -4184,6 +4905,15 @@ def main():
         # 5 Chaos). GrantAdvance(player, AdvanceDB(...)) is engine-verified
         # (slicfunc.cpp Slic_GrantAdvance). BeginTurn + per-player latch is
         # the base-verified one-shot idiom (scenario.slc MomSlicAliveLatch).
+    # POLICY GUARD. This block was nested under `if aged:` above -- an age
+    # re-layout is not a sphere-home policy, so it wrote mom_sphere_home.slc
+    # (citing five ADVANCE_HOME_* that only exist when the policy is ON) on
+    # every run that re-aged anything. With the policy OFF that is five
+    # dangling advance refs, i.e. mom-db-error-class, and the sever pass at
+    # :4252 runs EARLIER in the same run so it could not undo it. The system
+    # only looked self-healing because a second generator run severed what the
+    # first had just added.
+    if MOD_POLICY.get("sphere_home_exclusivity"):
         _HOME_SLC = "\n".join([
             "// GENERATOR-OWNED (sphere_home_exclusivity): per-tribe sphere HOME grants.",
             "// Regenerated by ctp2_generator.py -- edit mod_policy.json, not this file.",
@@ -4242,13 +4972,33 @@ def main():
             fp_raw     = _parse_int_stat(row['firepower'])
             cost_raw   = int(row['cost'].strip() or '1')
             prereq     = row['prereq'].strip()
-            # Scale to CTP2 internal units (per-mod policy: unit_stat_scaling)
+            # Scale to CTP2 internal units (per-mod policy: unit_stat_scaling).
+            # RANK-CAST, not a linear multiply -- see _stat_cast().
             _scal = MOD_POLICY["unit_stat_scaling"]
-            attack     = attack_raw * int(_scal["attack_mult"])
-            defense    = max(int(_scal["defense_min"]), def_raw * int(_scal["defense_mult"]))
+            attack     = _stat_cast(attack_raw, "attack")
+            defense    = _stat_cast(def_raw,    "defense")
+
+            # VESSELS BYPASS THE STAT CURVE. _stat_cast rank-casts every unit
+            # onto the shipped CTP2 min/median/max, and its floor is 10 -- so a
+            # csv row of `0a,1d` came out Attack 10 / Defense 10. That floor is
+            # right for a creature and wrong for an artifact: the spec is that a
+            # sole artifact CANNOT BE DEFENDED and is picked up by whoever holds
+            # the field. Zero defense plus the Civilian flag is what makes CTP2's
+            # own capture behaviour deliver that, instead of the lamp fighting
+            # back and dying.
+            if ident in set(MOD_POLICY.get("unit_roles", {}).get("vessels", [])):
+                attack = 0
+                defense = 0
             shield_cost = cost_raw * int(_scal["shield_cost_mult"])
             shield_hunger = max(int(_scal["shield_hunger_min"]),
                                 cost_raw // int(_scal["shield_hunger_div"]))
+            # A vessel is not maintained. Its cost is the Bane it inflicts every
+            # turn (4 mana for the Lamp), which is the whole point of the boon /
+            # bane pairing -- charging production upkeep on top would tax the
+            # same decision twice, in a currency the artifact has nothing to do
+            # with.
+            if ident in set(MOD_POLICY.get("unit_roles", {}).get("vessels", [])):
+                shield_hunger = 0
             _default_advance = _scal["default_advance"]
 
             # Advance prereq — heroes (nil/no) default to earliest advance so
@@ -4275,6 +5025,14 @@ def main():
                 # Per-mod policy: these units must be able to build cities
                 if name in set(MOD_POLICY["settler_category_units"]):
                     category = 'UNIT_CATEGORY_SETTLER'
+                elif ident in set(MOD_POLICY.get("unit_roles", {}).get("vessels", [])):
+                    # A VESSEL IS NOT A COMBATANT. Left on the default ATTACK
+                    # template it shipped as a warrior with the wheels taken off:
+                    # Attack 10, CanAttack Land/Mountain, CanPillage, CanPirate,
+                    # ExertsMartialLaw, CanReform and a shield upkeep -- on a lamp.
+                    # Setting MaxMovePoints 0 in the CSV stopped it MOVING and
+                    # nothing else.
+                    category = 'UNIT_CATEGORY_GENERIC'
                 else:
                     category = 'UNIT_CATEGORY_ATTACK'
 
@@ -4286,8 +5044,8 @@ def main():
                 ident=ident, name=name, category=category,
                 attack=attack, defense=defense,
                 sprite=sprite, desc=f"{name}: a {MOD_DISPLAY_NAME} unit.",
-                advance=advance, move=move, hp=int(_scal["hp"]),
-                firepower=max(int(_scal["firepower_min"]), fp_raw), armor=1, zbrange=0,
+                advance=advance, move=move, hp=_stat_cast(hp_raw, "hp"),
+                firepower=_stat_cast(fp_raw, "firepower"), armor=1, zbrange=0,
                 shield_cost=shield_cost, shield_hunger=shield_hunger,
                 gold_hunger=0, sound_set=sound_set,
                 domain=domain, size=size,
@@ -4853,8 +5611,6 @@ def main():
             f" {removed_wonder_stat_lines} stale advance-stat line(s) removed)"
         )
     live_wonder_ids = set(_load_raw_block_file("default/gamedata/Wonder.txt").blocks)
-    _write_empty_wonder_build_lists()
-    print("  + wrote scenario-level empty WonderBuildLists.txt override")
     _sanitize_omitted_building_refs()
     removed_goal_wonder_refs = _write_sanitized_goals_wonder_refs(live_wonder_ids)
     print(
@@ -5453,6 +6209,15 @@ def main():
         _gl_desc_text, gl_library, gl_str, MOMJR,
     )
 
+    # Same reason, same anchor: the STATISTICS lines were stamped at advance
+    # registration, before the cost retune, so they have to be re-derived here
+    # from the final Advance.txt rather than trusted.
+    _stats_fixed = reconcile_advance_statistics(
+        gl_library, _adv._text, _read_rel("default/gamedata/age.txt"))
+    if _stats_fixed:
+        print(f"  + reconciled {_stats_fixed} Great Library _STATISTICS section(s) "
+              f"against the final advance DB")
+
     reg.save_all()
     final_gl_scrubbed = 0
     final_gl_scrubbed += _scrub_hidden_tileimp_gl_file(
@@ -5516,12 +6281,25 @@ def main():
     gated_idents = _emit_mom_gating_slc()
     print(f"  + mom_gating.slc: {gated_idents} ident(s) walled across 5 tribes")
 
+    # Same ordering contract as the wall above: it reads the FINAL Units.txt and
+    # the settled prereq rewrite, so it must not run before either.
+    summon_units = _emit_mom_summon_slc()
+    print(f"  + mom_summon.slc: {summon_units} summonable creature(s) across 5 ladders")
+
     if _ensure_diffdb_start_government():
         print(f"  + DiffDB.txt: guaranteed {START_GUARANTEED_ADVANCES} across all start-tech blocks")
 
     retired_x = _retire_x_sentinels()
     if retired_x:
         print(f"  + retired {retired_x} AE 'X' sentinel improvement/wonder(s) (obsolete from turn 1)")
+
+    # MUST run AFTER _retire_x_sentinels(). The AI wonder lists exclude any
+    # wonder that is obsolete the moment it unlocks, and that mark is the
+    # ObsoleteAdvance this stamper writes. Built earlier -- as it was, ~674
+    # lines up -- the X sentinels still look live and get offered to the AI.
+    wonder_list_entries = _write_wonder_build_lists()
+    print("  + wrote scenario-level WonderBuildLists.txt override"
+          f" ({wonder_list_entries} AI wonder list entries)")
 
     _generate_civilisation_tribes()
     _generate_civstr_tribes()

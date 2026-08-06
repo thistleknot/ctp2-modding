@@ -1,0 +1,300 @@
+// ===========================================================================
+// mom_artifacts.slc -- the Artifacts and Wishes spokes, and the lamp that
+// makes them appear.
+//
+// SPEC: specs/earned-powers-and-counterplay.md and specs/magic-ui-architecture.md.
+//
+// THESIS. A vessel is a UNIT, not a player flag and not a building. CTP2 has no
+// inventory, so "holding" an artifact is owning the unit and BEARING it is
+// co-location. A vessel therefore stands on a tile and can be reached, which is
+// what makes it contestable at all.
+//
+// WHAT "CONTESTABLE" CAN AND CANNOT MEAN HERE. Verified against the engine
+// source, not assumed: there is no SetOwner path for a unit in gs/gameobj and no
+// SLIC verb for one. CTP2 captures CITIES, never units. So an enemy who reaches
+// a vessel DESTROYS it -- they cannot take it.
+//
+// That makes the contest DENIAL rather than seizure: killing a rival's lamp
+// strips their +50 capacity and whatever wishes they had left. The operator's
+// "picked up by the survivor" is NOT implemented and cannot be, on stock rules,
+// without a transfer mechanism the engine does not have. Vessels are conserved
+// at the level of the SYSTEM instead -- every efreet that dies frees one.
+//
+// THE LAMP, concretely:
+//   * :Anchored:  MaxMovePoints 0 -- it never travels on its own. Someone must
+//                 build around it or fight over where it already is.
+//   * :Boon:      +25% mana capacity while you hold it. Expressed as a fraction
+//                 of the 200 anchor, per the fixed-anchor spec, so it reads the
+//                 same for every tribe.
+//   * :Bane:      the thing inside is not friendly. It drains mana every turn
+//                 you hold it. Boon and Bane are the SAME resource on purpose:
+//                 the lamp raises your ceiling and lowers your floor, so it is
+//                 a real decision rather than a pickup.
+//   * :Wish:      three minor wishes, enumerated. A genie grants minor only;
+//                 major wishes need a captured avatar and are not built yet.
+//
+// WHY THE BANE CANNOT BE ESCAPED. Artifacts cannot be abandoned (operator,
+// 2026-08-04: "artifacts can't be abandoned either" / "a boon and a curse to
+// those who wield it until death does them part"). The lamp is anchored and
+// never buildable, so the only ways to stop holding it are to lose it in combat
+// or to spend its wishes -- both of which cost something.
+//
+// CRASH DISCIPLINE, which shapes every function below:
+//   * No user function calls another user function on a path reachable from a
+//     handler or a Button body. That 2-level chain is the measured 0xC0000005.
+//     Sphere and artifact state are therefore read as ARRAY subscripts, never
+//     through a predicate call.
+//   * Segments declare at most FIVE arms and `Close` is declared FIRST -- the
+//     box renders five and silently drops the tail, so a sixth arm deletes your
+//     close button.
+//   * Button labels do not interpolate {Scalar}; live numbers go in the body.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// DETECTION. One sweep per player per turn. This is the ONLY writer of
+// MomHasLamp -- everything else reads it.
+//
+// It is a full rescan rather than an incremental update because a vessel changes
+// hands through ordinary combat, which fires no event this file listens to. A
+// flag set when the lamp was picked up would stay set after it was lost.
+// ---------------------------------------------------------------------------
+HandleEvent(BeginTurn) 'MomArtifactScan' post {
+    int_t p;
+    int_t i;
+    int_t n;
+    int_t t;
+    int_t held;
+    int_t efreets;
+    unit_t u;
+    city_t homeCity;
+
+    p = player[0];
+    if (p >= 1 && p <= 5) {
+        held = 0;
+        efreets = 0;
+        n = player[0].units;
+        for (i = 0; i < n; i = i + 1) {
+            GetUnitByIndex(p, i, u);
+            t = u.type;
+            if (t == UnitDB(UNIT_LAMP)) {
+                held = 1;
+            }
+            if (t == UnitDB(UNIT_EFREET)) {
+                efreets = efreets + 1;
+            }
+        }
+
+        // WHERE LAMPS COME FROM. An efreet is MoM's djinn and the lamp is what
+        // it was bound into, so destroying the servant does not destroy the
+        // vessel -- it frees it, and it returns to the master it served.
+        //
+        // THIS IS A COUNT DROP, NOT A KillUnit HANDLER, and that is a measured
+        // decision rather than a stylistic one. The KillUnit version aborted the
+        // game before turn 1 with "-1 is not a valid player index" -- a RUNTIME
+        // SLIC error, which reports no file and no line, so it took a bisect to
+        // attribute. Reading `unit[0]` in that handler is not safe here; nesting
+        // the `.owner` read inside the type test did NOT fix it, which retired
+        // the obvious explanation.
+        //
+        // Counting from the sweep that is already running avoids the event
+        // entirely and uses only calls this handler has already proven safe.
+        // It also fires for a disband, which is the same outcome by a different
+        // route: the servant is gone, the vessel is not.
+        //
+        // MomEfreetSeen gates the FIRST sweep. Without it a player who starts
+        // with no efreets would read 0 -> 0 as no change (harmless), but a
+        // player whose first sweep happens after acquiring one would read a
+        // phantom drop from an uninitialised zero.
+        if (MomEfreetSeen[p] == 1 && efreets < MomEfreetCount[p]
+            && player[0].cities > 0) {
+            GetCityByIndex(player[0], 0, homeCity);
+            if (CityIsValid(homeCity)) {
+                CreateUnit(p, UnitDB(UNIT_LAMP), homeCity.location, 0);
+            }
+        }
+        MomEfreetCount[p] = efreets;
+        MomEfreetSeen[p] = 1;
+
+        // Transition IN: a lamp just came into this player's hands. Charge it
+        // with its wishes. Guarded on the transition rather than on `held` so a
+        // player cannot refill by holding it -- wishes are per-acquisition.
+        if (held == 1 && MomHasLamp[p] == 0) {
+            MomLampWishes[p] = 3;
+            MomMagicMax[p] = 250;
+            if (IsHumanPlayer(p)) {
+                Message(p, 'MomMsgLampFound');
+            }
+        }
+
+        // Transition OUT: lost it. The capacity boon is REVOCABLE per spec, and
+        // a pool above the restored maximum is CLAMPED, not banked -- otherwise
+        // losing the lamp would be free for anyone who had already filled up.
+        if (held == 0 && MomHasLamp[p] == 1) {
+            MomLampWishes[p] = 0;
+            MomMagicMax[p] = 200;
+            if (MomMagicCur[p] > MomMagicMax[p]) {
+                MomMagicCur[p] = MomMagicMax[p];
+            }
+            if (IsHumanPlayer(p)) {
+                Message(p, 'MomMsgLampLost');
+            }
+        }
+
+        MomHasLamp[p] = held;
+
+        // THE BANE. Drains while held, every turn, whether or not you use it.
+        // Floors at zero rather than going negative: a negative pool would make
+        // every downstream affordability test read as "cannot afford" forever,
+        // which looks like a broken magic system rather than a cost.
+        if (held == 1) {
+            MomMagicCur[p] = MomMagicCur[p] - 4;
+            if (MomMagicCur[p] < 0) {
+                MomMagicCur[p] = 0;
+            }
+        }
+
+        // Mirror into the panel scalars, human only -- see mom_func.slc.
+        if (IsHumanPlayer(p)) {
+            MomLampWishesDisp = MomLampWishes[p];
+            MomLampBaneDisp = 0;
+            if (held == 1) {
+                MomLampBaneDisp = 4;
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// THE ARTIFACTS SPOKE. Reached from the hub's Artifacts arm, which only exists
+// on the hub variant shown while holding a vessel (mom_msg.slc).
+//
+// Three arms: Close, Back, Wishes. Well inside the five-arm ceiling, which
+// leaves room for a second vessel type to add an arm here later.
+// ---------------------------------------------------------------------------
+alertbox 'MomMsgArtifacts' {
+    Text(ID_MOM_MSG_ARTIFACTS);
+
+    Button(ID_BUTTON_CLOSE) {
+        Kill();
+    }
+
+    Button(ID_MOM_MSG_BTN_BACK) {
+        Kill();
+        Message(g.player, 'MagicMenu');
+    }
+
+    Button(ID_MOM_MSG_BTN_WISHES) {
+        Kill();
+        // Inlined array read, not a predicate call -- see CRASH DISCIPLINE.
+        if (MomLampWishes[g.player] > 0) {
+            Message(g.player, 'MomMsgWishes');
+        } else {
+            Message(g.player, 'MomMsgWishesSpent');
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// THE WISHES SPOKE. Five arms exactly -- Close, Back, and three wishes. This is
+// AT the ceiling: adding a fourth wish here silently deletes Close.
+//
+// The list is enumerated and closed by design (spec: "A :Wish: SHALL come from
+// an enumerated list. The list is the design."). There is no open-ended wish
+// because an open-ended wish is either useless or game-ending, and both are
+// worse than three specific ones.
+//
+// Each wish spends one charge and is spelled out in the body, because button
+// labels cannot interpolate.
+// ---------------------------------------------------------------------------
+alertbox 'MomMsgWishes' {
+    Text(ID_MOM_MSG_WISHES);
+
+    Button(ID_BUTTON_CLOSE) {
+        Kill();
+    }
+
+    Button(ID_MOM_MSG_BTN_BACK) {
+        Kill();
+        Message(g.player, 'MomMsgArtifacts');
+    }
+
+    // WISH: RICHES. The genie's safest trick.
+    Button(ID_MOM_MSG_BTN_WISH_GOLD) {
+        Kill();
+        if (MomLampWishes[g.player] > 0) {
+            MomLampWishes[g.player] = MomLampWishes[g.player] - 1;
+            // AddGold, not `g.player.gold = ...`. There is no writable gold
+            // property: g.player is a player INDEX, so the assignment form is a
+            // syntax error, and the parser reports it at the NEXT structural
+            // token (the `} else {` below) rather than at the offending line.
+            AddGold(g.player, 500);
+            Message(g.player, 'MomMsgWishGoldDone');
+        } else {
+            Message(g.player, 'MomMsgWishesSpent');
+        }
+    }
+
+    // WISH: POWER. Fills the pool to whatever the lamp has raised it to, which
+    // is why it is worth more while you still hold the lamp than after.
+    Button(ID_MOM_MSG_BTN_WISH_POWER) {
+        Kill();
+        if (MomLampWishes[g.player] > 0) {
+            MomLampWishes[g.player] = MomLampWishes[g.player] - 1;
+            MomMagicCur[g.player] = MomMagicMax[g.player];
+            Message(g.player, 'MomMsgWishPowerDone');
+        } else {
+            Message(g.player, 'MomMsgWishesSpent');
+        }
+    }
+
+    // WISH: A SERVANT. The genie sends something of its own kind. An Efreet is
+    // MoM's djinn and already exists as a unit with art, so the wish reuses it
+    // rather than inventing a creature -- the thing in the lamp IS an efreet.
+    Button(ID_MOM_MSG_BTN_WISH_SERVANT) {
+        Kill();
+        if (MomLampWishes[g.player] > 0) {
+            MomLampWishes[g.player] = MomLampWishes[g.player] - 1;
+            MomSummonChoice[g.player] = UnitDB(UNIT_EFREET);
+            MomSummonPrep[g.player] = 1;
+            MomSummonPending[g.player] = UnitDB(UNIT_EFREET);
+            Message(g.player, 'MomMsgWishServantDone');
+        } else {
+            Message(g.player, 'MomMsgWishesSpent');
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Result and notification segments. Plain acknowledgements: they exist so an
+// arm press has visible consequence, which is the whole difference between a
+// menu that works and one that looks broken.
+// ---------------------------------------------------------------------------
+alertbox 'MomMsgWishesSpent' {
+    Text(ID_MOM_MSG_WISHES_SPENT);
+    Button(ID_BUTTON_CLOSE) { Kill(); }
+}
+
+alertbox 'MomMsgWishGoldDone' {
+    Text(ID_MOM_MSG_WISH_GOLD_DONE);
+    Button(ID_BUTTON_CLOSE) { Kill(); }
+}
+
+alertbox 'MomMsgWishPowerDone' {
+    Text(ID_MOM_MSG_WISH_POWER_DONE);
+    Button(ID_BUTTON_CLOSE) { Kill(); }
+}
+
+alertbox 'MomMsgWishServantDone' {
+    Text(ID_MOM_MSG_WISH_SERVANT_DONE);
+    Button(ID_BUTTON_CLOSE) { Kill(); }
+}
+
+messagebox 'MomMsgLampFound' {
+    Text(ID_MOM_MSG_LAMP_FOUND);
+    Button(ID_BUTTON_CLOSE) { Kill(); }
+}
+
+messagebox 'MomMsgLampLost' {
+    Text(ID_MOM_MSG_LAMP_LOST);
+    Button(ID_BUTTON_CLOSE) { Kill(); }
+}

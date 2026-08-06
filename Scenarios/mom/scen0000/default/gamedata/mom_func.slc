@@ -13,10 +13,67 @@
 //     BuildingDB() refs or variables raise "Wrong type of argument".
 //   Helpers take int_t p (a player index); callers pass the event-local player[0].
 
+// Seat -> sphere, 1..5, 0 == not a MoM tribe. Written only by MomSphereIdentify.
+int_t MomSphere[31];
+
+// ---------------------------------------------------------------------------
+// SPHERE IDENTITY COMES FROM THE CIVILISATION, NOT THE SEAT (2026-08-04).
+//
+// These predicates used to be `p == 1`, `p == 2` ... with a comment asserting
+// "Player 1 == Tribes of Life (civ #1)". That premise is FALSE and the comment
+// was the only thing defending it. The New Game screen has an EMPIRE selector:
+// it defaults to Tribes of Nature while the human sits at SEAT 1, so the human
+// was Nature and received LIFE's magic. Visible in a build list -- playing
+// Tribes of Nature, the Build Manager offered Guardian Spirit, Life's rung-1
+// creature, because mod_CanCityBuildUnit walled by seat.
+//
+// The seat is now resolved to a sphere ONCE PER TURN, in MomSphereIdentify
+// below, and every predicate reads that array. Three reasons it is an array and
+// not a function call:
+//
+//   * CALL DEPTH. These predicates are already called FROM handlers, and
+//     several are called from inside other user functions. Adding a
+//     PlayerCivilization() lookup inside them is free (it is a builtin), but
+//     making them call another USER function would build a 2-level chain, which
+//     is the documented 0xC0000005.
+//   * COST. PlayerCivilization/CivilizationIndex per predicate per call would
+//     run dozens of times a turn for an answer that cannot change mid-game.
+//   * ONE WRITER. The mapping is established in exactly one place, so a seat
+//     that is not a tribe reads 0 everywhere rather than accidentally matching.
+//
+// CivilizationIndex takes a QUOTED civ record name ("TRIBES_LIFE" from
+// civilisation.txt), unlike UnitDB()/AdvanceDB() which take bare idents -- the
+// same split documented in slic-builtin-ident-quoting-splits. Verified against
+// 484 call sites of this idiom in Ages of Man.
+// ---------------------------------------------------------------------------
+
+HandleEvent(BeginTurn) 'MomSphereIdentify' post {
+    int_t sp;
+
+    sp = player[0];
+
+    // Guard the index before touching the array, as everywhere else in this mod:
+    // player 0 is the barbarian and indexing the sphere arrays for it was the
+    // original turn-10 crash.
+    if (sp >= 0 && sp <= 30) {
+        MomSphere[sp] = 0;
+        if (PlayerCivilization(sp) == CivilizationIndex("TRIBES_LIFE")) {
+            MomSphere[sp] = 1;
+        } elseif (PlayerCivilization(sp) == CivilizationIndex("TRIBES_NATURE")) {
+            MomSphere[sp] = 2;
+        } elseif (PlayerCivilization(sp) == CivilizationIndex("TRIBES_SORCERY")) {
+            MomSphere[sp] = 3;
+        } elseif (PlayerCivilization(sp) == CivilizationIndex("TRIBES_DEATH")) {
+            MomSphere[sp] = 4;
+        } elseif (PlayerCivilization(sp) == CivilizationIndex("TRIBES_CHAOS")) {
+            MomSphere[sp] = 5;
+        }
+    }
+}
+
 int_f MomPlayerIsLife(int_t p_1)
 {
-    // Player 1 == Tribes of Life (civ #1). Numeric index, not TRIBES_LIFE (undefined in SLIC).
-    if (p_1 == 1) {
+    if (MomSphere[p_1] == 1) {
         return 1;
     }
     return 0;
@@ -24,7 +81,7 @@ int_f MomPlayerIsLife(int_t p_1)
 
 int_f MomPlayerIsNature(int_t p_2)
 {
-    if (p_2 == 2) {
+    if (MomSphere[p_2] == 2) {
         return 1;
     }
     return 0;
@@ -32,7 +89,7 @@ int_f MomPlayerIsNature(int_t p_2)
 
 int_f MomPlayerIsSorcery(int_t p_3)
 {
-    if (p_3 == 3) {
+    if (MomSphere[p_3] == 3) {
         return 1;
     }
     return 0;
@@ -40,7 +97,7 @@ int_f MomPlayerIsSorcery(int_t p_3)
 
 int_f MomPlayerIsDeath(int_t p_4)
 {
-    if (p_4 == 4) {
+    if (MomSphere[p_4] == 4) {
         return 1;
     }
     return 0;
@@ -48,7 +105,7 @@ int_f MomPlayerIsDeath(int_t p_4)
 
 int_f MomPlayerIsChaos(int_t p_5)
 {
-    if (p_5 == 5) {
+    if (MomSphere[p_5] == 5) {
         return 1;
     }
     return 0;
@@ -248,13 +305,47 @@ int_f MomCountChaosFoci(int_t p_16)
     return focusCount;
 }
 
-void_f MomSpawnSphereUnit(int_t p_13, int_t unitType)
+// ---------------------------------------------------------------------------
+// SUMMONED-CREATURE LEDGER (2026-08-01)
+//
+// Upkeep is charged on SUMMONED creatures only -- a Centaur built in a city is
+// free, an identical Centaur that was summoned is not. SLIC has no per-unit
+// storage to hang an "I was summoned" flag on, so origin is recorded here
+// instead: MomSpawnSphereUnit stores the handle CreateUnit hands back, together
+// with the sphere rung that decides the rate.
+//
+// Layout is flat because SLIC has no 2-D arrays: index = (p-1)*32 + slot, for p
+// in 1..5. MomSummonRung[i] == 0 IS the free-slot sentinel, so the array is
+// self-describing and needs no separate occupancy counter.
+//
+// The ledger is SELF-CLEANING and deliberately needs no KillUnit handler: a
+// creature that dies leaves a handle that stops being .valid, and the per-turn
+// scan in mom_magic.slc frees the slot when it sees that. Billing a corpse
+// forever would look like balance rather than a bug, which is why
+// tools/gate_mana_upkeep.py asserts the clear-on-invalid branch specifically.
+//
+// DECLARED HERE, immediately above the only writer, for the same reason the
+// magic-power block sits above its readers: SLIC needs declaration-before-use
+// WITHIN a file, not just across the include order.
+unit_t MomSummonUnit[160];   // 5 players x 32 slots -- the creature handle
+int_t  MomSummonRung[160];   // its rung 1..5; 0 == FREE SLOT
+int_t  MomUpkeepDisp;        // display scalars for the 'j' MAGIC STATUS panel
+int_t  MomNetDisp;           // net = generation - upkeep, may be negative
+
+// rung == 0 means DO NOT LEDGER: the one-time *_MAGIC milestone creature in
+// mom_city_effects.slc is a gift and correctly carries no upkeep. Every
+// repeatable spend path passes the real rung.
+void_f MomSpawnSphereUnit(int_t p_13, int_t unitType, int_t rung)
 {
     city_t tmpCity;
     location_t spawnLoc;
     location_t tryLoc;
     int_t d;
     int_t placed;
+    int_t s;
+    int_t base;
+    int_t slot;
+    unit_t newUnit;
 
     // NEVER player[1]: player[] is the event ARG array (size 1), so player[1] is
     // out of bounds -- the same rule mom_turns.slc documents. It did not raise a
@@ -291,7 +382,32 @@ void_f MomSpawnSphereUnit(int_t p_13, int_t unitType)
                     }
                 }
             }
-            CreateUnit(p_13, unitType, spawnLoc, 1);
+            // 5-arg CreateUnit hands the new unit back in its out-arg (62 uses
+            // across the mod corpus). That handle is the ONLY way to tell a
+            // summoned creature from an identical one built in a city, which is
+            // what "only summoned creatures pay upkeep" requires.
+            CreateUnit(p_13, unitType, spawnLoc, 1, newUnit);
+
+            if (rung > 0) {
+                if (p_13 >= 1 && p_13 <= 5) {
+                    base = (p_13 - 1) * 32;
+                    slot = -1;
+                    for (s = 0; s < 32; s = s + 1) {
+                        if (slot < 0) {
+                            if (MomSummonRung[base + s] == 0) {
+                                slot = s;
+                            }
+                        }
+                    }
+                    // No free slot: spawn anyway, ledger nothing. A hard cap on
+                    // TRACKED creatures is better than overwriting a live entry,
+                    // which would orphan that creature into permanent free upkeep.
+                    if (slot >= 0) {
+                        MomSummonUnit[base + slot] = newUnit;
+                        MomSummonRung[base + slot] = rung;
+                    }
+                }
+            }
         }
     }
 }
@@ -304,6 +420,10 @@ int_t MomMagicPerTurn[31];   // last computed per-turn generation
 int_t MomMagicCurDisp;       // plain display scalars for the popup: {scalar} is base-verified
 int_t MomMagicMaxDisp;       // (AlexanderTheGreat {cityScore}); array-indexed {Arr[Idx]} is
 int_t MomMagicGenDisp;       // unsupported and silently drops the whole message
+int_t MomRungDisp;           // highest sphere-ladder rung reached, 0-5. Shown on the
+                             // 'j' MAGIC STATUS panel because the summon rolls over
+                             // every rung unlocked (mom_summon.slc) and the player had
+                             // NO way to see which pool they were drawing from.
 
 // Phase D spellbook globals (mom_spells.slc). They live HERE, not there, for the
 // same reason MomMagic*Disp does: mom_func.slc is the FIRST include, and a
@@ -320,5 +440,69 @@ int_t MomSpellMaxDisp;
 // 0 = no pending order. Set by an alertbox arm, consumed and cleared by
 // MomSummonOrderTick in mom_msg.slc.
 int_t MomSummonChoice[31];
+
+// ---------------------------------------------------------------------------
+// SUMMON PREPARATION (2026-08-01)
+//
+// A summon is no longer instant. Committing one debits the mana, rolls the
+// creature, and starts a countdown equal to that creature's sphere rung -- so a
+// rung-1 Warbears still arrives next turn exactly as it always did, while a
+// rung-5 Great Wyrm is a five-turn commitment you have to plan around.
+//
+// This is the other half of the mana economy and deliberately not a duplicate of
+// it: UPKEEP bounds how many creatures you can KEEP, PREPARATION bounds how fast
+// you can GET them.
+//
+// ONE preparation at a time. An order placed while a countdown is running is
+// discarded, which is what makes the mechanic a plan rather than a queue -- and
+// there is no cancel, because a commitment you can walk away from for free is
+// not a commitment.
+// THE UPKEEP RATE, in mana per turn per rung. A rung-1 creature costs this, a
+// rung-5 costs five times it. SLIC has no #define, so this is a global lazily
+// seeded to its default by MomRecalcMagicPerTurn -- one place to retune the
+// whole economy, and one place a test can patch to make insolvency reachable in
+// two turns instead of the two hundred a shipped-rate game would need.
+int_t MomUpkeepRate;         // 0 == unseeded; MOM_UPKEEP_RATE_DEFAULT is 2
+int_t MomSummonPrep[31];     // turns remaining; 0 == nothing preparing
+int_t MomSummonPending[31];  // the rolled unit type awaiting arrival
+
+// ---------------------------------------------------------------------------
+// ARTIFACTS. A vessel is a UNIT (spec: earned-powers-and-counterplay), because
+// CTP2 has no inventory -- so "holding" one is owning that unit, and BEARING it
+// is co-location. These are refreshed by MomArtifactScan each BeginTurn from a
+// real sweep of the player's units, never set speculatively: the vessel can
+// change hands by combat at any time, so a cached flag would go stale silently.
+//
+// Declared HERE rather than in mom_artifacts.slc because the menu segments in
+// mom_msg.slc (include 55) read MomHasLamp to decide which hub to open, and
+// mom_func.slc is include 48 -- an array must be declared before the file that
+// reads it loads, or the read is a hard load error.
+// ---------------------------------------------------------------------------
+int_t MomHasLamp[31];        // 1 while this player owns a lamp, else 0
+int_t MomLampWishes[31];     // minor wishes left in the lamp they hold
+int_t MomEfreetCount[31];    // efreets owned last sweep; a DROP frees a vessel
+int_t MomEfreetSeen[31];     // 1 once this player has been swept at least once
+
+// Panel scalars. A message body can only interpolate a plain {scalar} -- an
+// {Array[Index]} form silently DROPS the whole message, so per-player values
+// have to be mirrored into scalars for the human before they can be shown.
+// Same contract as MomMagicCurDisp: refreshed every BeginTurn under an
+// IsHumanPlayer guard, so the panel is current whenever it is opened.
+int_t MomLampWishesDisp;     // wishes left, for the Artifacts panel
+int_t MomLampBaneDisp;       // mana the lamp drained this turn, for the panel
+int_t MomSummonPendRung[31]; // its rung, carried so arrival can ledger upkeep
+int_t MomPrepDisp;           // countdown scalar for the 'j' panel
+int_t MomSummonCivPct[31];   // per-civ summon price, as a PERCENT of the rung curve.
+                             // Life 64 / Nature 68 / Sorcery 54 / Death 54 / Chaos 92,
+                             // derived from each sphere's own roster cost at equal rung
+                             // and scaled so the dearest civ's rung-5 creature lands at
+                             // 90% of the fixed 200 pool. 0 is read as 100 by every
+                             // caller, so an unseeded player pays the base curve rather
+                             // than summoning for free.
+int_t MomSummonCostDisp;     // price the summon arm quotes: 45 + 30*rung.
+                             // A scalar, not an array -- an undeclared scalar is
+                             // silently auto-created and would read a permanent 0,
+                             // so the arm would advertise 'Summon Creature (0)'.
+
 int_t MomMagicShownTurn[31]; // per-round re-entry latch for the popup (flood safety)
 int_t MomMagicSchoolPct[31]; // per-turn multiplier as integer percent (M2); 0 read as 100

@@ -6,12 +6,12 @@ UNIT_ZOMBIES {
    DefaultIcon ICON_UNIT_ZOMBIES
    DefaultSprite SPRITE_ZOMBIES
    Category UNIT_CATEGORY_ATTACK
-   Attack 10
-   Defense 10
+   Attack 12
+   Defense 12
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 350
    PowerPoints 175
    ShieldHunger 1
@@ -19,7 +19,7 @@ UNIT_ZOMBIES {
    FoodHunger 0
    MaxMovePoints 100
    VisionRange 2
-   EnableAdvance ADVANCE_DEATH_LORE
+   EnableAdvance ADVANCE_DEATH_MAGIC
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -57,14 +57,14 @@ UNIT_SPEARMEN {
    DefaultIcon ICON_UNIT_SPEARMEN
    DefaultSprite SPRITE_SPEARMEN
    Category UNIT_CATEGORY_ATTACK
-   Attack 5
-   Defense 5
+   Attack 10
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
    MaxHP 10
-   ShieldCost 150
-   PowerPoints 100
+   ShieldCost 230
+   PowerPoints 115
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -108,14 +108,14 @@ UNIT_SWORDSMEN {
    DefaultIcon ICON_UNIT_SWORDSMEN
    DefaultSprite SPRITE_SWORDSMEN
    Category UNIT_CATEGORY_ATTACK
-   Attack 10
-   Defense 10
+   Attack 12
+   Defense 12
    ZBRangeAttack 0
    Firepower 1
    Armor 1
    MaxHP 10
-   ShieldCost 250
-   PowerPoints 125
+   ShieldCost 320
+   PowerPoints 160
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -159,10 +159,10 @@ UNIT_PHANTOM_WARRIORS {
    DefaultIcon ICON_UNIT_PHANTOM_WARRIORS
    DefaultSprite SPRITE_PHANTOM_WARRIORS
    Category UNIT_CATEGORY_ATTACK
-   Attack 15
-   Defense 5
+   Attack 16
+   Defense 10
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
    MaxHP 10
    ShieldCost 150
@@ -172,7 +172,7 @@ UNIT_PHANTOM_WARRIORS {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_SORCEROUS_LORE
+   EnableAdvance ADVANCE_SORCERY
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -210,8 +210,8 @@ UNIT_HELL_HOUNDS {
    DefaultIcon ICON_UNIT_HELL_HOUNDS
    DefaultSprite SPRITE_HELL_HOUNDS
    Category UNIT_CATEGORY_ATTACK
-   Attack 20
-   Defense 10
+   Attack 23
+   Defense 12
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -223,7 +223,7 @@ UNIT_HELL_HOUNDS {
    FoodHunger 0
    MaxMovePoints 100
    VisionRange 2
-   EnableAdvance ADVANCE_CHAOS_LORE
+   EnableAdvance ADVANCE_CHAOS_MAGIC
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -261,12 +261,12 @@ UNIT_WARBEARS {
    DefaultIcon ICON_UNIT_WARBEARS
    DefaultSprite SPRITE_WARBEARS
    Category UNIT_CATEGORY_ATTACK
-   Attack 15
+   Attack 16
    Defense 15
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 350
    PowerPoints 175
    ShieldHunger 1
@@ -274,7 +274,7 @@ UNIT_WARBEARS {
    FoodHunger 0
    MaxMovePoints 100
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_LORE
+   EnableAdvance ADVANCE_NATURE_MAGIC
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -312,12 +312,12 @@ UNIT_WARLOCK {
    DefaultIcon ICON_UNIT_WARLOCK
    DefaultSprite SPRITE_WARLOCK
    Category UNIT_CATEGORY_ATTACK
-   Attack 60
-   Defense 10
+   Attack 91
+   Defense 12
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 470
    PowerPoints 235
    ShieldHunger 2
@@ -325,7 +325,7 @@ UNIT_WARLOCK {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_SORCERY_MAGE
+   EnableAdvance ADVANCE_ALCHEMY
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -363,12 +363,12 @@ UNIT_ARIEL {
    DefaultIcon ICON_UNIT_ARIEL
    DefaultSprite SPRITE_ARIEL
    Category UNIT_CATEGORY_ATTACK
-   Attack 15
-   Defense 40
+   Attack 16
+   Defense 79
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 460
    PowerPoints 230
    ShieldHunger 1
@@ -376,7 +376,7 @@ UNIT_ARIEL {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_LIFE_LORE
+   EnableAdvance ADVANCE_MYSTICISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -414,12 +414,12 @@ UNIT_JAFAR {
    DefaultIcon ICON_UNIT_JAFAR
    DefaultSprite SPRITE_JAFAR
    Category UNIT_CATEGORY_ATTACK
-   Attack 30
-   Defense 20
+   Attack 40
+   Defense 29
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 460
    PowerPoints 230
    ShieldHunger 1
@@ -427,7 +427,7 @@ UNIT_JAFAR {
    FoodHunger 0
    MaxMovePoints 400
    VisionRange 2
-   EnableAdvance ADVANCE_SORCERY_ADEPT
+   EnableAdvance ADVANCE_MYSTICISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -465,12 +465,12 @@ UNIT_RJAK {
    DefaultIcon ICON_UNIT_RJAK
    DefaultSprite SPRITE_RJAK
    Category UNIT_CATEGORY_ATTACK
-   Attack 30
-   Defense 30
+   Attack 40
+   Defense 56
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 470
    PowerPoints 235
    ShieldHunger 1
@@ -478,7 +478,7 @@ UNIT_RJAK {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_DEATH_ADEPT
+   EnableAdvance ADVANCE_MYSTICISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -516,12 +516,12 @@ UNIT_TAURON {
    DefaultIcon ICON_UNIT_TAURON
    DefaultSprite SPRITE_TAURON
    Category UNIT_CATEGORY_ATTACK
-   Attack 40
+   Attack 60
    Defense 15
    ZBRangeAttack 0
-   Firepower 3
+   Firepower 6
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 460
    PowerPoints 230
    ShieldHunger 1
@@ -529,7 +529,7 @@ UNIT_TAURON {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_CHAOS_ADEPT
+   EnableAdvance ADVANCE_MYSTICISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -567,12 +567,12 @@ UNIT_SERENA {
    DefaultIcon ICON_UNIT_SERENA
    DefaultSprite SPRITE_SERENA
    Category UNIT_CATEGORY_ATTACK
-   Attack 15
-   Defense 20
+   Attack 16
+   Defense 29
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 460
    PowerPoints 230
    ShieldHunger 1
@@ -580,7 +580,7 @@ UNIT_SERENA {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_LIFE_ADEPT
+   EnableAdvance ADVANCE_MYSTICISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -618,12 +618,12 @@ UNIT_FREYA {
    DefaultIcon ICON_UNIT_FREYA
    DefaultSprite SPRITE_FREYA
    Category UNIT_CATEGORY_ATTACK
-   Attack 20
-   Defense 25
+   Attack 23
+   Defense 43
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 460
    PowerPoints 230
    ShieldHunger 1
@@ -631,7 +631,7 @@ UNIT_FREYA {
    FoodHunger 0
    MaxMovePoints 300
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_LORE
+   EnableAdvance ADVANCE_MYSTICISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -669,12 +669,12 @@ UNIT_ALORRA {
    DefaultIcon ICON_UNIT_ALORRA
    DefaultSprite SPRITE_ALORRA
    Category UNIT_CATEGORY_ATTACK
-   Attack 30
-   Defense 10
+   Attack 40
+   Defense 12
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 470
    PowerPoints 235
    ShieldHunger 2
@@ -682,7 +682,7 @@ UNIT_ALORRA {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_MAGE
+   EnableAdvance ADVANCE_MYSTICISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -720,20 +720,20 @@ UNIT_CENTAURS {
    DefaultIcon ICON_UNIT_CENTAURS
    DefaultSprite SPRITE_CENTAURS
    Category UNIT_CATEGORY_ATTACK
-   Attack 10
-   Defense 5
+   Attack 12
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
    MaxHP 10
-   ShieldCost 250
-   PowerPoints 125
+   ShieldCost 320
+   PowerPoints 160
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_LORE
+   EnableAdvance ADVANCE_SHAMANISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -771,8 +771,8 @@ UNIT_ELVEN_ARCHERS {
    DefaultIcon ICON_UNIT_ELVEN_ARCHERS
    DefaultSprite SPRITE_ELVEN_ARCHERS
    Category UNIT_CATEGORY_ATTACK
-   Attack 15
-   Defense 5
+   Attack 16
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -784,7 +784,7 @@ UNIT_ELVEN_ARCHERS {
    FoodHunger 0
    MaxMovePoints 100
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_LORE
+   EnableAdvance ADVANCE_PANTHEISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -822,8 +822,8 @@ UNIT_MAGE {
    DefaultIcon ICON_UNIT_MAGE
    DefaultSprite SPRITE_MAGE
    Category UNIT_CATEGORY_ATTACK
-   Attack 15
-   Defense 5
+   Attack 16
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -835,7 +835,7 @@ UNIT_MAGE {
    FoodHunger 0
    MaxMovePoints 100
    VisionRange 2
-   EnableAdvance ADVANCE_SORCEROUS_LORE
+   EnableAdvance ADVANCE_OCCULT_STUDIES
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -873,20 +873,20 @@ UNIT_WYVERN {
    DefaultIcon ICON_UNIT_WYVERN
    DefaultSprite SPRITE_WYVERN
    Category UNIT_CATEGORY_AERIAL
-   Attack 40
-   Defense 20
+   Attack 60
+   Defense 29
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
-   ShieldCost 1500
-   PowerPoints 750
+   MaxHP 20
+   ShieldCost 1200
+   PowerPoints 600
    ShieldHunger 2
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 300
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_MAGE
+   EnableAdvance ADVANCE_GREATER_FAUNA_LORE
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -916,8 +916,8 @@ UNIT_KNIGHTS {
    DefaultIcon ICON_UNIT_KNIGHTS
    DefaultSprite SPRITE_KNIGHTS
    Category UNIT_CATEGORY_ATTACK
-   Attack 20
-   Defense 10
+   Attack 23
+   Defense 12
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -967,12 +967,12 @@ UNIT_PALADINS {
    DefaultIcon ICON_UNIT_PALADINS
    DefaultSprite SPRITE_PALADINS
    Category UNIT_CATEGORY_ATTACK
-   Attack 30
-   Defense 10
+   Attack 40
+   Defense 12
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 1125
    PowerPoints 562
    ShieldHunger 1
@@ -980,7 +980,7 @@ UNIT_PALADINS {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_LIFE_ADEPT
+   EnableAdvance ADVANCE_HOLY_WARRIORS
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -1018,14 +1018,14 @@ UNIT_UNICORN {
    DefaultIcon ICON_UNIT_UNICORN
    DefaultSprite SPRITE_UNICORN
    Category UNIT_CATEGORY_ATTACK
-   Attack 15
-   Defense 30
+   Attack 16
+   Defense 56
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 670
-   PowerPoints 335
+   MaxHP 20
+   ShieldCost 630
+   PowerPoints 315
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -1069,12 +1069,12 @@ UNIT_IRON_GOLEM {
    DefaultIcon ICON_UNIT_IRON_GOLEM
    DefaultSprite SPRITE_IRON_GOLEM
    Category UNIT_CATEGORY_ATTACK
-   Attack 40
-   Defense 25
+   Attack 60
+   Defense 43
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 48
    ShieldCost 3500
    PowerPoints 1750
    ShieldHunger 1
@@ -1120,8 +1120,8 @@ UNIT_CATAPULT {
    DefaultIcon ICON_UNIT_CATAPULT
    DefaultSprite SPRITE_CATAPULT
    Category UNIT_CATEGORY_ATTACK
-   Attack 30
-   Defense 5
+   Attack 40
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -1171,12 +1171,12 @@ UNIT_STEAM_CANNON {
    DefaultIcon ICON_UNIT_STEAM_CANNON
    DefaultSprite SPRITE_STEAM_CANNON
    Category UNIT_CATEGORY_ATTACK
-   Attack 50
-   Defense 10
+   Attack 77
+   Defense 12
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 3490
    PowerPoints 1745
    ShieldHunger 2
@@ -1222,14 +1222,14 @@ UNIT_EFREET {
    DefaultIcon ICON_UNIT_EFREET
    DefaultSprite SPRITE_EFREET
    Category UNIT_CATEGORY_ATTACK
-   Attack 35
+   Attack 50
    Defense 15
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
-   ShieldCost 1230
-   PowerPoints 615
+   MaxHP 20
+   ShieldCost 1500
+   PowerPoints 750
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -1273,14 +1273,14 @@ UNIT_WRAITH {
    DefaultIcon ICON_UNIT_WRAITH
    DefaultSprite SPRITE_WRAITH
    Category UNIT_CATEGORY_ATTACK
-   Attack 20
+   Attack 23
    Defense 15
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 670
-   PowerPoints 335
+   MaxHP 20
+   ShieldCost 630
+   PowerPoints 315
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -1324,20 +1324,20 @@ UNIT_GRIFFIN {
    DefaultIcon ICON_UNIT_GRIFFIN
    DefaultSprite SPRITE_GRIFFIN
    Category UNIT_CATEGORY_AERIAL
-   Attack 20
-   Defense 20
+   Attack 23
+   Defense 29
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 670
-   PowerPoints 335
+   MaxHP 20
+   ShieldCost 630
+   PowerPoints 315
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 400
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_ADEPT
+   EnableAdvance ADVANCE_LESSER_FAUNA_LORE
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -1367,14 +1367,14 @@ UNIT_PEGASUS {
    DefaultIcon ICON_UNIT_PEGASUS
    DefaultSprite SPRITE_PEGASUS
    Category UNIT_CATEGORY_AERIAL
-   Attack 25
-   Defense 10
+   Attack 31
+   Defense 12
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
-   ShieldCost 1130
-   PowerPoints 565
+   MaxHP 20
+   ShieldCost 1180
+   PowerPoints 590
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -1410,8 +1410,8 @@ UNIT_GALLEY {
    DefaultIcon ICON_UNIT_GALLEY
    DefaultSprite SPRITE_GALLEY
    Category UNIT_CATEGORY_NAVAL
-   Attack 5
-   Defense 5
+   Attack 10
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -1454,14 +1454,14 @@ UNIT_WARSHIP {
    DefaultIcon ICON_UNIT_WARSHIP
    DefaultSprite SPRITE_WARSHIP
    Category UNIT_CATEGORY_NAVAL
-   Attack 35
+   Attack 50
    Defense 15
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 2910
-   PowerPoints 1455
+   MaxHP 20
+   ShieldCost 820
+   PowerPoints 410
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -1498,12 +1498,12 @@ UNIT_HYDRA {
    DefaultIcon ICON_UNIT_HYDRA
    DefaultSprite SPRITE_HYDRA
    Category UNIT_CATEGORY_ATTACK
-   Attack 60
+   Attack 91
    Defense 15
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 35
    ShieldCost 3490
    PowerPoints 1745
    ShieldHunger 2
@@ -1549,8 +1549,8 @@ UNIT_AIRSHIP {
    DefaultIcon ICON_UNIT_AIRSHIP
    DefaultSprite SPRITE_AIRSHIP
    Category UNIT_CATEGORY_AERIAL
-   Attack 25
-   Defense 5
+   Attack 31
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -1592,20 +1592,20 @@ UNIT_MINOTAUR {
    DefaultIcon ICON_UNIT_MINOTAUR
    DefaultSprite SPRITE_MINOTAUR
    Category UNIT_CATEGORY_ATTACK
-   Attack 5
-   Defense 10
+   Attack 10
+   Defense 12
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 350
-   PowerPoints 175
+   MaxHP 20
+   ShieldCost 400
+   PowerPoints 200
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 100
    VisionRange 2
-   EnableAdvance ADVANCE_CHAOS_LORE
+   EnableAdvance ADVANCE_WARRIOR_CODE
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -1643,12 +1643,12 @@ UNIT_WAR_TROLL {
    DefaultIcon ICON_UNIT_WAR_TROLL
    DefaultSprite SPRITE_WAR_TROLL
    Category UNIT_CATEGORY_ATTACK
-   Attack 35
-   Defense 25
+   Attack 50
+   Defense 43
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 35
    ShieldCost 470
    PowerPoints 235
    ShieldHunger 1
@@ -1656,7 +1656,7 @@ UNIT_WAR_TROLL {
    FoodHunger 0
    MaxMovePoints 100
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_ADEPT
+   EnableAdvance ADVANCE_LEADERSHIP
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -1694,14 +1694,14 @@ UNIT_GARGOYLE {
    DefaultIcon ICON_UNIT_GARGOYLE
    DefaultSprite SPRITE_GARGOYLE
    Category UNIT_CATEGORY_AERIAL
-   Attack 10
-   Defense 20
+   Attack 12
+   Defense 29
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 670
-   PowerPoints 335
+   MaxHP 20
+   ShieldCost 630
+   PowerPoints 315
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -1737,12 +1737,12 @@ UNIT_GUARDIAN_SPIRIT {
    DefaultIcon ICON_UNIT_GUARDIAN_SPIRIT
    DefaultSprite SPRITE_GUARDIAN_SPIRIT
    Category UNIT_CATEGORY_ATTACK
-   Attack 5
-   Defense 25
+   Attack 10
+   Defense 43
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 35
    ShieldCost 350
    PowerPoints 175
    ShieldHunger 1
@@ -1750,7 +1750,7 @@ UNIT_GUARDIAN_SPIRIT {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_LIFE_LORE
+   EnableAdvance ADVANCE_LIFE_MAGIC
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -1788,14 +1788,14 @@ UNIT_COCKATRICE {
    DefaultIcon ICON_UNIT_COCKATRICE
    DefaultSprite SPRITE_COCKATRICE
    Category UNIT_CATEGORY_AERIAL
-   Attack 30
-   Defense 5
+   Attack 40
+   Defense 10
    ZBRangeAttack 0
-   Firepower 3
+   Firepower 6
    Armor 1
    MaxHP 10
-   ShieldCost 670
-   PowerPoints 335
+   ShieldCost 630
+   PowerPoints 315
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -1831,20 +1831,20 @@ UNIT_SALAMANDER {
    DefaultIcon ICON_UNIT_SALAMANDER
    DefaultSprite SPRITE_SALAMANDER
    Category UNIT_CATEGORY_ATTACK
-   Attack 50
+   Attack 77
    Defense 15
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 1200
-   PowerPoints 600
+   MaxHP 20
+   ShieldCost 1010
+   PowerPoints 505
    ShieldHunger 2
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_CHAOS_MAGE
+   EnableAdvance ADVANCE_PYROTECHNICS
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -1882,8 +1882,8 @@ UNIT_INFERNAL_DEVICE {
    DefaultIcon ICON_UNIT_INFERNAL_DEVICE
    DefaultSprite SPRITE_INFERNAL_DEVICE
    Category UNIT_CATEGORY_AERIAL
-   Attack 495
-   Defense 5
+   Attack 100
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -1895,7 +1895,7 @@ UNIT_INFERNAL_DEVICE {
    FoodHunger 0
    MaxMovePoints 1000
    VisionRange 2
-   EnableAdvance ADVANCE_CHAOS_WIZARD
+   EnableAdvance ADVANCE_GRAND_MASTERY
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -1925,8 +1925,8 @@ UNIT_MINION {
    DefaultIcon ICON_UNIT_MINION
    DefaultSprite SPRITE_MINION
    Category UNIT_CATEGORY_ATTACK
-   Attack 0
-   Defense 5
+   Attack 10
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -1938,7 +1938,7 @@ UNIT_MINION {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_DEATH_LORE
+   EnableAdvance ADVANCE_WRITING
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -1976,14 +1976,14 @@ UNIT_DEMON {
    DefaultIcon ICON_UNIT_DEMON
    DefaultSprite SPRITE_DEMON
    Category UNIT_CATEGORY_AERIAL
-   Attack 20
-   Defense 25
+   Attack 23
+   Defense 43
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 1040
-   PowerPoints 520
+   MaxHP 20
+   ShieldCost 860
+   PowerPoints 430
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -2019,8 +2019,8 @@ UNIT_CARAVAN {
    DefaultIcon ICON_UNIT_CARAVAN
    DefaultSprite SPRITE_CARAVAN
    Category UNIT_CATEGORY_ATTACK
-   Attack 0
-   Defense 5
+   Attack 10
+   Defense 10
    ZBRangeAttack 0
    Firepower 1
    Armor 1
@@ -2070,12 +2070,12 @@ UNIT_WAR_MAMMOTH {
    DefaultIcon ICON_UNIT_WAR_MAMMOTH
    DefaultSprite SPRITE_WAR_MAMMOTH
    Category UNIT_CATEGORY_ATTACK
-   Attack 50
-   Defense 25
+   Attack 77
+   Defense 43
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 35
    ShieldCost 470
    PowerPoints 235
    ShieldHunger 1
@@ -2083,7 +2083,7 @@ UNIT_WAR_MAMMOTH {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_ADEPT
+   EnableAdvance ADVANCE_TACTICS
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -2121,14 +2121,14 @@ UNIT_STORM_GIANT {
    DefaultIcon ICON_UNIT_STORM_GIANT
    DefaultSprite SPRITE_STORM_GIANT
    Category UNIT_CATEGORY_ATTACK
-   Attack 40
-   Defense 20
+   Attack 60
+   Defense 29
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 1230
-   PowerPoints 615
+   MaxHP 20
+   ShieldCost 1500
+   PowerPoints 750
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -2172,7 +2172,7 @@ UNIT_AIR_ELEMENTAL {
    DefaultIcon ICON_UNIT_AIR_ELEMENTAL
    DefaultSprite SPRITE_AIR_ELEMENTAL
    Category UNIT_CATEGORY_AERIAL
-   Attack 30
+   Attack 40
    Defense 15
    ZBRangeAttack 0
    Firepower 1
@@ -2215,12 +2215,12 @@ UNIT_STORM_DRAKE {
    DefaultIcon ICON_UNIT_STORM_DRAKE
    DefaultSprite SPRITE_STORM_DRAKE
    Category UNIT_CATEGORY_AERIAL
-   Attack 60
-   Defense 30
+   Attack 91
+   Defense 56
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 35
    ShieldCost 4000
    PowerPoints 2000
    ShieldHunger 2
@@ -2258,12 +2258,12 @@ UNIT_WARRAX {
    DefaultIcon ICON_UNIT_WARRAX
    DefaultSprite SPRITE_WARRAX
    Category UNIT_CATEGORY_ATTACK
-   Attack 40
+   Attack 60
    Defense 15
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 470
    PowerPoints 235
    ShieldHunger 2
@@ -2271,7 +2271,7 @@ UNIT_WARRAX {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_CHAOS_MAGE
+   EnableAdvance ADVANCE_MYSTICISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -2309,12 +2309,12 @@ UNIT_UNDEAD_DRAGON {
    DefaultIcon ICON_UNIT_UNDEAD_DRAGON
    DefaultSprite SPRITE_UNDEAD_DRAGON
    Category UNIT_CATEGORY_AERIAL
-   Attack 60
-   Defense 30
+   Attack 91
+   Defense 56
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 48
    ShieldCost 1200
    PowerPoints 600
    ShieldHunger 1
@@ -2352,12 +2352,12 @@ UNIT_GREAT_WYRM {
    DefaultIcon ICON_UNIT_GREAT_WYRM
    DefaultSprite SPRITE_GREAT_WYRM
    Category UNIT_CATEGORY_ATTACK
-   Attack 75
-   Defense 45
+   Attack 100
+   Defense 87
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 60
    ShieldCost 3490
    PowerPoints 1745
    ShieldHunger 2
@@ -2403,14 +2403,14 @@ UNIT_BEHEMOTH {
    DefaultIcon ICON_UNIT_BEHEMOTH
    DefaultSprite SPRITE_BEHEMOTH
    Category UNIT_CATEGORY_ATTACK
-   Attack 25
-   Defense 20
+   Attack 31
+   Defense 29
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 1230
-   PowerPoints 615
+   MaxHP 48
+   ShieldCost 1500
+   PowerPoints 750
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -2454,12 +2454,12 @@ UNIT_MALLEUS {
    DefaultIcon ICON_UNIT_MALLEUS
    DefaultSprite SPRITE_MALLEUS
    Category UNIT_CATEGORY_ATTACK
-   Attack 40
-   Defense 10
+   Attack 60
+   Defense 12
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 470
    PowerPoints 235
    ShieldHunger 2
@@ -2467,7 +2467,7 @@ UNIT_MALLEUS {
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_DEATH_MAGE
+   EnableAdvance ADVANCE_MYSTICISM
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -2505,20 +2505,20 @@ UNIT_MERFOLK {
    DefaultIcon ICON_UNIT_MERFOLK
    DefaultSprite SPRITE_MERFOLK
    Category UNIT_CATEGORY_NAVAL
-   Attack 20
+   Attack 23
    Defense 15
    ZBRangeAttack 0
    Firepower 1
    Armor 1
-   MaxHP 10
-   ShieldCost 860
-   PowerPoints 430
+   MaxHP 20
+   ShieldCost 540
+   PowerPoints 270
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 400
    VisionRange 2
-   EnableAdvance ADVANCE_NATURE_ADEPT
+   EnableAdvance ADVANCE_SEA_LORE
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -2549,12 +2549,12 @@ UNIT_ARCHANGEL {
    DefaultIcon ICON_UNIT_ARCHANGEL
    DefaultSprite SPRITE_ARCHANGEL
    Category UNIT_CATEGORY_AERIAL
-   Attack 60
-   Defense 60
+   Attack 91
+   Defense 100
    ZBRangeAttack 0
-   Firepower 2
+   Firepower 5
    Armor 1
-   MaxHP 10
+   MaxHP 20
    ShieldCost 3490
    PowerPoints 1745
    ShieldHunger 2
@@ -2583,6 +2583,246 @@ UNIT_ARCHANGEL {
    CanAttack: Air
    CanSee: Standard
    MovementType: Air
+   Size: Small
+   VisionClass: Standard
+}
+
+
+UNIT_SKELETONS {
+   Description DESCRIPTION_UNIT_SKELETONS
+   DefaultIcon ICON_UNIT_SKELETONS
+   DefaultSprite SPRITE_SKELETONS
+   Category UNIT_CATEGORY_ATTACK
+   Attack 10
+   Defense 12
+   ZBRangeAttack 0
+   Firepower 1
+   Armor 1
+   MaxHP 10
+   ShieldCost 150
+   PowerPoints 100
+   ShieldHunger 1
+   GoldHunger 0
+   FoodHunger 0
+   MaxMovePoints 100
+   VisionRange 2
+   EnableAdvance ADVANCE_DEATH_MAGIC
+   ActiveDefenseRange 0
+   LossMoveToDmgNone
+   MaxFuel 0
+   CanEntrench
+   CanExpel
+   CanPillage
+   CanPirate
+   ExertsMartialLaw
+   DeathEffectsHappy
+   SoundSelect1 SOUND_SELECT1_WARRIOR
+   SoundSelect2 SOUND_SELECT2_WARRIOR
+   SoundMove SOUND_MOVE_WARRIOR
+   SoundAcknowledge SOUND_ACKNOWLEDGE_WARRIOR
+   SoundCantMove SOUND_CANTMOVE_WARRIOR
+   SoundAttack SOUND_ATTACK_WARRIOR
+   SoundWork SOUND_WORK_WARRIOR
+   SoundVictory SOUND_VICTORY_WARRIOR
+   SoundDeath SOUND_DEATH_WARRIOR
+
+   CanAttack: Land
+   CanAttack: Mountain
+   CanSee: Standard
+   MovementType: Land
+   MovementType: Mountain
+   Size: Small
+   VisionClass: Standard
+   CanReform {
+      Sound SOUND_ID_REFORM_CITY
+      Effect SPECEFFECT_REFORMCITY
+   }
+}
+
+UNIT_DRACOLICH {
+   Description DESCRIPTION_UNIT_DRACOLICH
+   DefaultIcon ICON_UNIT_DRACOLICH
+   DefaultSprite SPRITE_DRACOLICH
+   Category UNIT_CATEGORY_AERIAL
+   Attack 99
+   Defense 68
+   ZBRangeAttack 0
+   Firepower 5
+   Armor 1
+   MaxHP 48
+   ShieldCost 3500
+   PowerPoints 1750
+   ShieldHunger 1
+   GoldHunger 0
+   FoodHunger 0
+   MaxMovePoints 300
+   VisionRange 2
+   EnableAdvance ADVANCE_DEATH_WIZARD
+   ActiveDefenseRange 0
+   LossMoveToDmgNone
+   MaxFuel 0
+   CantCaptureCity
+   DeathEffectsHappy
+   SoundSelect1 SOUND_SELECT1_FIGHTER
+   SoundSelect2 SOUND_SELECT2_FIGHTER
+   SoundMove SOUND_MOVE_FIGHTER
+   SoundAcknowledge SOUND_ACKNOWLEDGE_FIGHTER
+   SoundCantMove SOUND_CANTMOVE_FIGHTER
+   SoundAttack SOUND_ATTACK_FIGHTER
+   SoundWork SOUND_WORK_FIGHTER
+   SoundVictory SOUND_VICTORY_FIGHTER
+   SoundDeath SOUND_DEATH_FIGHTER
+
+   CanAttack: Land
+   CanAttack: Mountain
+   CanAttack: Air
+   CanSee: Standard
+   MovementType: Air
+   Size: Medium
+   VisionClass: Standard
+}
+
+UNIT_DEATH_KNIGHT {
+   Description DESCRIPTION_UNIT_DEATH_KNIGHT
+   DefaultIcon ICON_UNIT_DEATH_KNIGHT
+   DefaultSprite SPRITE_DEATH_KNIGHT
+   Category UNIT_CATEGORY_ATTACK
+   Attack 60
+   Defense 56
+   ZBRangeAttack 0
+   Firepower 1
+   Armor 1
+   MaxHP 35
+   ShieldCost 470
+   PowerPoints 235
+   ShieldHunger 1
+   GoldHunger 0
+   FoodHunger 0
+   MaxMovePoints 200
+   VisionRange 2
+   EnableAdvance ADVANCE_MYSTICISM
+   ActiveDefenseRange 0
+   LossMoveToDmgNone
+   MaxFuel 0
+   CanEntrench
+   CanExpel
+   CanPillage
+   CanPirate
+   ExertsMartialLaw
+   DeathEffectsHappy
+   SoundSelect1 SOUND_SELECT1_WARRIOR
+   SoundSelect2 SOUND_SELECT2_WARRIOR
+   SoundMove SOUND_MOVE_WARRIOR
+   SoundAcknowledge SOUND_ACKNOWLEDGE_WARRIOR
+   SoundCantMove SOUND_CANTMOVE_WARRIOR
+   SoundAttack SOUND_ATTACK_WARRIOR
+   SoundWork SOUND_WORK_WARRIOR
+   SoundVictory SOUND_VICTORY_WARRIOR
+   SoundDeath SOUND_DEATH_WARRIOR
+
+   CanAttack: Land
+   CanAttack: Mountain
+   CanSee: Standard
+   MovementType: Land
+   MovementType: Mountain
+   Size: Medium
+   VisionClass: Standard
+   CanReform {
+      Sound SOUND_ID_REFORM_CITY
+      Effect SPECEFFECT_REFORMCITY
+   }
+}
+
+UNIT_LICH {
+   Description DESCRIPTION_UNIT_LICH
+   DefaultIcon ICON_UNIT_LICH
+   DefaultSprite SPRITE_LICH
+   Category UNIT_CATEGORY_ATTACK
+   Attack 40
+   Defense 79
+   ZBRangeAttack 0
+   Firepower 5
+   Armor 1
+   MaxHP 35
+   ShieldCost 2980
+   PowerPoints 1490
+   ShieldHunger 2
+   GoldHunger 0
+   FoodHunger 0
+   MaxMovePoints 100
+   VisionRange 2
+   EnableAdvance ADVANCE_DEATH_MASTER
+   ActiveDefenseRange 0
+   LossMoveToDmgNone
+   MaxFuel 0
+   CanEntrench
+   CanExpel
+   CanPillage
+   CanPirate
+   ExertsMartialLaw
+   DeathEffectsHappy
+   SoundSelect1 SOUND_SELECT1_WARRIOR
+   SoundSelect2 SOUND_SELECT2_WARRIOR
+   SoundMove SOUND_MOVE_WARRIOR
+   SoundAcknowledge SOUND_ACKNOWLEDGE_WARRIOR
+   SoundCantMove SOUND_CANTMOVE_WARRIOR
+   SoundAttack SOUND_ATTACK_WARRIOR
+   SoundWork SOUND_WORK_WARRIOR
+   SoundVictory SOUND_VICTORY_WARRIOR
+   SoundDeath SOUND_DEATH_WARRIOR
+
+   CanAttack: Land
+   CanAttack: Mountain
+   CanSee: Standard
+   MovementType: Land
+   MovementType: Mountain
+   Size: Medium
+   VisionClass: Standard
+   CanReform {
+      Sound SOUND_ID_REFORM_CITY
+      Effect SPECEFFECT_REFORMCITY
+   }
+}
+
+UNIT_LAMP {
+   Description DESCRIPTION_UNIT_LAMP
+   DefaultIcon ICON_UNIT_LAMP
+   DefaultSprite SPRITE_LAMP
+   Category UNIT_CATEGORY_GENERIC
+   Attack 0
+   Defense 0
+   ZBRangeAttack 0
+   Firepower 1
+   Armor 1
+   MaxHP 10
+   ShieldCost 150
+   PowerPoints 100
+   ShieldHunger 0
+   GoldHunger 0
+   FoodHunger 0
+   MaxMovePoints 0
+   VisionRange 2
+   EnableAdvance ADVANCE_WARRIOR_CODE
+   ActiveDefenseRange 0
+   LossMoveToDmgNone
+   MaxFuel 0
+   Civilian
+   CantCaptureCity
+   NoZoc
+   CanBeExpelled
+   SoundSelect1 SOUND_SELECT1_WARRIOR
+   SoundSelect2 SOUND_SELECT2_WARRIOR
+   SoundMove SOUND_MOVE_WARRIOR
+   SoundAcknowledge SOUND_ACKNOWLEDGE_WARRIOR
+   SoundCantMove SOUND_CANTMOVE_WARRIOR
+   SoundAttack SOUND_ATTACK_WARRIOR
+   SoundWork SOUND_WORK_WARRIOR
+   SoundVictory SOUND_VICTORY_WARRIOR
+   SoundDeath SOUND_DEATH_WARRIOR
+
+   CanSee: Standard
+   MovementType: Land
+   MovementType: Mountain
    Size: Small
    VisionClass: Standard
 }

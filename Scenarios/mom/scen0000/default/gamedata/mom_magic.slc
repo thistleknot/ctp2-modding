@@ -14,18 +14,47 @@ int_f MomRecalcMagicPerTurn(int_t mp_1)
     int_t gen;
     int_t pct;
     int_t nodes;
+    int_t upkeep;
+    int_t base;
+    int_t idx;
     city_t tmpCity;
     location_t cloc;
     location_t nloc;
 
     gen = 10;
     nodes = 0;
+    upkeep = 0;
     // NEVER player[mp_1]: player[N] indexes the event ARG array (size 1), so mp_1>=1
     // throws "Array index 1 out of bounds". The turn player is player[0].
     for (i = 0; i < player[0].cities; i = i + 1) {
         GetCityByIndex(player[0], i, tmpCity);
         if (CityIsValid(tmpCity)) {
             gen = gen + tmpCity.population * 2;
+
+            // BUILDING TALLY (2026-08-01). The sphere's own thematic buildings
+            // generate mana, so a tribe can INVEST in income rather than only
+            // waiting on population. The lists are deliberately the same ones
+            // mom_city_effects.slc already rewards on construction -- one set of
+            // sphere-defining buildings, not a second table to keep in sync.
+            // Builtins only: CityHasBuilding is a builtin (217 uses in corpus),
+            // so this adds no user-function call level.
+            if (MomSphere[mp_1] == 1) {
+                if (CityHasBuilding(tmpCity, "IMPROVE_WIZARDS_FORTRESS")) { gen = gen + 8; }
+                if (CityHasBuilding(tmpCity, "IMPROVE_TEMPLE")) { gen = gen + 3; }
+            } elseif (MomSphere[mp_1] == 2) {
+                if (CityHasBuilding(tmpCity, "IMPROVE_PRIMAL_SOURCE")) { gen = gen + 8; }
+                if (CityHasBuilding(tmpCity, "IMPROVE_FANTASTIC_STABLE")) { gen = gen + 3; }
+            } elseif (MomSphere[mp_1] == 3) {
+                if (CityHasBuilding(tmpCity, "IMPROVE_BEACON_OF_WISDOM")) { gen = gen + 8; }
+                if (CityHasBuilding(tmpCity, "IMPROVE_LIBRARY")) { gen = gen + 3; }
+            } elseif (MomSphere[mp_1] == 4) {
+                if (CityHasBuilding(tmpCity, "IMPROVE_MECHANICIANS_GUILD")) { gen = gen + 8; }
+                if (CityHasBuilding(tmpCity, "IMPROVE_BARRACKS")) { gen = gen + 3; }
+            } elseif (MomSphere[mp_1] == 5) {
+                if (CityHasBuilding(tmpCity, "IMPROVE_MERCHANTS_GUILD")) { gen = gen + 8; }
+                if (CityHasBuilding(tmpCity, "IMPROVE_COLOSSEUM")) { gen = gen + 3; }
+            }
+
             // M4 mana nodes: good-bearing tiles in the city inner radius (center + 8 neighbors).
             cloc = tmpCity.location;
             if (HasGood(cloc) >= 0) {
@@ -61,7 +90,71 @@ int_f MomRecalcMagicPerTurn(int_t mp_1)
         pct = 100;
     }
     gen = gen * pct / 100;
-    return gen;
+
+    // ---------------------------------------------------------------------
+    // UPKEEP (2026-08-01) -- the deduction half of "tally - upkeep".
+    //
+    // Charged on SUMMONED creatures only, scaled by the rung they came from, so
+    // a rung-5 Great Wyrm is a real commitment and a rung-1 Warbears is cheap.
+    // The scan is a LIVE read of the ledger rather than a running counter,
+    // which makes it self-correcting: a creature lost in combat leaves a handle
+    // that is no longer .valid, and the slot is reclaimed right here. That is
+    // why no KillUnit handler is needed to keep the books straight.
+    //
+    // Inline and builtins-only ON PURPOSE. This function is already called at
+    // depth 1 from the MomMagicPoolTick handler, and a 2-level user-function
+    // chain from a handler body is the documented 0xC0000005.
+    // Seed the rate once. SLIC globals start at 0, and 0 would make every
+    // creature free -- so the lazy default is what keeps upkeep alive, not a
+    // convenience. Tests patch this single line to make insolvency reachable in
+    // a couple of turns rather than the couple of hundred a shipped-rate game
+    // would need (MOM_UPKEEP_RATE_DEFAULT).
+    if (MomUpkeepRate == 0) {
+        MomUpkeepRate = 2;
+    }
+    if (mp_1 >= 1 && mp_1 <= 5) {
+        // Same lazy-seed idiom as MomUpkeepRate above, and for the same
+        // reason: SLIC globals start at 0, and a 0 percent would make every
+        // summon FREE. 100 means 'pay the base rung curve', so an unseeded
+        // player is merely un-discounted rather than exploitable.
+        if (MomSummonCivPct[mp_1] == 0) {
+            MomSummonCivPct[mp_1] = 100;
+        }
+        base = (mp_1 - 1) * 32;
+        for (i = 0; i < 32; i = i + 1) {
+            idx = base + i;
+            if (MomSummonRung[idx] > 0) {
+                if (MomSummonUnit[idx].valid) {
+                    upkeep = upkeep + MomSummonRung[idx] * MomUpkeepRate;
+                } else {
+                    MomSummonRung[idx] = 0;   // creature died -- free the slot
+                }
+            }
+        }
+    }
+
+    // THE WHOLE LEDGER IS PUBLISHED HERE, all three lines together, because
+    // this is the only scope that still holds gross `gen` and `upkeep` as
+    // separate values -- everything downstream sees only the net return.
+    //
+    // MomMagicGenDisp is set HERE and nowhere else now. It used to be assigned
+    // from MomMagicPerTurn[] in the tick below, which was correct while that
+    // array held gross generation; upkeep made it NET, so that assignment would
+    // have printed net income under an "Income" label -- the books would not
+    // have added up on screen and the upkeep line would have looked like it was
+    // being charged twice.
+    if (IsHumanPlayer(mp_1)) {
+        MomMagicGenDisp = gen;
+        MomUpkeepDisp = upkeep;
+        MomNetDisp = gen - upkeep;
+        // Published from the same place as the rest of the books so the panel
+        // never shows a countdown from a turn other than the one it is reporting.
+        MomPrepDisp = MomSummonPrep[mp_1];
+    }
+    // Deliberately allowed to go NEGATIVE. A tribe that over-summons must feel
+    // its pool drain; MomMagicPoolTick is what turns a sustained deficit into a
+    // disband, and it needs to see the real shortfall to do that.
+    return gen - upkeep;
 }
 
 // MomSphereSummonUnit() was REMOVED 2026-07-26 along with its only caller, the
@@ -72,6 +165,13 @@ int_f MomRecalcMagicPerTurn(int_t mp_1)
 
 HandleEvent(BeginTurn) 'MomMagicPoolTick' post {
     int_t p;
+    int_t insBase;
+    int_t insSlot;
+    int_t insIdx;
+    int_t insI;
+    int_t insTotal;
+    int_t insRoll;
+    int_t insAcc;
 
     p = player[0];
 
@@ -89,6 +189,86 @@ HandleEvent(BeginTurn) 'MomMagicPoolTick' post {
             MomMagicCur[p] = MomMagicMax[p];
         }
 
+        // -----------------------------------------------------------------
+        // HARD INSOLVENCY (2026-08-01). Upkeep can push the pool below zero.
+        // When it does, the tribe cannot feed what it has summoned and the
+        // NEWEST creature is released -- last in, first out, so a long-held
+        // high-rung creature is not the first thing lost.
+        //
+        // EXACTLY ONE disband per turn, by construction. The loop only FINDS
+        // the victim; the single KillUnit sits outside it. That bound is
+        // deliberate on two counts: a sustained deficit should bleed off
+        // gradually rather than wipe an army in one tick, and an unbounded
+        // kill loop inside a BeginTurn handler sits right next to the known
+        // AI end-turn stack-overflow class. tools/gate_mana_upkeep.py asserts
+        // KillUnit never moves inside a loop.
+        if (MomMagicCur[p] < 0) {
+            insBase = (p - 1) * 32;
+
+            // WEIGHTED BY UPKEEP, not last-in-first-out (operator, 2026-08-01:
+            // "units that cost more are more likely to evaporate"). Roulette
+            // selection with weight = rung, which IS the upkeep rate up to the
+            // constant factor, so a rung-5 Great Wyrm is five times as likely to
+            // be released as a rung-1 Warbears.
+            //
+            // Two reasons this beats the LIFO it replaces: the creature most
+            // likely to go is also the one that frees the most mana, so the pool
+            // recovers fastest; and it is stochastic, so a player cannot bank a
+            // cheap creature last to shield an expensive one.
+            //
+            // PROPORTIONAL, not a strict "above average" filter. Above-average
+            // degenerates: when every creature shares a rung none is above the
+            // mean and nothing would ever be released, leaving the pool stuck
+            // negative forever. Proportional weighting collapses to a uniform
+            // draw in that case, which is the right behaviour.
+            //
+            // Free slots hold rung 0 and so contribute zero weight -- the sum
+            // needs no occupancy test.
+            insTotal = 0;
+            for (insI = 0; insI < 32; insI = insI + 1) {
+                insTotal = insTotal + MomSummonRung[insBase + insI];
+            }
+            insSlot = -1;
+            if (insTotal > 0) {
+                insRoll = Random(insTotal);
+                insAcc = 0;
+                for (insI = 0; insI < 32; insI = insI + 1) {
+                    if (insSlot < 0) {
+                        if (MomSummonRung[insBase + insI] > 0) {
+                            insAcc = insAcc + MomSummonRung[insBase + insI];
+                            // Strict > against a 0-based roll lands the pick
+                            // inside this slot's band; the final slot always
+                            // satisfies it, so the walk cannot fall off the end
+                            // and return "nothing to disband" while creatures
+                            // are still standing.
+                            if (insAcc > insRoll) {
+                                insSlot = insI;
+                            }
+                        }
+                    }
+                }
+            }
+            if (insSlot >= 0) {
+                insIdx = insBase + insSlot;
+                if (MomSummonUnit[insIdx].valid) {
+                    KillUnit(MomSummonUnit[insIdx]);
+                }
+                // Refund this turn's charge for the creature just released, so
+                // the pool reflects the lighter army immediately instead of
+                // disbanding a second one next turn for a debt already paid.
+                MomMagicCur[p] = MomMagicCur[p] + MomSummonRung[insIdx] * MomUpkeepRate;
+                MomSummonRung[insIdx] = 0;
+                if (IsHumanPlayer(p)) {
+                    Message(p, 'MomUpkeepDisband');
+                }
+            }
+        }
+        // Floor at zero whether or not a creature was available to release: a
+        // tribe with nothing left to disband simply sits at empty.
+        if (MomMagicCur[p] < 0) {
+            MomMagicCur[p] = 0;
+        }
+
         // M3 pool-overflow auto-summon: REMOVED 2026-07-26. It zeroed the pool the
         // moment it capped, so mana could never sit at the cap and the 50/100-cost
         // workings in mom_spells.slc were unreachable by construction -- the pool
@@ -104,7 +284,26 @@ HandleEvent(BeginTurn) 'MomMagicPoolTick' post {
         if (IsHumanPlayer(p)) {
             MomMagicCurDisp = MomMagicCur[p];
             MomMagicMaxDisp = MomMagicMax[p];
-            MomMagicGenDisp = MomMagicPerTurn[p];
+            // MomMagicGenDisp is NOT refreshed here: MomMagicPerTurn[] holds NET
+            // income since upkeep landed, so copying it into the gross
+            // 'Income' scalar would print net twice and make the panel's
+            // Income/Upkeep/Net lines fail to add up. MomRecalcMagicPerTurn
+            // is the sole writer of all three.
+            // The rung decides WHICH creatures the 75-mana summon can roll
+            // (mom_summon.slc). REPORTED HONESTLY, including 0.
+            //
+            // This used to be floored at 1 to match MomSummonRoll's floor. Both
+            // floors went on 2026-08-02: rung 0 means the tribe has learned no
+            // magic of its own sphere and genuinely cannot summon, so a panel
+            // claiming "rung 1 of 5" while every summon silently fails was
+            // reporting a capability that did not exist.
+            MomRungDisp = MomSphereRung[p];
+            // The summon arm's LABEL reads this. It used to be the literal
+            // string "Summon Creature (75)", which stopped being true the
+            // moment price scaled with rung -- a button that misquotes its own
+            // price is worse than one that quotes none. Same expression as the
+            // click gate and the AI gate: 45 + 30*ladder rung.
+            MomSummonCostDisp = ((45 + 30 * MomSphereRung[p]) * MomSummonCivPct[p]) / 100;
         }
 
         // Periodic popup every 10 rounds: REMOVED 2026-07-25, redundant and harmful.
@@ -142,22 +341,27 @@ HandleEvent(GrantAdvance) 'MomMagicSchoolGrant' post {
     if (MomPlayerIsLife(p) && value[0] == AdvanceDB(ADVANCE_LIFE_MAGIC)) {
         MomMagicSchoolPct[p] = 100;
         MomMagicMax[p] = 200;
+        MomSummonCivPct[p] = 64;
         granted = 1;
     } elseif (MomPlayerIsNature(p) && value[0] == AdvanceDB(ADVANCE_NATURE_MAGIC)) {
         MomMagicSchoolPct[p] = 110;
-        MomMagicMax[p] = 220;
+        MomMagicMax[p] = 200;
+        MomSummonCivPct[p] = 68;
         granted = 1;
     } elseif (MomPlayerIsSorcery(p) && value[0] == AdvanceDB(ADVANCE_SORCERY)) {
         MomMagicSchoolPct[p] = 125;
-        MomMagicMax[p] = 260;
+        MomMagicMax[p] = 200;
+        MomSummonCivPct[p] = 54;
         granted = 1;
     } elseif (MomPlayerIsDeath(p) && value[0] == AdvanceDB(ADVANCE_DEATH_MAGIC)) {
         MomMagicSchoolPct[p] = 115;
-        MomMagicMax[p] = 240;
+        MomMagicMax[p] = 200;
+        MomSummonCivPct[p] = 54;
         granted = 1;
     } elseif (MomPlayerIsChaos(p) && value[0] == AdvanceDB(ADVANCE_CHAOS_MAGIC)) {
         MomMagicSchoolPct[p] = 140;
-        MomMagicMax[p] = 300;
+        MomMagicMax[p] = 200;
+        MomSummonCivPct[p] = 92;
         granted = 1;
     }
 
@@ -165,9 +369,74 @@ HandleEvent(GrantAdvance) 'MomMagicSchoolGrant' post {
         MomMagicPerTurn[p] = MomRecalcMagicPerTurn(p);
         MomMagicCurDisp = MomMagicCur[p];
         MomMagicMaxDisp = MomMagicMax[p];
-        MomMagicGenDisp = MomMagicPerTurn[p];
+        // MomMagicGenDisp is NOT refreshed here: MomMagicPerTurn[] holds NET
+        // income since upkeep landed, so copying it into the gross
+        // 'Income' scalar would print net twice and make the panel's
+        // Income/Upkeep/Net lines fail to add up. MomRecalcMagicPerTurn
+        // is the sole writer of all three.
         Message(g.player, 'MomMagicPower');
     }
 
     }   // advance[0] != 0
+}
+
+
+// ---------------------------------------------------------------------------
+// SPHERE ROOT GRANT (2026-08-02) -- a tribe BEGINS knowing its own sphere.
+//
+// In Master of Magic a wizard PICKS their spheres up front and starts play
+// holding them. MoM tribes never did: nothing granted a *_MAGIC advance and
+// there is no starting-advance mechanism, so a tribe's own magic sat 27
+// advances and ~19,300 science away, because ADVANCE_*_MAGIC hangs off
+// ADVANCE_GRAND_MASTERY. The player saw "You have not yet learned the magic of
+// your sphere" in 3675BC, which is the wrong answer to the right question.
+//
+// TWO PLACEMENT CONSTRAINTS:
+//
+// 1. NO NEW ARRAY -- because none is NEEDED, not because one is forbidden. The
+//    obvious shape is a MomSphereRootDone[] latch, and the first attempt used
+//    one; it shipped undeclared and the operator got "SLIC Error: Symbol
+//    'MomSphereRootDone' is undefined" at load (an undeclared ARRAY is a hard
+//    error, unlike a scalar, which the engine silently auto-creates -- now
+//    validate_scenario.py gate 29).
+//
+//    MomSphereRung[] removes the question entirely: it is not a substitute for
+//    the latch, it IS the condition. The grant exists to move a tribe off rung
+//    0; the GrantAdvance raises MomSphereRungTick, which sets the rung to 1; so
+//    the guard clears itself on success. A re-grant would be harmless anyway
+//    (GrantAdvance on a held advance is a no-op). Redundant state that can
+//    disagree with the state it mirrors is the thing being avoided.
+//
+//    (An earlier draft of this comment claimed the declaration itself AV'd the
+//    engine at boot. It did not. That came from a bisect whose control was
+//    broken -- the verdict filter greped for one crash signature, so a baseline
+//    that failed a different way was reported CLEAN. The real boot crash was a
+//    posted click in the harness prologue and had nothing to do with SLIC.)
+//
+// 2. THIS FILE, NOT mom_turns.slc. MomSphereRung[] is declared in
+//    mom_summon.slc (include 54); mom_turns.slc is 49, so referencing it there
+//    is an undefined symbol at load. mom_magic.slc is 56 -- after the
+//    declaration, and already the owner of magic state.
+//
+// STATUS: works for at least Nature and Sorcery -- both hold summoned creatures
+// by turn 20, far too early to have researched a 1035-science root. Death shows
+// rung-0 behaviour for 200 turns and is an OPEN question; see lessons_learned.md.
+HandleEvent(BeginTurn) 'MomSphereRootGrant' post {
+    int_t rp;
+
+    rp = player[0];
+
+    if (rp >= 1 && rp <= 30 && MomSphere[rp] >= 1 && MomSphereRung[rp] < 1) {
+        if (MomSphere[rp] == 1) {
+            GrantAdvance(rp, AdvanceDB(ADVANCE_LIFE_MAGIC));
+        } elseif (MomSphere[rp] == 2) {
+            GrantAdvance(rp, AdvanceDB(ADVANCE_NATURE_MAGIC));
+        } elseif (MomSphere[rp] == 3) {
+            GrantAdvance(rp, AdvanceDB(ADVANCE_SORCERY));
+        } elseif (MomSphere[rp] == 4) {
+            GrantAdvance(rp, AdvanceDB(ADVANCE_DEATH_MAGIC));
+        } elseif (MomSphere[rp] == 5) {
+            GrantAdvance(rp, AdvanceDB(ADVANCE_CHAOS_MAGIC));
+        }
+    }
 }

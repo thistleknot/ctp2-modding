@@ -1,0 +1,159 @@
+//=============================================================================
+// mom_ai_magic.slc -- the computer opponents' magic brain
+//=============================================================================
+// THE DEFECT THIS CLOSES (measured 2026-07-28):
+//
+// MomMagicPoolTick (mom_magic.slc) accrues mana for EVERY sphere player 1..5,
+// human or not -- but MomSummonChoice[p], the only thing that authorises a
+// summon, is set in exactly ONE place: a BUTTON BODY (mom_msg.slc). A button
+// body runs only when a human clicks. So every AI tribe banked mana to the 100
+// cap and never spent a single point, for the whole game. The mod's headline
+// system was a human-only privilege, and the ten IsHumanPlayer guards scattered
+// through the magic modules only ever SUPPRESSED output for the AI -- nothing
+// ever replaced it with an action.
+//
+// WHY A RULE LADDER AND NOT A REQUEST TO THE ENGINE AI: a census of all 230
+// .slc files under H:\games\ctp2 finds no verb that steers the engine AI's build
+// queue or research goal -- no AddToBuildQueue, no SetResearchGoal, in any mod.
+// SLIC can only GRANT, PLACE and MOVE (GrantAdvance 1561, CreateUnit 829,
+// AddGold 530, MoveUnits 61, MoveArmy 35, KillUnit 261, SetGovernment 8). So AI
+// magic has to be "decide, then apply the effect directly", which is what the
+// human path already does at its spend sites. Ages of Man's Frenzy AI
+// (AOM2_frenzy11.slc, 2586 lines) is the reference for this shape, and
+// random()/Random() appears 1251 times across that corpus -- a probability
+// distribution over actions is the idiomatic way to do this, not an exotic one.
+//
+// CONSTRAINTS honoured here (slic-two-crash-classes, ctp2-mod-hooks-owner-works-
+// player-lies):
+//   * the player bound `p >= 1 && p <= 5` comes FIRST, before any array index.
+//     Player 0 is the barbarian and indexing the magic arrays for it was the
+//     original turn-10 crash.
+//   * identity is player[0] in a BeginTurn body. NEVER thePlayer -- it is built
+//     as SLIC_SYM_PLAYER and always reads 0.
+//   * exactly ONE level of user-function call from this handler body
+//     (MomSummonRoll, then MomSpawnSphereUnit). A 2-level chain is a
+//     0xC0000005. Do not factor the ladder into a helper.
+//   * NO Message()/alertbox on this path. A messagebox aimed at an AI player is
+//     how the message-queue overflow AV was hit (mom_msg.slc:17), and there is
+//     no human to read it.
+//
+// Include order: AFTER mom_summon.slc (it calls MomSummonRoll and reads
+// MomSphereRung) and AFTER mom_func.slc (MomSpawnSphereUnit, MomMagic* globals).
+//=============================================================================
+
+HandleEvent(BeginTurn) 'MomAiMagicTick' post {
+    int_t p;
+    int_t pick;
+    int_t pickRung;
+    int_t roll;
+    int_t atWar;
+    int_t i;
+    city_t tmpCity;
+
+    p = player[0];
+
+    // Bound first, then the human test. An AI-only body: the human's spending is
+    // deliberate and already handled by the button path, and doubling it here
+    // would drain a human pool without a click.
+    if (p >= 1 && p <= 5 && !IsHumanPlayer(p) && player[0].cities > 0) {
+        // War state via AtWarWith(a, b) -- the predicate the whole mod corpus
+        // uses (147 call sites across H:\games\ctp2). There is NO `.isAtWar`
+        // player property: the only properties any mod reads are units, cities,
+        // publicworkslevel, owner, militaryunits, armies, capital, name,
+        // government and a handful more, so inventing one would have compiled to
+        // a silently-false symbol -- the engine auto-creates unknowns rather than
+        // erroring.
+        atWar = 0;
+        for (i = 1; i <= 5; i = i + 1) {
+            if (i != p && AtWarWith(p, i)) {
+                atWar = 1;
+            }
+        }
+        roll = Random(100);
+
+        // The ladder, cheapest test first. Thresholds are the SAME prices the
+        // human pays -- the shared rung x civ expression to summon, 50 for a
+        // working -- so the AI plays the same economy rather than a discounted
+        // one. Below the summon price it banks,
+        // which is what makes a later summon possible at all.
+        // MomSummonPrep == 0 is the same one-at-a-time rule the human's button
+        // enforces. Without it the AI would re-commit 75 mana every turn while a
+        // creature was already on the way, overwriting its own pending creature
+        // and paying repeatedly for a single arrival -- a silent mana leak that
+        // would look exactly like the AI being poor.
+        // PRICE SCALES WITH RUNG: 45 + 30*rung -> 75/105/135/165/195, the SAME
+        // expression the human pays in mom_msg.slc (gate on the ladder rung,
+        // debit the rolled rung). The AI must not play a cheaper economy than
+        // the player; when these two drifted on the UPKEEP rate it produced an
+        // AI that could afford what a human could not, which is the defect gate
+        // 27 assertion 10 exists to catch.
+        if (MomMagicCur[p] >= ((45 + 30 * MomSphereRung[p]) * MomSummonCivPct[p]) / 100 && MomSummonPrep[p] == 0
+            && (atWar == 1 || roll < 70)) {
+            // The default sink, and the aggressive choice. At war it always
+            // prefers a creature; at peace it summons most of the time and
+            // otherwise holds, so two AI tribes on the same turn do not act
+            // identically.
+            GetCityByIndex(player[0], 0, tmpCity);
+            pick = MomSummonRoll(p);
+            // See the note above the spawn: resolved into a local, never nested
+            // into an argument position.
+            pickRung = MomSummonRungOf(pick);
+
+            // SUSTAINABILITY, not just affordability (2026-08-01). Creatures now
+            // cost mana every turn they live (mom_magic.slc), so "I have 75
+            // banked" is no longer a reason to summon -- an AI that spends on
+            // that test alone marches into insolvency and the pool tick disbands
+            // the creature it just bought, burning 75 mana per turn forever.
+            //
+            // MomMagicPerTurn[p] is last turn's NET (generation minus upkeep),
+            // so requiring it to stay >= 0 after taking on this creature's keep
+            // is the whole check. When it fails the AI simply banks, and its
+            // production goes where it should -- city units, the mainstay.
+            if (MomMagicPerTurn[p] - pickRung * MomUpkeepRate < 0) {
+                pick = 0;
+            }
+            if (CityIsValid(tmpCity) && pick != 0) {
+                // pickRung is floored to >= 1 below before it is stored, so
+                // floor it HERE too -- the debit must not read a rung of 0 and
+                // hand a creature over at the curve's intercept.
+                if (pickRung < 1) { pickRung = 1; }
+                MomMagicCur[p] = MomMagicCur[p] - (((45 + 30 * pickRung) * MomSummonCivPct[p]) / 100);
+                // PREPARATION (2026-08-01): the AI no longer spawns here. It
+                // commits the mana and starts the same countdown the human uses,
+                // and MomSummonOrderTick's arrival branch (mom_msg.slc) does the
+                // spawning for BOTH sides -- one writer for the whole lifecycle,
+                // so the two paths cannot drift on placement, ledgering or
+                // timing. The AI is playing the same economy, not a faster one.
+                //
+                // That arrival branch already reuses MomSpawnSphereUnit, so the
+                // free-land-neighbour search still applies: spawning on the city
+                // tile would stack the creature under the garrison, because CTP2
+                // draws one unit per tile ordered by MaxMovePoints.
+                // pickRung was floored to >= 1 at the debit above, so price,
+                // countdown and ledger all describe one rung.
+                MomSummonPendRung[p] = pickRung;
+                MomSummonPending[p] = pick;
+                MomSummonPrep[p] = MomSummonPendRung[p];
+            }
+        } elseif (MomMagicCur[p] >= 50 && atWar == 1 && roll < 40
+                  && MomMagicPerTurn[p] - MomUpkeepRate < 0) {
+            // A cheap working, and ONLY when a creature is out of reach anyway.
+            //
+            // THE STARVATION BUG THIS GUARD CLOSES (measured 2026-08-01). The
+            // working costs 50 and a summon costs 75, so an AI at war drained
+            // its pool at 50 every time it got the chance and COULD NEVER SAVE
+            // TO 75. Magic was structurally unreachable for a warring tribe --
+            // Sorcery was observed at 26 mana on turn 12 with zero creatures and
+            // no preparation pending, having burned everything on gold. The
+            // cheaper option starving the more expensive one is the shape to
+            // watch for whenever two spends share a pool.
+            //
+            // The guard is sustainability, the same test the summon uses: if the
+            // tribe could not feed even a rung-1 creature, magic-as-force is not
+            // available to it and converting power to gold is the right call.
+            // If it COULD feed one, it saves instead.
+            MomMagicCur[p] = MomMagicCur[p] - 50;
+            AddGold(p, 50 + Random(100));
+        }
+    }
+}

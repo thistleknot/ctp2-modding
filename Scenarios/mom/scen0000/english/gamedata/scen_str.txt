@@ -6,7 +6,6 @@
 #
 #----------------------------------------------------------------------------
 
-MOM_MSG_SLIC_ALIVE		"Master of Magic: sphere-magic SLIC layer online."
 
 # Phase C -- sphere blessing popups (fired once when a faction researches its magic
 # advance). Voice adapted from the original MoM magic-system script (h:\games\ctp2\mom).
@@ -21,7 +20,30 @@ MOM_MSG_BLESS_CHAOS		"Chaos magic floods your coffers with an unpredictable wind
 MOM_MSG_MAGIC_POWER		"Magic Power: {MomMagicCurDisp} / {MomMagicMaxDisp}  (+{MomMagicGenDisp} per turn)"
 
 # Interactive magic menu (hotkey 'j' -> keypress.cpp hook -> SLIC segment 'MagicMenu')
-MOM_MSG_MAGIC_MENU		"MAGIC STATUS\n\nMana: {MomMagicCurDisp} / {MomMagicMaxDisp}\nIncome: +{MomMagicGenDisp} per turn"
+MOM_MSG_MAGIC_MENU		"MAGIC STATUS\n\nMana: {MomMagicCurDisp} / {MomMagicMaxDisp}\nIncome {MomMagicGenDisp} - upkeep {MomUpkeepDisp} = {MomNetDisp} per turn\nSphere rung {MomRungDisp} of 5 - a summon costs {MomSummonCostDisp} mana\nPreparing: {MomPrepDisp} turn(s) left  (0 = nothing on the way)"
+# The 'Preparing' line REPLACED the standing "upkeep is charged per creature, by its
+# rung" note rather than being added under it, for the fixed-height reason below --
+# the rate is still discoverable from the Income/upkeep arithmetic on the line above.
+MOM_MSG_SUMMON_BEGUN		"You begin the summoning. The power leaves you now, and the creature will take shape in {MomPrepDisp} turn(s).\n\nMana: {MomMagicCurDisp} / {MomMagicMaxDisp}"
+MOM_MSG_SUMMON_BUSY		"A summoning is already under way, with {MomPrepDisp} turn(s) still to run. You cannot prepare two at once."
+# Added 2026-08-02 with the removal of the rung floor. A tribe that has not researched
+# its sphere's magic advance now genuinely cannot summon -- MomSummonRoll returns 0 for
+# rung 0 -- so the arm needs to say why instead of taking the click and resolving into
+# nothing. Summoning a creature you could not yet build was the imbalance this closes.
+MOM_MSG_SUMMON_NOMAGIC		"You have not yet learned the magic of your sphere. Research it before you can call a creature out of the aether."
+# KEPT COMPACT ON PURPOSE, measured 2026-08-01: the alertbox does NOT grow to fit its
+# text. An earlier six-line version rendered Income/Upkeep/Net on separate lines and
+# pushed the 'Sphere rung' line clean off the bottom of the box, silently losing it --
+# the frame looked fine, it was just missing information. One arithmetic line shows the
+# same tally-minus-upkeep and leaves room for the rung. Add a line here only after
+# checking a captured frame.
+# Upkeep line added 2026-08-01. Summoned creatures cost mana every turn they live,
+# scaled by the rung they came from, so net income can go NEGATIVE and a tribe that
+# over-summons loses its newest creature. Showing upkeep and net is what makes that
+# legible instead of feeling like the pool mysteriously stopped growing -- and it is
+# also the only instrument the headless harness has, since it reads pixels and
+# cannot see the pool any other way.
+MOM_MSG_UPKEEP_DISBAND		"Your power will not stretch so far. One of your summoned creatures fades back into the aether - the hungrier the creature, the likelier it was to go.\n\nIncome: {MomMagicGenDisp} per turn\nUpkeep: {MomUpkeepDisp} per turn\nNet: {MomNetDisp} per turn"
 
 # Phase D -- spellbook (mom_spells.slc). Added 2026-07-25: all nine were referenced
 # by messagebox Text()/Button() blocks but never defined. NOTE the two syntax rules
@@ -60,10 +82,33 @@ MOM_MSG_NOT_CHAOS		"Only a Chaos mage may summon demons."
 # working in the game that costs nothing. 75 sits above Flame Strike (50) and
 # below Demon Strike (100), and is reachable inside the base 100 cap, so no
 # sphere is locked out of it.
-MOM_MSG_BTN_SUMMON		"Summon Creature (75)"
-MOM_MSG_SUMMON_NOMANA		"You lack the mana for a summoning. A creature costs 75, and you hold {MomMagicCurDisp}."
-MOM_MSG_SUMMON_GUARD		"Your working completes. A Guardian Spirit manifests in your capital."
-MOM_MSG_SUMMON_BEAR		"Your working completes. Warbears lumber out of the forest into your capital."
-MOM_MSG_SUMMON_MAGE		"Your working completes. A Mage steps out of the aether in your capital."
-MOM_MSG_SUMMON_ZOMBIE		"Your working completes. Zombies claw their way up in your capital."
-MOM_MSG_SUMMON_HOUND		"Your working completes. Hell Hounds burn their way into your capital."
+MOM_MSG_BTN_SUMMON		"Summon Creature"
+MOM_MSG_BTN_WORKINGS		"Cast a Working"
+MOM_MSG_BTN_BACK		"Back"
+MOM_MSG_SUMMON_NOMANA		"You lack the mana for a summoning. A creature of your rung costs {MomSummonCostDisp}, and you hold {MomMagicCurDisp}."
+# These five NAME NO CREATURE on purpose. The summon used to be one fixed unit
+# per sphere, so naming it was safe; as of 2026-07-29 it rolls over every rung
+# the caster has unlocked, and a message reading "Warbears lumber out" while a
+# Great Wyrm stands in the capital is worse than saying nothing. SLIC cannot
+# interpolate the creature either -- only plain {scalar} substitutions survive,
+# and a unit index is not a name (mom-slic-message-interpolation). The player
+# sees what arrived on the map.
+MOM_MSG_SUMMON_GUARD		"Your working completes. Radiant light gathers in your capital, and something steps out of it."
+MOM_MSG_SUMMON_BEAR		"Your working completes. The forest stirs, and something answers your call in your capital."
+MOM_MSG_SUMMON_MAGE		"Your working completes. The aether parts in your capital, and something walks through."
+MOM_MSG_SUMMON_ZOMBIE		"Your working completes. The ground breaks open in your capital, and something climbs out."
+MOM_MSG_SUMMON_HOUND		"Your working completes. Something burns its way into your capital."
+MOM_MSG_BTN_ARTIFACTS		"Artifacts"
+MOM_MSG_BTN_WISHES		"Wishes"
+MOM_MSG_BTN_WISH_GOLD		"Riches"
+MOM_MSG_BTN_WISH_POWER		"Power"
+MOM_MSG_BTN_WISH_SERVANT		"Servant"
+MOM_MSG_ARTIFACTS		"ARTIFACTS\n\nYou bear the Lamp. It cannot be set down.\nBoon: your pool holds 250 instead of 200.\nBane: the thing inside drains {MomLampBaneDisp} mana each turn.\nWishes remaining: {MomLampWishesDisp} of 3."
+MOM_MSG_NO_ARTIFACT		"ARTIFACTS\n\nYou bear no artifact.\n\nVessels are found, never built. One is freed wherever a genie falls."
+MOM_MSG_WISHES		"WISHES\n\nThe genie grants minor wishes only.\nWishes remaining: {MomLampWishesDisp} of 3.\nRiches: 500 gold. Power: fill your pool. A Servant: an efreet answers."
+MOM_MSG_WISHES_SPENT		"WISHES\n\nThe lamp is cold. Its wishes are spent.\n\nYou still bear it, and it still drains you."
+MOM_MSG_WISH_GOLD_DONE		"The genie scatters coin across your treasury. 500 gold."
+MOM_MSG_WISH_POWER_DONE		"Power floods back. Your pool is full."
+MOM_MSG_WISH_SERVANT_DONE		"An efreet steps out of the smoke. It arrives next turn."
+MOM_MSG_LAMP_FOUND		"You have taken a Lamp.\n\nIt raises what you can hold, and it takes a little every turn. It cannot be abandoned."
+MOM_MSG_LAMP_LOST		"The Lamp has left your hands.\n\nYour pool returns to 200, and anything above that is gone."

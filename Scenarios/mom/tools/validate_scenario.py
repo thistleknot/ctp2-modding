@@ -24,6 +24,7 @@ Exit codes: 0 = all gates pass; 1 = failures listed on stdout.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -102,6 +103,157 @@ def check_string_refs(scen: Path, fails: list[str]) -> None:
             if m.group(1) not in ids:
                 fails.append(f"{Path(rel).name}: Description {m.group(1)} "
                              f"has no gl_str entry (Expected-string-ID crash)")
+
+
+def check_string_grammar(scen: Path, fails: list[str]) -> None:
+    """Every scen_str/gl_str entry must be ONE line: KEY, tab(s), quoted value.
+
+    WHY THIS GATE EXISTS. A value written with REAL newlines instead of literal
+    `\\n` escapes swallows the lines beneath it and the engine aborts at load with
+    "scen_str.txt line N: Error". Every other gate passed that file --
+    `check_string_refs` verifies that a referenced key EXISTS, never that its
+    value is well formed -- so the whole static suite was blind to it and only
+    launching the game found it.
+
+    Measured 2026-08-04: fourteen artifact strings written with embedded newlines
+    (and two carrying a stray doubled quote from Python adjacent-literal
+    concatenation) shipped past every gate and killed the run at boot.
+
+    Two things make a line legal: balanced double quotes, and a key that starts
+    the line. A continuation line has neither, so it is caught by both tests.
+    """
+    for rel in ("english/gamedata/scen_str.txt", "english/gamedata/gl_str.txt"):
+        path = scen / rel
+        if not path.exists():
+            continue
+        for n, line in enumerate(path.read_text(encoding="latin-1").split("\n"), 1):
+            if not line.strip() or line.lstrip().startswith(("#", "//")):
+                continue
+            if line.count('"') % 2:
+                fails.append(f"{Path(rel).name}:{n}: unbalanced quotes -- a value "
+                             f"with a real newline swallows the lines below it; "
+                             f"use a literal \\n escape")
+                continue
+            # A value line must begin with a key. Anything else is a stray
+            # continuation that the engine will refuse.
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*[\t ]", line):
+                fails.append(f"{Path(rel).name}:{n}: does not start with a key -- "
+                             f"stray continuation line")
+            # A stray quote INSIDE the value. Tested on the value's interior, not
+            # on the raw line: `KEY ""` is a legitimate EMPTY string and 27 of
+            # them ship in gl_str.txt, so matching `""` anywhere fails the clean
+            # tree.
+            first, last = line.find('"'), line.rfind('"')
+            if 0 <= first < last and '"' in line[first + 1:last]:
+                fails.append(f"{Path(rel).name}:{n}: stray quote inside the value")
+
+
+def check_vessel_units(scen: Path, fails: list[str]) -> None:
+    """Artifact vessels must not carry the combat-unit template.
+
+    WHY. `unit_roles.vessels` marks a unit as an artifact, and the ONLY thing
+    units.csv can express about that is `move 0`. Everything else -- category,
+    attack, the land-combat flag block, upkeep -- comes from the generator's
+    default template, so a vessel silently shipped as `UNIT_CATEGORY_ATTACK`
+    with Attack 10, CanAttack Land/Mountain, CanPillage, CanPirate,
+    ExertsMartialLaw, CanReform and a shield upkeep. A lamp that could pillage.
+
+    Setting the movement to zero stopped it MOVING and nothing else, which is
+    exactly the shape of defect a data-driven pipeline hides: the one field you
+    set looks right, and the twenty you did not are wrong.
+
+    Forbidden here means "meaningless or harmful on an object that sits on the
+    ground". `MovementType:` is NOT forbidden -- it declares which terrain a unit
+    may occupy, not that it can travel, and a unit with none has nowhere to be
+    placed.
+    """
+    policy = _momjr_csv() / "mod_policy.json"
+    units = scen / "default/gamedata/Units.txt"
+    if not policy.exists() or not units.exists():
+        return
+    vessels = json.loads(policy.read_text(encoding="utf-8")).get(
+        "unit_roles", {}).get("vessels", [])
+    if not vessels:
+        return
+    text = units.read_text(encoding="latin-1")
+    forbidden = ("CanAttack:", "CanPillage", "CanPirate", "CanExpel",
+                 "ExertsMartialLaw", "CanEntrench", "CanReform")
+    for ident in vessels:
+        m = re.search(rf"^{re.escape(ident)} \{{(.*?)^\}}", text, re.M | re.S)
+        if not m:
+            fails.append(f"Units.txt: vessel {ident} declared in policy but not emitted")
+            continue
+        block = m.group(1)
+        for flag in forbidden:
+            if flag in block:
+                fails.append(f"Units.txt: vessel {ident} carries {flag} -- an "
+                             f"artifact is not a combatant")
+        for field, want in (("MaxMovePoints", "0"), ("Attack", "0"),
+                            ("Defense", "0"), ("ShieldHunger", "0")):
+            got = re.search(rf"^\s*{field}\s+(\S+)", block, re.M)
+            if got and got.group(1) != want:
+                fails.append(f"Units.txt: vessel {ident} has {field} "
+                             f"{got.group(1)}, expected {want}")
+        if "UNIT_CATEGORY_ATTACK" in block:
+            fails.append(f"Units.txt: vessel {ident} is UNIT_CATEGORY_ATTACK")
+
+
+MAX_ALERT_ARMS = 5
+
+
+def check_alertbox_arms(scen: Path, fails: list[str]) -> None:
+    """No segment may declare more than five arms, and Close must be first.
+
+    TWO MEASURED ENGINE BEHAVIOURS, neither of which produces an error:
+
+    * A box renders at most five arms and DROPS THE OVERFLOW FROM THE TAIL.
+      Measured 2026-08-03 with eight declared: five drawn, three gone, and
+      because the tail is dropped, `Close` itself was among the casualties. The
+      frame still looks correct, so the only symptom is a box the player cannot
+      dismiss.
+    * Arms PAINT IN REVERSE of declaration order, so declaring `Close` first is
+      what puts it last on screen -- and, more importantly, is what guarantees it
+      survives a later edit that pushes the segment over the limit.
+
+    Both rules are invisible at runtime until they bite, and the mod currently
+    ships two segments sitting exactly ON the limit, so the next arm added to
+    either silently deletes its close button. That is what this gate protects.
+
+    The parser is deliberately shallow -- it counts `Button(ID_...)` between a
+    segment header and its closing brace at column 0 -- because SLIC segments are
+    never nested and a full parse would be more failure surface than the check.
+    """
+    gamedata = scen / "default/gamedata"
+    if not gamedata.is_dir():
+        return
+    header = re.compile(r"^(alertbox|messagebox)\s+'([A-Za-z_][A-Za-z0-9_]*)'")
+    button = re.compile(r"^\s*Button\(\s*(ID_[A-Za-z0-9_]+)\s*\)")
+    for path in sorted(gamedata.glob("*.slc")):
+        name = None
+        arms: list[str] = []
+        for line in path.read_text(encoding="latin-1").split("\n"):
+            m = header.match(line)
+            if m:
+                name, arms = m.group(2), []
+                continue
+            if name is None:
+                continue
+            b = button.match(line)
+            if b:
+                arms.append(b.group(1))
+            elif line.startswith("}"):
+                if len(arms) > MAX_ALERT_ARMS:
+                    fails.append(
+                        f"{path.name}: segment {name} declares {len(arms)} arms; "
+                        f"the box renders {MAX_ALERT_ARMS} and drops the tail "
+                        f"SILENTLY -- {', '.join(arms[MAX_ALERT_ARMS:])} will "
+                        f"never appear")
+                if arms and arms[0] != "ID_BUTTON_CLOSE":
+                    fails.append(
+                        f"{path.name}: segment {name} declares {arms[0]} first, "
+                        f"not ID_BUTTON_CLOSE -- arms paint in reverse, so Close "
+                        f"must be declared first to survive tail-dropping")
+                name = None
 
 
 def check_icon_refs(scen: Path, fails: list[str]) -> None:
@@ -260,6 +412,173 @@ def check_faction_gating(scen: Path, fails: list[str]) -> None:
     except Exception:
         return
     fails.extend(F.audit(scen))
+
+
+def check_ai_magic(scen: Path, fails: list[str]) -> None:
+    """Gate 26: the summon ladder varies and the AI can actually spend mana.
+
+    Delegates to gate_ai_magic.check. Skipped (not failed) when that module or
+    the control plane is not importable, matching check_faction_gating -- this
+    validator is scenario-generic and MoM's csv dir is not guaranteed alongside.
+
+    Both defects this covers were invisible to every other gate because nothing
+    dangled: the summon resolved through five per-sphere CONSTANTS, and AI tribes
+    accrued mana they could never spend because the only authorisation was set in
+    a button body. Reference integrity cannot see either.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import gate_ai_magic as A
+    except Exception:
+        return
+    fails.extend(A.check(scen, _momjr_csv()))
+
+
+def check_mana_upkeep(scen: Path, fails: list[str]) -> None:
+    """Gate 27: the mana economy tallies AND deducts, and the books self-clean.
+
+    Delegates to gate_mana_upkeep.check, same skip-not-fail contract as
+    check_ai_magic above.
+
+    Summoning used to cost 75 mana once and nothing afterwards, which gave mana a
+    single repeatable sink and let a tribe accumulate an unbounded pile of
+    identical rung-1 creatures -- the "only ever one unit type" report of
+    2026-08-01. Upkeep fixes that, and brings three silent failure modes with it:
+    a dead creature still being billed (looks like balance, not a bug), a spawn
+    call site left at the old arity (ledgers nothing, so that path stays free),
+    and an unbounded disband loop inside a BeginTurn handler. None of the three
+    dangles, so no reference-integrity gate can see them.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import gate_mana_upkeep as U
+    except Exception:
+        return
+    fails.extend(U.check(scen, _momjr_csv()))
+
+
+def check_stat_spread(scen: Path, fails: list[str]) -> None:
+    """Gate 28: no combat stat may collapse to a single value across the roster.
+
+    MaxHP shipped as a CONSTANT 10 on every unit for the whole life of this mod.
+    civ2 MOMJR carries a real durability axis -- 1h Spearmen through 6h Great
+    Wyrm -- and the port parsed `hp` only to pick a sprite size, then wrote a
+    literal. Nothing dangled, every gate passed, and the axis was simply absent:
+    a dragon died as fast as a peasant.
+
+    A stat with one distinct value is not balance, it is a dropped column. This
+    asserts each axis keeps a spread, so a future refactor cannot quietly put the
+    literal back.
+
+    Also asserts no value exceeds what stock CTP2 itself ships, so the rescale
+    cannot wander into ranges the engine's combat maths and the AI's own unit
+    evaluation have never seen.
+    """
+    import re as _re
+    path = scen / "default/gamedata/Units.txt"
+    if not path.exists():
+        return
+    txt = path.read_text(encoding="latin-1", errors="replace")
+
+    def _stat(block: str, key: str) -> int:
+        m = _re.search(rf"^\s*{key}\s+([0-9]+)", block, _re.M)
+        return int(m.group(1)) if m else 0
+
+    rows = []
+    for m in _re.finditer(r"^(UNIT_[A-Z0-9_]+) \{(.*?)^\}", txt, _re.S | _re.M):
+        b = m.group(2)
+        if _stat(b, "Attack") > 0:
+            rows.append((m.group(1), _stat(b, "Attack"), _stat(b, "Defense"),
+                         _stat(b, "MaxHP"), _stat(b, "Firepower")))
+    if len(rows) < 10:
+        return
+
+    # Stock CTP2's own maxima -- the ceiling the engine already ships with.
+    CEIL = {"Attack": 1000, "Defense": 100, "MaxHP": 100, "Firepower": 6}
+    for idx, key in ((1, "Attack"), (2, "Defense"), (3, "MaxHP"), (4, "Firepower")):
+        vals = [r[idx] for r in rows if r[idx] > 0]
+        if not vals:
+            continue
+        if len(set(vals)) < 2:
+            fails.append(
+                f"Units.txt: {key} is a CONSTANT {vals[0]} across {len(vals)} "
+                "units -- the axis has been dropped, not balanced; civ2 carries "
+                "a real spread for it")
+        over = [r[0] for r in rows if r[idx] > CEIL[key]]
+        if over:
+            fails.append(
+                f"Units.txt: {key} exceeds stock CTP2's maximum {CEIL[key]} on "
+                f"{', '.join(over[:4])} -- outside any range the engine has been "
+                "exercised at")
+
+
+def check_slic_arrays_declared(scen: Path, fails: list[str]) -> None:
+    """Gate 29: every Mom* array indexed in SLIC must be declared somewhere.
+
+    Shipped to the operator as a load-time modal on 2026-08-02: a new handler
+    used MomSphereRootDone[p] and the declaration was never added, so the game
+    opened on "Symbol 'MomSphereRootDone' is undefined".
+
+    Worth knowing WHY this class is catchable when so much SLIC breakage is not:
+    unknown SCALARS are silently auto-created by the engine (a typo becomes a
+    permanent false with no diagnostic), but an undeclared ARRAY is a hard error
+    at load. So this one can be caught statically and cheaply, and there is no
+    excuse for it reaching a playtest.
+
+    Declaration ORDER is not checked -- the include order puts shared state in
+    mom_func.slc, which loads first -- only existence.
+    """
+    import re as _re
+    gd = scen / "default/gamedata"
+    if not gd.is_dir():
+        return
+    scen_slc = gd / "scenario.slc"
+    if not scen_slc.is_file():
+        return
+    # The REAL load order, read from scenario.slc rather than assumed. A file
+    # absent from the include list is unreachable; rank it last so its uses are
+    # never blamed for an ordering fault.
+    order = {name: i for i, name in enumerate(_re.findall(
+        r'^\s*#include\s+"([^"]+)"',
+        scen_slc.read_text(encoding="latin-1", errors="replace"), _re.M))}
+
+    def rank(fn: str) -> int:
+        return order.get(fn, len(order))
+
+    declared: dict[str, str] = {}
+    used: dict[str, str] = {}
+    decl_re = _re.compile(r"\b(?:int_t|unit_t|city_t|location_t)\s+([A-Za-z_]\w*)\s*\[")
+    use_re = _re.compile(r"\b(Mom\w*)\s*\[")
+    for f in sorted(gd.glob("mom_*.slc")):
+        src = _re.sub(r"//[^\r\n]*", "", f.read_text(encoding="latin-1", errors="replace"))
+        for m in decl_re.finditer(src):
+            # EARLIEST-LOADING declaration wins: a later duplicate cannot rescue
+            # a use that runs before the first one.
+            n = m.group(1)
+            if n not in declared or rank(f.name) < rank(declared[n]):
+                declared[n] = f.name
+        for m in use_re.finditer(src):
+            # EARLIEST-LOADING USE, not the alphabetically first. This directory
+            # is walked in sorted() order, so a naive setdefault records
+            # mom_ai_magic.slc (include 7) and lets a genuine violation in
+            # mom_turns.slc (include 1) pass -- measured while proving this gate
+            # against the exact bug it exists to catch.
+            n = m.group(1)
+            if n not in used or rank(f.name) < rank(used[n]):
+                used[n] = f.name
+
+    for name in sorted(used):
+        if name not in declared:
+            fails.append(
+                f"{used[name]}: array {name}[] is indexed but never declared -- an "
+                "undeclared ARRAY is a hard 'Symbol is undefined' error at load, "
+                "unlike a scalar which the engine silently auto-creates")
+        elif rank(used[name]) < rank(declared[name]):
+            fails.append(
+                f"{used[name]} (include {rank(used[name])}) indexes {name}[] but it is "
+                f"declared in {declared[name]} (include {rank(declared[name])}) -- a use "
+                "before its declaring file loads is the same hard 'Symbol is "
+                "undefined' error as no declaration at all")
 
 
 def _momjr_csv() -> Path:
@@ -483,6 +802,300 @@ def check_disabled_entities_unbuildable(scen: Path, fails: list[str]) -> None:
                 fails.append(f"{rel}: {ident} is `no` (never available) in "
                              f"{fname} but ships buildable -- "
                              f"EnableAdvance {gate or 'NONE'}")
+
+
+def check_wonder_articles(scen: Path, fails: list[str]) -> None:
+    """Gate 25: every wonder has the `_ARTICLE` string its messages interpolate.
+
+    Require: generated Wonder.txt and english/gamedata/gl_str.txt.
+    Guarantee: every WONDER_* block has a `<IDENT>_ARTICLE` key, and no
+      `_ARTICLE` key survives whose wonder is gone.
+
+    `#ARTICLE` is an IDENT-SUFFIX LOOKUP, not a computed article: the engine
+    resolves `{wonder[0].name#ARTICLE}` by reading `<IDENT>_ARTICLE` out of
+    gl_str.txt, and falls back to the NAME when the key is missing. Eleven
+    messages in ctp2_data/english/gamedata/info_str.txt are written as two
+    adjacent interpolations --
+
+        WONDER_STARTED "... has begun work on {wonder[0].name#ARTICLE}{wonder[0].name}."
+
+    -- so a missing key renders the name TWICE with nothing between it:
+    `Bardic CollegeBardic College`, observed in-game 2026-07-28. Affected:
+    WONDER_BUILT, WONDER_BUILT_QUEUE_EMPTY, WONDER_STARTED, WONDER_STOPPED,
+    WONDER_ALMOST_FINISHED, WONDER_COMPLETE_OWNER, WONDER_COMPLETE_ALL,
+    WONDER_DESTROYED, WONDER_OBSOLETE, NANITE_DEFUSER_ELIMINATES_NUKES,
+    PROTECTED_FROM_CONVERSION_BY_WONDER.
+
+    The base tree ships 30 of these keys and wonders are the ONLY database that
+    uses the modifier. MoM's gl_str.txt overrides the base file and shipped ZERO,
+    because two independent lanes were broken: _prune_gl_strings deleted every
+    inherited key (a trailing `_ARTICLE` never matched a keep_id), and the wonder
+    writer never emitted MoM's own. Fixing either alone leaves the bug, which is
+    why this gate asserts the RESULT rather than either lane.
+    """
+    wonder_txt = scen / "default/gamedata/Wonder.txt"
+    gl_str = scen / "english/gamedata/gl_str.txt"
+    if not wonder_txt.exists() or not gl_str.exists():
+        return
+
+    wonders = set(re.findall(
+        r"^(WONDER_[A-Z0-9_]+)\s*\{",
+        wonder_txt.read_text(encoding="latin-1", errors="replace"), re.M))
+    keys = set(re.findall(
+        r"^(\w+)\s+\"",
+        gl_str.read_text(encoding="latin-1", errors="replace"), re.M))
+
+    for ident in sorted(wonders):
+        if f"{ident}_ARTICLE" not in keys:
+            fails.append(
+                f"gl_str.txt: {ident} has no {ident}_ARTICLE key -- every "
+                "wonder message will print its name twice")
+    for key in sorted(k for k in keys if k.endswith("_ARTICLE")):
+        if key[:-len("_ARTICLE")] not in wonders:
+            fails.append(
+                f"gl_str.txt: {key} has no matching block in Wonder.txt")
+
+    # The civ2 `x` DISABLED SENTINEL must never reach the scenario. MOMJR writes
+    # a retired entry as `xLighthouse, 20, 0, no,` -- the x prefix AND the `no`
+    # never-buildable prereq -- and neither lane excluded it, so five stock CTP2
+    # wonders shipped with the sentinel baked into the DISPLAY NAME. This is not
+    # cosmetic-internal: the Great Library's Warrior Code page listed "Xapollo
+    # Program, Xcure For Cancer, Xlighthouse, Xstatue Of Liberty and Xwomens
+    # Suffrage" to the player as wonders it enables (measured in-game
+    # runs/20260729-174823). Culled at the control plane 2026-07-29, 28 -> 23.
+    for ident in sorted(wonders):
+        stem = ident[len("WONDER_"):]
+        if re.match(r"^X[A-Z]", stem):
+            fails.append(
+                f"Wonder.txt: {ident} carries the civ2 `x` disabled sentinel -- "
+                "it was marked `no` (never buildable) in the source and must be "
+                "culled from wonders.csv, not shipped")
+    for ident, name in re.findall(r"^(WONDER_[A-Z0-9_]+)\s+\"([^\"]+)\"", gl_str.read_text(
+            encoding="latin-1", errors="replace"), re.M):
+        if re.match(r"^X[a-zA-Z]", name) and ident in wonders:
+            fails.append(
+                f"gl_str.txt: {ident} display name {name!r} starts with the civ2 "
+                "`x` disabled sentinel")
+
+
+def check_wonder_build_lists(scen: Path, fails: list[str]) -> None:
+    """Gate 24: the AI's wonder lists cover every live wonder and nothing else.
+
+    Require: generated Wonder.txt and aidata/WonderBuildLists.txt.
+    Guarantee: every ident in the lists is a Wonder.txt block; no self-obsoleting
+      sentinel is offered; every live wonder appears in at least one list; and
+      the EndGameObjects wonder is among them.
+
+    The last clause is the one with teeth. EndGameObjects.txt makes holding
+    WONDER_RUNE_OF_RULERSHIP for 10 turns the scenario's victory, and the AI can
+    only choose a wonder that appears in one of these seven lists. The lists
+    shipped EMPTY -- deliberately, to stop stock aidata idents dangling -- which
+    also meant no AI could ever build any of the 23 MoM wonders, so in an AI-only
+    game the victory was unreachable by construction. Two headless playthroughs
+    (200 and 600 turns) ended only because the script ran out, never because the
+    game did.
+
+    An empty list is therefore not a safe default here: it is silent, it looks
+    tidy, and it deletes a win condition. Assert coverage explicitly.
+    """
+    wonder_txt = scen / "default/gamedata/Wonder.txt"
+    lists_txt = scen / "default/aidata/WonderBuildLists.txt"
+    if not wonder_txt.exists() or not lists_txt.exists():
+        return
+
+    wtext = wonder_txt.read_text(encoding="latin-1", errors="replace")
+    ltext = lists_txt.read_text(encoding="latin-1", errors="replace")
+    blocks = dict(re.findall(r"^(WONDER_[A-Z0-9_]+)\s*\{(.*?)^\}", wtext,
+                             re.S | re.M))
+    listed = set(re.findall(r"^\s*Wonder\s+(WONDER_\w+)", ltext, re.M))
+
+    def _adv(body: str, key: str) -> str | None:
+        m = re.search(r"\b" + key + r"\s+(\S+)", body)
+        return m.group(1) if m else None
+
+    # The disabled idiom: obsolete by the same advance that unlocks it.
+    disabled = {n for n, b in blocks.items()
+                if _adv(b, "EnableAdvance") is not None
+                and _adv(b, "EnableAdvance") == _adv(b, "ObsoleteAdvance")}
+    live = set(blocks) - disabled
+
+    for ident in sorted(listed - set(blocks)):
+        fails.append(f"WonderBuildLists.txt: {ident} is not a block in Wonder.txt")
+    for ident in sorted(listed & disabled):
+        fails.append(
+            f"WonderBuildLists.txt: {ident} is obsolete the moment it unlocks -- "
+            "offering it to the AI burns production on a dead end")
+    for ident in sorted(live - listed):
+        fails.append(
+            f"WonderBuildLists.txt: live wonder {ident} is in no AI list, so no "
+            "AI player can ever choose to build it")
+
+    endgame = scen / "default/gamedata/EndGameObjects.txt"
+    if endgame.exists():
+        want = set(re.findall(
+            r"^\s*Wonder\s+(WONDER_\w+)",
+            endgame.read_text(encoding="latin-1", errors="replace"), re.M))
+        for ident in sorted(want - listed):
+            fails.append(
+                f"WonderBuildLists.txt: {ident} decides the game in "
+                "EndGameObjects.txt but is in no AI build list -- the victory "
+                "condition is unreachable for every AI player")
+
+
+def check_parchment_range(scen: Path, fails: list[str]) -> None:
+    """Gate 23: every civ's Parchment resolves to an art file that exists.
+
+    Require: a generated civilisation.txt.
+    Guarantee: every `Parchment` value is in 1..41 or is 99.
+
+    `dipwizard.cpp:2673` builds the diplomacy background filename at RUNTIME as
+    `UPDG%02d.tga` from this field -- there is no DB reference to dangle, so no
+    other gate can see it. A regex scan of every ctp2_data/**/*.zfs returns
+    exactly updg01..updg41 plus updg99, so anything outside that is a native
+    Targa Load Error modal that stops the engine's message pump: the harness
+    sees a frozen frame and no console line ([[ctp2-harness-cannot-see-console
+    -output]]). All five MoM tribes shipped 42-46 -- i.e. every tribe was
+    broken -- until 2026-07-27.
+    """
+    civ = scen / "default/gamedata/civilisation.txt"
+    if not civ.exists():
+        return
+    # Block headers carry a trailing `#N` comment and open their brace on the
+    # NEXT line, so a `^(\w+)\s*\{` block regex matches nothing here and the
+    # gate passes a file it should reject. Track the block by line instead.
+    block = "?"
+    for line in civ.read_text(encoding="latin-1", errors="replace").splitlines():
+        head = re.match(r"^([A-Za-z_]\w*)\b", line)
+        if head:
+            block = head.group(1)
+            continue
+        m = re.match(r"^\s*Parchment\s+(\d+)\s*$", line)
+        if m:
+            n = int(m.group(1))
+            if not (1 <= n <= 41 or n == 99):
+                fails.append(
+                    f"civilisation.txt: {block} Parchment {n} has no UPDG"
+                    f"{n:02d}.tga -- legal range is 1-41 or 99")
+
+
+def check_renaissance_age_cap(scen: Path, fails: list[str]) -> None:
+    """Gate 22: ages 5-7 are purely magical; mundane tech ends at AGE_FOUR.
+
+    Require: a generated Advance.txt.
+    Guarantee: every advance above AGE_FOUR transitively requires a sphere
+    ladder rung (ADVANCE_<SPHERE>_{MAGIC,LORE,ADEPT,MAGE,WIZARD,MASTER}, plus
+    Sorcery's irregular ADVANCE_SORCERY / ADVANCE_SORCEROUS_LORE).
+
+    `_relayout_advance_ages` keyed its cap on `ident in momjr` -- but MoM
+    authored nearly the whole tree, so the mundane branch was dead code and the
+    cap applied to nothing. Ecognomics, Sanitation, Sea Lore and Greater Fauna
+    Lore drifted to AGE_FIVE on depth banding alone. This gate reads the SHIPPED
+    Advance.txt and re-derives the closure independently of the writer, so a
+    future relayout that regresses the discriminator fails here rather than
+    quietly shipping mundane tech in the magical ages.
+    """
+    adv = scen / "default/gamedata/Advance.txt"
+    if not adv.exists():
+        return
+    try:
+        sys.path.insert(0, str(TOOLS_DIR))
+        from ctp2_generator import _ladder_rung_age, _AGE_NUMBER, _MUNDANE_MAX_AGE
+    except Exception:
+        return
+    text = adv.read_text(encoding="latin-1", errors="replace")
+    blocks = dict(re.findall(r"^(ADVANCE_[A-Z0-9_]+)\s*\{(.*?)^\}", text,
+                             re.S | re.M))
+    prereqs = {
+        ident: [p for p in re.findall(
+            r"^\s*Prerequisites\s+(ADVANCE_[A-Z0-9_]+)\s*$", body, re.M)
+            if p != ident and p in blocks]
+        for ident, body in blocks.items()
+    }
+    magical: dict[str, bool] = {}
+
+    def _magical(ident: str, stack: frozenset = frozenset()) -> bool:
+        if ident in magical:
+            return magical[ident]
+        if ident in stack:
+            return False            # a prerequisite cycle is not this gate's job
+        result = (_ladder_rung_age(ident) is not None
+                  or any(_magical(p, stack | {ident}) for p in prereqs[ident]))
+        magical[ident] = result
+        return result
+
+    for ident, body in sorted(blocks.items()):
+        m = re.search(r"^\s*Age\s+(AGE_[A-Z]+)\s*$", body, re.M)
+        age = _AGE_NUMBER.get(m.group(1), 1) if m else 1
+        if age > _MUNDANE_MAX_AGE and not _magical(ident):
+            fails.append(f"{ident} is mundane but sits at {m.group(1)} -- "
+                         f"ages above AGE_{'FOUR'} are reserved for the sphere "
+                         f"ladders (Renaissance cap)")
+
+
+def check_gl_statistics_match_db(scen: Path, fails: list[str]) -> None:
+    """Gate 21: the Great Library's printed stats match the advance DB.
+
+    Require: a generated Advance.txt and english/gamedata/Great_Library.txt.
+    Guarantee: every ADVANCE_*_STATISTICS section prints the Cost, Age and
+    Branch of the block it describes.
+
+    ctp2_parser stamped these lines when the advance was registered, ~1300 lines
+    before `_retune_mom_advance_costs` rewrote the costs -- ADVANCE_WRITING
+    advertised `Cost: 1000` against a DB `Cost 1025`. The player has no way to
+    see the DB, so a drifted line is simply a lie in the encyclopaedia.
+
+    Reads both SHIPPED artifacts rather than the reconcile pass's own output, so
+    a future writer that re-stamps stale values still fails here.
+    """
+    adv = scen / "default/gamedata/Advance.txt"
+    gl = scen / "english/gamedata/Great_Library.txt"
+    if not adv.exists() or not gl.exists():
+        return
+    try:
+        sys.path.insert(0, str(TOOLS_DIR))
+        from ctp2_generator import gl_age_display
+    except Exception:
+        return
+    age_path = scen / "default/gamedata/age.txt"
+    ages = gl_age_display(
+        age_path.read_text(encoding="latin-1", errors="replace")
+        if age_path.exists() else "")
+
+    live: dict[str, dict[str, str]] = {}
+    text = adv.read_text(encoding="latin-1", errors="replace")
+    for m in re.finditer(r'^(ADVANCE_\w+) \{(.*?)^\}', text, re.S | re.M):
+        body, fields = m.group(2), {}
+        for key in ("Cost", "Age", "Branch"):
+            f = re.search(rf'^\s*{key}\s+(\S+)', body, re.M)
+            if f:
+                fields[key] = f.group(1)
+        live[m.group(1)] = fields
+
+    section = None
+    for line in gl.read_text(encoding="latin-1", errors="replace").splitlines():
+        s = line.strip()
+        m = re.match(r"^\[(ADVANCE_\w+)_STATISTICS\]$", s)
+        if m:
+            section = m.group(1)
+            continue
+        if s == "[END]":
+            section = None
+            continue
+        if not section:
+            continue
+        f = re.match(r'^(?:<[ch]:\d+,\d+,\d+>)*(Cost|Age|Branch):\s*(.*)$', s)
+        if not f:
+            continue
+        key, shown = f.group(1), f.group(2).strip()
+        want = (live.get(section) or {}).get(key)
+        if want is None:
+            continue
+        if key == "Age":
+            want = ages.get(want, want)
+        if shown != want:
+            fails.append(f"english/gamedata/Great_Library.txt: "
+                         f"{section}_STATISTICS says {key}: {shown} but "
+                         f"Advance.txt says {want}")
 
 
 def check_building_effects(scen: Path, fails: list[str]) -> None:
@@ -850,6 +1463,9 @@ def main() -> int:
     unit_idents = check_units_idents(scen, fails)
     check_reserved(scen, unit_idents, fails)
     check_string_refs(scen, fails)
+    check_string_grammar(scen, fails)
+    check_alertbox_arms(scen, fails)
+    check_vessel_units(scen, fails)
     check_icon_refs(scen, fails)
     check_advance_prereq_cap(scen, fails)
     check_visible_art(scen, fails)
@@ -866,6 +1482,15 @@ def main() -> int:
     check_disabled_advances_closed(scen, fails)
     check_advance_code_map(scen, fails)
     check_disabled_entities_unbuildable(scen, fails)
+    check_gl_statistics_match_db(scen, fails)
+    check_renaissance_age_cap(scen, fails)
+    check_parchment_range(scen, fails)
+    check_wonder_build_lists(scen, fails)
+    check_wonder_articles(scen, fails)
+    check_ai_magic(scen, fails)
+    check_mana_upkeep(scen, fails)
+    check_stat_spread(scen, fails)
+    check_slic_arrays_declared(scen, fails)
 
     if fails:
         for f in fails:
@@ -873,7 +1498,9 @@ def main() -> int:
         print(f"\n{len(fails)} failure(s).")
         return 1
     print("all scenario gates pass (newsprite grammar, ident charset, "
-          "reserved tokens, string-ref integrity, gl_str grammar, faction gating)")
+          "reserved tokens, string-ref integrity, string grammar, alertbox arms, "
+          "gl_str grammar, "
+          "faction gating)")
     return 0
 
 

@@ -50,6 +50,51 @@ import win32ui
 TOOL_DIR = Path(__file__).resolve().parent
 INSTALL = TOOL_DIR.parents[3]                     # <install>/Scenarios/mom/tools/uiwalk
 EXE_DIR = INSTALL / "ctp2_program" / "ctp"
+
+
+def scenario_pack_index(pack: str = "mom") -> int:
+    """Row of `pack` in ScenarioWindow.AvailableListBox, DERIVED not pinned.
+
+    Require: <install>/Scenarios exists.
+    Guarantee: returns the 0-based row the engine will show for `pack`.
+    Raises: LookupError if the pack is not enumerable -- never a silent guess,
+      because a wrong row here is unrecoverable downstream.
+
+    THE ENGINE ENUMERATES Scenarios/*/ THAT CONTAIN scen0000, SORTED
+    CASE-INSENSITIVELY. The folding is the whole subtlety and it is worth two
+    measurements to state plainly:
+
+      case-insensitive          ASCII (uppercase first)
+      0 AE_Mod                  0 AE_Mod
+      1 AlexanderTheGreat       1 AlexanderTheGreat
+      2 MagnificentSamurai      2 MagnificentSamurai
+      3 mom            <--      3 NuclearDetente
+      4 NuclearDetente          4 WorldMaps
+      5 smm                     5 mom
+      6 WorldMaps               6 smm
+
+    Both orders agree on rows 0..2, so the picker capture that shows "Apolyton
+    Edition Mod Pack / Alexander the Great / Sieben Samurai" cannot distinguish
+    them. What distinguishes them is a run: selecting row 5 loaded **smm** (its
+    SLIC errors named scenarios\smm\ in the path), which only the folded order
+    predicts. `archived/` has no scen0000 and does not appear.
+
+    So `mom` is row 3 -- exactly what full_game_v3.json has always pinned. This
+    function exists to keep that true as packs come and go, NOT because the
+    pinned value was wrong: an earlier version of this docstring blamed the boot
+    crash on Scenarios/smm shifting the row, computed the ASCII order, "fixed"
+    row 3 to row 5, and thereby loaded the wrong scenario for the first time.
+    The constant was right and the correction was the defect.
+    """
+    root = INSTALL / "Scenarios"
+    packs = sorted((d.name for d in root.iterdir()
+                    if d.is_dir() and (d / "scen0000").is_dir()),
+                   key=str.casefold)
+    if pack not in packs:
+        raise LookupError(
+            f"scenario pack {pack!r} is not enumerable under {root} -- "
+            f"the engine would show {packs}")
+    return packs.index(pack)
 EXE_CANDIDATES = ["ctp2-dbg.exe", "ctp2-log.exe", "ctp2.exe"]  # unused; real
 # selection happens in run-ctp2-dbg-crashcapture.ps1 (Resolve-LaunchSource).
 
@@ -265,21 +310,81 @@ def preflight_display(want=None):
                     ("DeviceID", ctypes.c_wchar * 128),
                     ("DeviceKey", ctypes.c_wchar * 128)]
 
+    DISPLAY_DEVICE_ATTACHED = 0x1
     DISPLAY_DEVICE_PRIMARY = 0x4
     ENUM_CURRENT_SETTINGS = -1
     u32 = ctypes.windll.user32
 
+    # ATTACHED **AND** PRIMARY, not primary alone. EnumDisplayDevicesW walks
+    # adapters that are not currently part of the desktop, and taking the first
+    # device that merely carries the primary bit can name a head the desktop is
+    # not actually using -- at which point this gate reports a resolution as
+    # illegal because of a monitor nobody is looking at, and the operator gets
+    # told to rotate a display that is not their primary.
+    #
+    # This aborted a run on 2026-08-03 naming \\.\DISPLAY4, while an independent
+    # enumeration filtering on ATTACHED showed \\.\DISPLAY1 primary, landscape,
+    # with 1280x1024 legal. A preflight that blocks work must be at least as
+    # careful as the thing it is protecting.
+    def _scan():
+        """Return (flag_primary, origin_primary) from one enumeration pass.
+
+        TWO INDEPENDENT WITNESSES, because one of them can lie mid-transition:
+          * flag_primary -- the device carrying ATTACHED and PRIMARY.
+          * origin_primary -- the device whose current mode sits at (0,0). The
+            Windows desktop origin IS the primary by definition, so this cannot
+            be true of anything else once the desktop has settled.
+        """
+        flag = origin = None
+        j = 0
+        while True:
+            dd = DISPLAY_DEVICE()
+            dd.cb = ctypes.sizeof(DISPLAY_DEVICE)
+            if not u32.EnumDisplayDevicesW(None, j, ctypes.byref(dd), 0):
+                break
+            if dd.StateFlags & DISPLAY_DEVICE_ATTACHED:
+                if dd.StateFlags & DISPLAY_DEVICE_PRIMARY and flag is None:
+                    flag = dd.DeviceName
+                dm = DEVMODE()
+                dm.dmSize = ctypes.sizeof(DEVMODE)
+                if (u32.EnumDisplaySettingsW(dd.DeviceName, ENUM_CURRENT_SETTINGS,
+                                             ctypes.byref(dm))
+                        and dm.dmPosition_x == 0 and dm.dmPosition_y == 0
+                        and origin is None):
+                    origin = dd.DeviceName
+            j += 1
+        return flag, origin
+
+    # RE-READ BEFORE BELIEVING A BLOCKING VERDICT. A display waking, a mode
+    # change, or a monitor being switched reports briefly inconsistent state, and
+    # this gate ABORTS THE RUN -- so a single sample of a value in flux is not
+    # enough to act on.
+    #
+    # Measured 2026-08-04: this named \\.\DISPLAY4 (portrait, no 1280x1024) and
+    # reported \\.\DISPLAY1 as not even attached. Minutes later, unchanged code
+    # on an unchanged desktop read \\.\DISPLAY1 primary at (0,0), landscape,
+    # 1280x1024 legal. The operator was told to change their displays on the
+    # strength of the first reading. That is the FOURTH time this gate has
+    # blamed the environment for its own reading.
+    #
+    # The two witnesses must AGREE, and disagreement is retried rather than
+    # resolved -- disagreement means the desktop is mid-transition, which is
+    # exactly when a verdict is worthless.
     primary = None
-    i = 0
-    while True:
-        dd = DISPLAY_DEVICE()
-        dd.cb = ctypes.sizeof(DISPLAY_DEVICE)
-        if not u32.EnumDisplayDevicesW(None, i, ctypes.byref(dd), 0):
+    for attempt in range(4):
+        flag, origin = _scan()
+        if flag and origin and flag == origin:
+            primary = flag
             break
-        if dd.StateFlags & DISPLAY_DEVICE_PRIMARY:
-            primary = dd.DeviceName
-            break
-        i += 1
+        print(f"[preflight] display state unsettled (flags say {flag}, origin "
+              f"says {origin}); re-reading ({attempt + 1}/4)")
+        time.sleep(1.5)
+    if primary is None:
+        flag, origin = _scan()
+        # Prefer the ORIGIN witness: the desktop origin is the primary by
+        # definition, whereas the primary BIT can be stale on a device the
+        # desktop has already stopped using.
+        primary = origin or flag
     if primary is None:
         print("[preflight] display: could not identify primary monitor; skipping check")
         return
@@ -540,6 +645,11 @@ VK = {
     "left": win32con.VK_LEFT, "right": win32con.VK_RIGHT,
     "up": win32con.VK_UP, "down": win32con.VK_DOWN,
     **{c: ord(c.upper()) for c in "abcdefghijklmnopqrstuvwxyz0123456789"},
+    # Numpad digits, distinct VKs from the top row. keymap.txt binds unit
+    # movement to the digits 1-9 (MOVE_SOUTHWEST..MOVE_NORTHEAST), and which
+    # physical key that means is a question about the engine's key handling, not
+    # something to assume -- so both are addressable and the probe decides.
+    **{f"num{d}": 0x60 + d for d in range(10)},
 }
 
 
@@ -587,6 +697,34 @@ class PostInput:
         win32api.PostMessage(hwnd, win32con.WM_SETFOCUS, 0, 0)
         time.sleep(0.05)
 
+    def _drop_focus(self):
+        """Release the spoofed input focus once the input has been delivered.
+
+        WHY THIS EXISTS -- the map scrolled forever (operator, 2026-07-29:
+        "the game is open and scrolling to the left ... the screen only scrolls
+        like that if the mouse is at the edge").
+
+        CTP2's aui polls the REAL cursor via GetCursorPos; it does NOT read our
+        posted WM_MOUSEMOVE. The window is stashed at (3012,-1262), just past the
+        virtual right edge, so the operator's actual cursor -- anywhere on their
+        three-monitor desktop -- maps to client coordinates far OUTSIDE the
+        client rect. Measured: cursor (2428,-523) against that origin is client
+        x = -584, i.e. past the left edge, and the engine edge-scrolls left on
+        every frame.
+
+        The edge-scroll only runs while the window holds SDL_WINDOW_INPUT_FOCUS,
+        which _spoof_focus sets. Nothing ever cleared it, so one keypress armed a
+        scroll that continued for the rest of the run. Dropping the flag after
+        each input closes the window during which the engine consults the cursor.
+
+        Safe to drop: every input method calls _spoof_focus() FIRST, so the flag
+        is always re-armed immediately before it is needed. Never touch the real
+        cursor or ClipCursor to fix this -- the operator is using the machine.
+        """
+        win32api.PostMessage(self.hwnd, win32con.WM_KILLFOCUS, 0, 0)
+        win32api.PostMessage(self.hwnd, win32con.WM_ACTIVATE,
+                             win32con.WA_INACTIVE, 0)
+
     def _key(self, vk, down):
         msg = win32con.WM_KEYDOWN if down else win32con.WM_KEYUP
         win32api.PostMessage(self.hwnd, msg, vk, self._lparam_key(vk, up=not down))
@@ -600,12 +738,33 @@ class PostInput:
         for vk in reversed(vks):
             self._key(vk, False)
             time.sleep(0.03)
+        self._drop_focus()
 
     def type_text(self, text: str):
         self._spoof_focus()
         for ch in text:
             win32api.PostMessage(self.hwnd, win32con.WM_CHAR, ord(ch), 1)
             time.sleep(0.03)
+        self._drop_focus()
+
+    def hover(self, x: int, y: int):
+        """Deliver a mouse message WITHOUT a button press.
+
+        ctp2-endturn-needs-mouse-input: an injected `enter` only advances the
+        turn if some mouse message reached the engine that turn. The turn loop
+        satisfied that with a real click on inert top-bar chrome at (600,6) --
+        which worked until 2026-07-27, when three consecutive runs died
+        0xC0000005 on that exact click while a boot-only walk to the same frame
+        was clean (runs/20260727-180543). A button-down is what carries the
+        risk; WM_MOUSEMOVE alone is not hit-tested into any control, so it
+        cannot land on a widget and cannot AV. If the engine's requirement is
+        "a mouse message", this satisfies it with none of the exposure.
+        """
+        self._spoof_focus()
+        win32api.PostMessage(self.hwnd, win32con.WM_MOUSEMOVE, 0,
+                             win32api.MAKELONG(x, y))
+        time.sleep(0.05)
+        self._drop_focus()
 
     def drag(self, x1: int, y1: int, x2: int, y2: int, steps: int = 12):
         """Press at (x1,y1), move in steps to (x2,y2), release. For slider thumbs."""
@@ -624,6 +783,7 @@ class PostInput:
         time.sleep(0.10)
         win32api.PostMessage(self.hwnd, win32con.WM_LBUTTONUP, 0,
                              win32api.MAKELONG(x2, y2))
+        self._drop_focus()
 
     def click(self, x: int, y: int):
         """THESIS (2026-07-24): only the FIRST synthetic click registers unless the
@@ -648,6 +808,7 @@ class PostInput:
         win32api.PostMessage(self.hwnd, win32con.WM_LBUTTONDOWN, win32con.MK_LBUTTON, lp)
         time.sleep(0.05)
         win32api.PostMessage(self.hwnd, win32con.WM_LBUTTONUP, 0, lp)
+        self._drop_focus()
 
 
 class GlobalInput:
@@ -699,6 +860,27 @@ class Game:
     def __init__(self):
         self.proc = None
         self.hwnd = None
+        self._log_fh = None
+
+    def _open_engine_log(self):
+        """Capture the engine's stdout instead of discarding it.
+
+        Guarantee: the returned handle stays referenced for the process lifetime,
+        so it is not closed by GC while the engine still holds the fd.
+        Why: a whole class of engine diagnostic never draws anything. Both TGA
+        errors -- `Bad TGA Sprite File(%s)` and `TGA Sprite File not 32-bits(%s)`
+        (gfx/spritesys/Sprite.cpp:190,199) -- are plain printf to stdout, as are
+        the SLIC compile errors. This harness asserts on PIXELS, so with stdout
+        going to DEVNULL those warnings were not merely missed, they were
+        unobservable: a clean screenshot and a clean run looked identical to a run
+        that printed a hundred errors. Anything console-only is invisible to a
+        screenshot harness by construction, which is why this is captured rather
+        than watched for.
+        """
+        RUNS.mkdir(parents=True, exist_ok=True)
+        path = RUNS / "engine_stdout.log"
+        self._log_fh = open(path, "wb")
+        return self._log_fh
 
     def launch(self, save: str | None, extra_args: list[str]):
         """Launch the staged exe DIRECTLY.
@@ -744,7 +926,7 @@ class Game:
             # so the very first CreateWindow is already covered.
             self.proc = subprocess.Popen(
                 [str(exe), *direct], cwd=str(EXE_DIR), env=env,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                stdout=self._open_engine_log(), stderr=subprocess.STDOUT)
             _WATCHED_PROCS.add(self.proc)
             _start_stash_watchdog(self.proc.pid)
             self._wait_for_window()
@@ -767,7 +949,7 @@ class Game:
         self.proc = subprocess.Popen(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", cmd],
             cwd=str(EXE_DIR), env=env,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            stdout=self._open_engine_log(), stderr=subprocess.STDOUT)
         _WATCHED_PROCS.add(self.proc)
         _start_stash_watchdog(self.proc.pid)
         self._wait_for_window()
@@ -837,8 +1019,29 @@ class Game:
                 if win32gui.GetClassName(hwnd) != "#32770":
                     return
                 _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                if pid == self.proc.pid:
-                    found.append(win32gui.GetWindowText(hwnd))
+                if pid != self.proc.pid:
+                    return
+                # The TITLE alone ('DB Error') names the error CLASS but not the
+                # offending ident, which is the only thing that shortens the
+                # hunt. The body lives in the dialog's static-text children, so
+                # collect them too -- a title-only report sends you grepping
+                # every gamedata file instead of the one record at fault.
+                body = []
+
+                def child(ch, _):
+                    try:
+                        t = win32gui.GetWindowText(ch).strip()
+                        if t and t not in ("OK", "Cancel", "&OK", "&Cancel"):
+                            body.append(t)
+                    except Exception:
+                        pass
+                    return True
+                try:
+                    win32gui.EnumChildWindows(hwnd, child, None)
+                except Exception:
+                    pass
+                title = win32gui.GetWindowText(hwnd)
+                found.append(f"{title}: {' | '.join(body)}" if body else title)
             except Exception:
                 pass
         try:
@@ -870,6 +1073,16 @@ class Game:
             hwnd = self._find_window()
             if hwnd:
                 self.hwnd = hwnd
+                # Remember the owning PID the moment we have one. kill() used to
+                # derive it from self.hwnd at teardown, which is exactly the
+                # handle that is ALREADY DEAD on the abort path -- so an aborted
+                # run terminated nothing and left a game window on the user's
+                # screen (observed 2026-07-27). HEADLESS IS ABSOLUTE, and it has
+                # to hold on the failure path too, or it does not hold.
+                try:
+                    self._game_pid = win32process.GetWindowThreadProcessId(hwnd)[1]
+                except Exception:
+                    pass
                 _stash_offscreen(self.hwnd)
                 return self.hwnd
             if self.proc is not None and self.proc.poll() is not None:
@@ -962,9 +1175,19 @@ class Game:
         """Terminate the GAME by the PID owning our window handle (never
         name-based); the launcher script child then restores the runtime
         overlay and exits on its own."""
+        pid = None
         if self.hwnd:
             try:
-                _, pid = win32process.GetWindowThreadProcessId(self.hwnd)
+                pid = win32process.GetWindowThreadProcessId(self.hwnd)[1]
+            except Exception:
+                pid = None
+        # Fall back to the PID remembered at window acquisition. On the abort
+        # path self.hwnd is typically already invalid, and deriving the PID from
+        # it silently killed nothing at all.
+        if pid is None:
+            pid = getattr(self, "_game_pid", None)
+        if pid:
+            try:
                 handle = win32api.OpenProcess(win32con.PROCESS_TERMINATE, False, pid)
                 win32api.TerminateProcess(handle, 0)
                 win32api.CloseHandle(handle)
@@ -1052,8 +1275,36 @@ def run_steps(game: Game, inp, steps: list[dict], run_dir: Path, baseline: bool,
             inject_select(game.get_hwnd(), step["path"], int(step["index"]))
         elif verb == "press":
             inject_press(game.get_hwnd(), step["path"])
+        elif verb == "trigger":
+            # The IN-GAME counterpart of `press`. inject_trigger has existed since
+            # the SLIC work but was never wired into this dispatch, so steps could
+            # only ever reach controls that have a C++ m_ActionFunc -- i.e. menu
+            # buttons. `press` on an in-game control resolves the object, returns
+            # OK and changes nothing, which reads exactly like a dead input path.
+            # See inject_trigger's docstring for the two mechanisms.
+            inject_trigger(game.get_hwnd(), step["path"])
         elif verb == "click":
-            inp.click(step["x"], step["y"])
+            # AIM THAT IS DERIVED FROM THE LIVE CLIENT IS SAFE; AIM THAT IS
+            # PINNED IS NOT (preflight_display's standing finding -- a miss AVs
+            # the process). 2026-07-27: three consecutive runs died 0xC0000005
+            # on the FIRST click, at the pinned inert-chrome ping (600,6), after
+            # a third display became primary at a DPI-scaled 1536x864. The
+            # pixel that is inert at a 1024-wide client is not inert at another
+            # width. `fx` states the aim as a FRACTION of the live client width,
+            # so the ping tracks whatever client the engine actually made.
+            if "fx" in step:
+                cw, _ch = game.client_size()
+                inp.click(int(step["fx"] * cw), step["y"])
+            else:
+                inp.click(step["x"], step["y"])
+        elif verb == "hover":
+            # Mouse message, no button. See Input.hover -- this is the
+            # non-lethal way to satisfy ctp2-endturn-needs-mouse-input.
+            if "fx" in step:
+                cw, _ch = game.client_size()
+                inp.hover(int(step["fx"] * cw), step["y"])
+            else:
+                inp.hover(step["x"], step["y"])
         elif verb == "type":
             inp.type_text(step["text"])
         elif verb == "wait":
@@ -1126,6 +1377,11 @@ def main():
     ap.add_argument("--marker", default="MagicMenu", help="string that MUST be present in the exe under test ('none' to skip the check)")
     ap.add_argument("--use-debug-exe", action="store_true", help="prefer ctp2-dbg.exe (Debug-SDL); default is ctp2.exe, which build.bat actually refreshes")
     ap.add_argument("--skip-display-check", action="store_true", help="run even if the primary display cannot supply 1024x768 (expect black captures)")
+    ap.add_argument("--wait-display", type=int, default=0, metavar="SECONDS",
+                    help="park until the primary display can supply the wanted mode, then run "
+                         "(polls every 15s up to SECONDS). Fixing the geometry means changing "
+                         "the USER's desktop, so a long unattended walk should WAIT for that "
+                         "rather than abort and waste the window.")
     ap.add_argument("game_args", nargs="*", help="extra engine args")
     args = ap.parse_args()
 
@@ -1134,7 +1390,21 @@ def main():
     if args.marker.lower() != "none" and not args.attach:
         preflight_exe(args.marker)
     if not args.skip_display_check and not args.attach:
-        preflight_display()
+        # A long unattended walk must not die on the ONE precondition only the
+        # user can satisfy. 2026-07-27: a 200-turn run aborted instantly on a
+        # portrait primary and the whole hour that followed produced zero game
+        # turns. Waiting converts that into "starts the moment they flip it".
+        deadline = time.time() + max(0, args.wait_display)
+        while True:
+            try:
+                preflight_display()
+                break
+            except SystemExit:
+                if time.time() >= deadline:
+                    raise
+                print(f"[preflight] --wait-display: parking, "
+                      f"{int(deadline - time.time())}s left; re-checking in 15s")
+                time.sleep(15)
 
     # Deliberately NOT SetProcessDPIAware().  ctp2.exe has no DPI manifest, so
     # on a scaled primary (125% here) Windows virtualizes it.  If WE are aware

@@ -9,6 +9,421 @@ noise is not a change.
 
 ---
 
+## [3.12.0] — 2026-08-05 — the lamp, and a tech tree that could be researched
+
+**Minor.** Gameplay + tools. Requires a NEW game: saves cache compiled SLIC.
+
+### The anchor
+
+**Artifacts are vessels, not powers.** The lamp is the first one: a thing that
+sits on the map, is owned by whoever holds it, and can be taken. Every rule in
+the new system falls out of that one decision — the genie is BOUND to a vessel,
+banished to `Site` when unowned, and never destroyed; a wish spends from the
+holder's pool, not from a hidden budget; capture moves the artifact because
+capture moves the unit carrying it. Nothing needed a special case.
+
+### Added
+
+- **Artifacts and wishes** (`mom_artifacts.slc`, newly included by
+  `scenario.slc`). The lamp grants Riches, Power, Servant, or Artifacts. Wishes
+  are enumerated and consumed; the panel reads its counts from the vessel rather
+  than from per-player scratch state.
+- **`mom_summon.slc` and `mom_ai_magic.slc`** split out of the magic core and
+  wired into `scenario.slc`. Same behaviour, separable surfaces.
+
+### Fixed
+
+- **Advances that listed themselves as their own prerequisite could never be
+  researched.** `ADVANCE_AGRICULTURE` was the visible case — the generator
+  emitted a self-prereq, and the engine treats an unmet prereq as unmet forever,
+  so the button was live but the research never landed. The generator now drops
+  self-prereqs and the validator refuses to emit one again.
+- **Advanced farm tile improvements were gated behind an advance that could not
+  be reached**, for the reason above.
+
+### Tools
+
+- **`validate_scenario.py` grew gates for the failure modes this cycle actually
+  produced**: unbalanced quotes in `scen_str.txt`, stray newlines swallowing the
+  following key, self-prerequisites, dangling advance references, and unit
+  category/flag combinations that cannot be built.
+- **`uiwalk` probes** for the artifact and wish panels, so the panel contract is
+  checked against a running game rather than by reading.
+
+---
+
+## [3.11.0] — 2026-08-03 — a fixed pool, and a price that varies by tribe
+
+**Minor.** Gameplay. Requires a NEW game: saves cache compiled SLIC.
+
+### The anchor
+
+**Every civ's mana pool is now a fixed 200.** It used to vary — Life 200 /
+Nature 220 / Sorcery 260 / Death 240 / Chaos 300 — and it varied *in the same
+direction* as the generation multiplier (`MomMagicSchoolPct` 100/110/125/115/140),
+so Chaos held 50% more mana AND earned 40% faster: two advantages stacking
+multiplicatively. Worse, the SMALLEST cap silently dictated the price ceiling for
+everyone.
+
+A fixed pool decouples the dials and gives one constant to express every other
+number against — the player always knows they have 200, and every cost is legible
+as a fraction of it.
+
+### Changed
+
+- **Summon price = `(45 + 30 * rung) * MomSummonCivPct / 100`.** The rung curve
+  shipped in 3.10.0 is unchanged and still does the work it did; the civ
+  percentage multiplies on top of it.
+
+  | civ | pct | r1 | r2 | r3 | r4 | r5 | r5 as % of pool |
+  |---|---|---|---|---|---|---|---|
+  | Chaos | 92 | 69 | 96 | 124 | 151 | 179 | 90% |
+  | Nature | 68 | 51 | 71 | 91 | 112 | 132 | 66% |
+  | Life | 64 | 48 | 67 | 86 | 105 | 124 | 62% |
+  | Sorcery | 54 | 40 | 56 | 72 | 89 | 105 | 53% |
+  | Death | 54 | 40 | 56 | 72 | 89 | 105 | 53% |
+
+  **The percentages are derived, not chosen.** Each is that sphere's own roster
+  cost at equal rung against the all-sphere mean (Chaos creatures are 1.39x the
+  mean, Death 0.81x), rescaled so the dearest civ's rung-5 creature costs 179 —
+  90% of the fixed pool. Cheapest summon in the game is 40, dearest 179, and every
+  civ can afford its own best creature.
+
+  **Two dials, deliberately separable.** RUNG is knowable before you click — it is
+  your own ladder position. CIV is a fixed property of your tribe. What the roll
+  *returns* stays unknown; that is the spin, and it is not the price.
+
+  Death and Sorcery land on the same 54 because their rosters genuinely cost the
+  same at equal rung. Their distinction is meant to come from other dials, not
+  from a number invented to separate them.
+
+### Fixed
+
+- Corrects a claim in the 3.10.0 entry: the 195 ceiling was justified there by the
+  per-sphere caps, which no longer exist. The ceiling is now set by the fixed 200
+  pool and the dearest civ percentage.
+
+### Added (gates)
+
+- `gate_mana_upkeep.py` assertion 13 extended: every site applying the rung curve
+  must also apply `MomSummonCivPct`. Proven by removing the civ scale from one of
+  the four sites and watching it fail — matching only the rung half would let a
+  partial edit through, which is the same shape as the flat rate it replaced.
+
+### Verified
+
+In-frame at 3900BC, playing Life (pct 64) at rung 1: *"You begin the summoning...
+Mana: 22 / 200"* — `75 * 64 / 100 = 48` charged against a 200 cap. All five pools
+read under 200.
+
+Rungs 2-5 remain unobserved; they are thousands of science away and out of reach
+of a short run.
+
+---
+
+## [3.10.0] — 2026-08-03 — a summon costs what it is worth
+
+**Minor.** Gameplay. Requires a NEW game: saves cache compiled SLIC.
+
+### The defect
+
+Every summon cost a flat **75 mana**, at every rung:
+
+| rung | creature | shields | mana |
+|---|---|---|---|
+| 1 | Phantom Warriors | 150 | 75 |
+| 1 | Warbears | 350 | 75 |
+| 3 | Storm Giant | 1500 | 75 |
+| 5 | Storm Drake | 4000 | 75 |
+
+A **27x swing in value at one price**. Upkeep had scaled with rung since v3.5.0,
+so acquisition was the missing half of that system — and the gap pushed play the
+wrong way: summoning was poor value at rung 1 and absurd value at rung 5.
+
+### Changed
+
+- **Summon price is `45 + 30 * rung` → 75 / 105 / 135 / 165 / 195.**
+
+  The ceiling is load-bearing, not taste: `MomMagicSchoolGrant` caps pools at
+  Life 200 / Nature 220 / Sorcery 260 / Chaos 300, so a price above 200 would put
+  rung 5 permanently beyond Life's reach.
+
+  **The gate uses the ladder rung; the debit uses the rolled rung.** A roll can
+  return any creature at or below the caster's rung, so requiring
+  `45 + 30 * MomSphereRung` up front guarantees whatever comes back is
+  affordable — a click can never be consumed by a summon that cannot be paid for
+  — and you then pay for what you actually got.
+
+  All four sites use one expression: human gate (button body), human debit
+  (`MomSummonOrderTick`), AI gate and AI debit. The AI must not play a cheaper
+  economy than the player; that exact divergence already bit this mod once on the
+  upkeep rate.
+
+- The summon arm no longer misquotes its own price. `"Summon Creature (75)"`
+  became false the moment price scaled; the arm is now `"Summon Creature"` and
+  the price appears on the panel's rung line and in the refusal message.
+
+### Fixed
+
+- `MOM_MSG_SUMMON_NOMANA` hardcoded "A creature costs 75". It now reads the live
+  price.
+
+### Added (gates)
+
+- `gate_mana_upkeep.py` assertion 13: the price must derive from the rung at
+  BOTH the gate and the debit of BOTH paths, and no bare `75` may survive on the
+  summon path. Proven by reintroducing a flat 75 in the AI debit and watching it
+  fail, then restoring.
+
+### Known
+
+- **Button labels do not interpolate.** `{Scalar}` substitution works in message
+  bodies but a `MOM_MSG_BTN_*` label renders the literal braces — measured, both
+  surfaces in one frame. Arms must be static strings.
+- The curve is verified at **rung 1 only** (in-frame: "a creature of your rung
+  costs 75, and you hold 50"). Rungs 2-5 are thousands of science away and were
+  not reachable in a short run; the arithmetic is `45 + 30*r`, the behaviour at
+  those rungs is unobserved.
+
+---
+
+## [3.9.0] — 2026-08-03 — a tribe begins knowing its own sphere
+
+**Minor.** Gameplay + tooling. Requires a NEW game: saves cache compiled SLIC.
+
+### The defect
+
+A tribe's own magic sat 27 advances and ~19,300 science away, because
+`ADVANCE_*_MAGIC` hangs off `ADVANCE_GRAND_MASTERY` and nothing anywhere granted
+it. The player met this as "You have not yet learned the magic of your sphere" in
+3675BC. Removing the v3.2.0 rung floor in 3.7.0 fixed a real tech-tree bypass and
+exposed what the floor had been imitating: a starting-advance mechanism that was
+never built.
+
+### Changed
+
+- **Tribes start holding their sphere root.** `MomSphereRootGrant`
+  (`mom_magic.slc`) grants `ADVANCE_LIFE_MAGIC` / `NATURE_MAGIC` / `SORCERY` /
+  `DEATH_MAGIC` / `CHAOS_MAGIC` to players 1..5. It is guarded on
+  `MomSphereRung[p] < 1`, which `MomSphereRungTick` clears on the grant — the
+  guard latches itself, so no separate latch array is needed and no new SLIC
+  state was added.
+
+  **Verified for Nature and Sorcery**, both of which hold summoned creatures by
+  turn 20 — far too early to have researched a 1035-science root. **Death shows
+  rung-0 behaviour for a full 200 turns and is unexplained**; see *Known* below.
+  Ship this knowing the grant is not confirmed for every tribe.
+- **The five rung-1 creatures are buildable at the sphere root**, not the lore
+  advance. Previously a Warbears cost 1970 science to BUILD and nothing but mana
+  to SUMMON; both now open together, so the choice is an honest trade of 75 mana
+  plus preparation against 350 shields. Only these five `EnableAdvance` values
+  move (`LIFE_LORE` → `LIFE_MAGIC`, and the four siblings). The creature is still
+  production-gated by its shield cost.
+
+  This also closes a gap measured across the AI build lists: before it, **no
+  tribe had a single racial unit buildable under 455 science**, so every early
+  army was neutral Spearmen and Swordsmen and the only sphere-flavoured units on
+  the map were summoned ones.
+
+### Fixed (harness)
+
+- **The 200-turn probe could not boot.** `full_game_v3.json` prologue step 27 was
+  a posted click at (600,6). The identical ping had been diagnosed as fatal and
+  migrated to `hover` in the per-turn cycle only; the prologue's copy survived,
+  in the same file, under a comment reading "This is the ONLY posted click in the
+  file". Every run died `0xC0000005` right after the main-menu shot — at HEAD,
+  with the mod reverted, in every scenario. Now `hover`, and two consecutive
+  200-turn runs complete.
+- `uiwalk.scenario_pack_index()` derives the scenario row instead of pinning it.
+  The engine sorts the picker **case-insensitively**, so `mom` is row 3; a pinned
+  row was correct but unverifiable, and "correcting" it to 5 loaded `smm`.
+- `probe_long_game.py` gains `PROBE_OBSERVE=1`: no posted clicks at all, for
+  displays where the engine letterboxes its 800x600 UI and any posted click
+  faults.
+- New `tools/uiwalk/probe_scenario_list.py` — captures the picker without
+  selecting, since `inject_select`'s `SelectItem` has no bounds check.
+
+### Added (gates)
+
+- `validate_scenario.py` gate 29 `check_slic_arrays_declared`: an undeclared SLIC
+  **array** is a hard "Symbol is undefined" error at load, unlike a scalar, which
+  the engine silently auto-creates — one reached the operator as a load-time
+  modal. Catchable statically, so it should never reach a playtest again.
+
+  It also checks declaration **order** against the real `#include` sequence in
+  `scenario.slc`: a use in a file that loads before the declaring file is the
+  same hard error, and the first draft of `MomSphereRootGrant` had exactly that
+  (`mom_turns.slc` include 49 reading `MomSphereRung[]` from `mom_summon.slc`
+  include 54). Proven against a 4-case battery — clean tree passes, the ordering
+  bug fails, an undeclared array fails, restored tree passes.
+
+### Known, measured, NOT fixed
+
+Two 200-turn runs (see `lessons_learned.md`):
+
+- **AI armies are majority-summoned** — Nature 26/46 (57%), Sorcery 30/43 (70%),
+  stable t80→t200. The AI summons on a 70% per-turn roll whenever solvent, with
+  no bound relative to army size. A ratio cap is a design decision, not a bug fix.
+- **Death never summons**, holding exactly its 240 mana cap from t20 to t200. The
+  income-only-gate hypothesis was patched, tested, **falsified**, and reverted.
+  Affordability and an empty pool are both eliminated; the surviving hypothesis is
+  that `MomSphereRung[4]` is still 0, i.e. the sphere-root grant above does not
+  reach Death. The next step is to READ that variable — the probe samples
+  per-player mana but not rung — rather than infer it from behaviour again.
+- **Chaos never plays** — 0 units and 0 mana in all ten samples, so player 5 never
+  takes a turn. Starting placement in the map, not SLIC.
+
+---
+
+## [3.8.0] — 2026-08-02 — unit stats are rank-cast from the source, not multiplied
+
+**Minor.** Data. Every combat unit's stats change; saves keep whatever the
+database said when they were made.
+
+### The defect
+
+The port rescaled civ2 stats with flat multipliers:
+
+```python
+attack    = attack_raw * 5
+defense   = max(5, def_raw * 5)
+hp        = 10              # hp_raw parsed, then DISCARDED
+```
+
+Three consequences, all of them the balance complaint:
+
+- **Linear multiply lets the top run away.** civ2's attack median is 5.5, so x5
+  pinned most of the roster at 5–30 while a 15a Great Wyrm reached 75. The gap
+  between a dragon and an army grew without bound instead of saturating.
+- **The floor crushed the bottom.** civ2's defence median is 2–3, so
+  `max(5, d*5)` put nearly every buildable unit at 5–15 and threw away the real
+  spread the source has — War Troll 5d, Iron Golem 5d, Ariel 8d all collapsed
+  together. This is why built units looked like they had no armour: they had it
+  in the source, and the map destroyed it.
+- **MaxHP shipped as a literal 10 on every unit.** civ2 carries a real durability
+  axis, 1h Spearmen through 6h Great Wyrm, and the port parsed `hp` only to pick
+  a sprite size before writing the constant. The engine *does* honour MaxHP
+  (`UnitData.cpp:6256`); stock CTP2 simply never varies it. A dragon died as fast
+  as a peasant.
+
+### Changed
+
+Stats are now **rank-cast**: each unit is placed by its rank position within the
+civ2 distribution, then re-cast onto a CTP2 target range anchored so source
+min/median/max land exactly on target min/median/max. The ordering is the
+original designer's; only the range and the curve are ours.
+
+The warp is `smoothstep`, `w = p²(3−2p)` — its gradient rises to a peak at the
+midpoint and decays after, so power climbs steeply out of the trash tier then
+saturates. Massed cheap units stay relevant against a top-tier creature.
+
+```
+              before            after
+SPEARMEN       5/  5/10/1     10/ 10/10/1
+CATAPULT      30/  5/10/1     45/ 10/10/1
+WAR_TROLL     25/ 25/10/1     54/ 43/35/1     <- buildable, real armour
+GUARDIAN_SPT   5/ 25/10/1     10/ 43/35/1
+ARCHANGEL     60/ 60/10/2     92/100/20/5
+GREAT_WYRM    75/ 45/10/2    100/ 87/60/5
+INFERNAL_DEV 495/  5/10/1    100/ 10/10/1     <- outlier tamed
+                                (attack/defense/HP/firepower)
+```
+
+Resulting spread: attack 10–100 (median 35), defence 10–100 (median 15), **HP
+10–60 across 5 distinct values**, firepower 1–6.
+
+Targets live in `mod_policy.json` under `unit_stat_scaling.stat_curve`.
+Attack/defence/firepower use **stock CTP2's own min/median/max**, so nothing
+lands outside a range the engine already ships. HP has no stock spread to match —
+stock is flat 10 on all 74 units — so its target preserves the *source* ratios
+instead: civ2's 1/2/6 becomes 10/20/60, floor left at today's universal value so
+no unit loses HP.
+
+Infernal Device's 99a (at cost 480, 6.6× the next attack for a seventh of the
+price) is excluded when measuring the source distribution, so one broken row
+cannot stretch the scale for everyone. It is still cast — it just no longer
+defines the maximum.
+
+### Tooling
+
+- `validate_scenario.py` gate 28: no combat stat may collapse to a single value
+  across the roster, and none may exceed stock CTP2's own maximum. Proven to
+  reject a re-flattened MaxHP before being trusted. A stat with one distinct
+  value is a dropped column, not balance.
+
+## [3.7.0] — 2026-08-02 — summoning costs what building costs
+
+**Minor.** Behavioural. Old saves are unaffected because they cache compiled
+SLIC; the change applies to new games.
+
+### The imbalance
+
+The same creature cost **1970 science to build and 0 science to summon**:
+
+```
+SPEARMEN       150 shields   ADVANCE_WARRIOR_CODE   (start advance)
+CENTAURS       250 shields   ADVANCE_SHAMANISM      (455 science)
+WARBEARS       350 shields   ADVANCE_NATURE_LORE    (1970 science)
+```
+
+`MomSummonRoll` floored the ladder rung at 1, so every tribe had rung-1
+summoning from turn one and the summon path skipped the tech tree entirely. A
+tribe's only sphere-flavoured units were therefore ones it *could never have
+built* — which is why the Tribes of Nature arrived at your border as three
+identical Warbears, over and over.
+
+The floor was added in 3.2.0 against "a tribe that starts holding its sphere root
+never fires the `GrantAdvance` that would raise it off 0". **That premise is
+false here** — nothing in the scenario grants a `*_MAGIC` or `*_LORE` advance and
+there is no starting-advance mechanism, so no tribe ever starts holding its root.
+It guarded a case that does not exist, and cost a whole tech gate.
+
+### Changed
+
+- **A tribe cannot summon until it researches its sphere's magic.** Rung 0 now
+  falls through every band, `MomSummonRoll` returns 0, and the pool is not
+  debited. For Nature that is 1035 science — still earlier than the 1970 needed
+  to *build* a Warbears, so magic still reaches the creature first. It is simply
+  no longer free.
+- **The panel reports rung 0 honestly** instead of claiming "rung 1 of 5" while
+  every summon silently failed.
+- **The arm explains itself.** Clicking Summon with no magic learned now says so,
+  ahead of the no-mana and already-preparing branches.
+
+### Fixed
+
+- **The 3.6.1 leader names were applied to generated files and reverted by the
+  next regeneration.** `civilisation.txt` and `civ_str.txt` are generator-owned.
+  The generator already emitted `_LEADERF_NAME` whenever `players.csv` carried a
+  `civ2_leader_female` value — the column was simply blank for four realms and a
+  duplicate ("Freya") for Nature. Sophia / Raven / Zarah / Kali / Ignara now live
+  in the control plane and survive regeneration.
+
+### Verified in game
+
+Headless, new game, 20 turns, no SLIC errors:
+
+```
+Mana 100/100  inc 29 - up 0 = 29  rung 0
+units   3 4 5 0 0
+summon  0 0 0 0 0
+mana    100 60 52 100 0
+```
+
+Summon counts are zero for every tribe and mana **accumulates** instead of
+draining from turn ~5, while AI unit counts still grow — the armies are now
+city-built.
+
+### Known open
+
+- The rung-1 pool is still one creature per sphere, so variety returns as a
+  question once the gate is judged in play.
+- Summon price is still flat 75 mana for anything from 150 to 4000 shields of
+  value. Pricing by rung is designed but not implemented.
+- The creature power curve is linear (attack 5 → 75 in even steps) with **flat
+  HP 10 on every unit**. A saturating curve with a counter class is the intended
+  direction, not yet started.
+
 ## [3.6.1] — 2026-08-02 — every realm has a queen
 
 **Patch.** Data only. No save impact; the name is read at display time.
