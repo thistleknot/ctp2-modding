@@ -980,8 +980,11 @@ import json as _json_cost
 _AGE_RANK = {'AGE_ONE':1,'AGE_TWO':2,'AGE_THREE':3,'AGE_FOUR':4,'AGE_FIVE':5,
              'AGE_SIX':6,'AGE_SEVEN':7,'AGE_EIGHT':8,'AGE_NINE':9,'AGE_TEN':10}
 _cost_mult = int(_json_cost.loads((TOOLS / "momjr_csv" / "mod_policy.json").read_text(encoding="utf-8")).get("advance_cost_scaling", {}).get("cost_mult", 100))
-_MAX_COST_THRESHOLD = 20000 * _cost_mult // 100
-_AGE_ONE_MAX_THRESHOLD = 640 * _cost_mult // 100
+_cost_mult_by_age = _json_cost.loads((TOOLS / "momjr_csv" / "mod_policy.json").read_text(encoding="utf-8")).get("advance_cost_scaling", {}).get("cost_mult_by_age", {})
+_age_one_mult = int(_cost_mult_by_age.get("AGE_ONE", _cost_mult))
+_max_age_mult = max((int(v) for k, v in _cost_mult_by_age.items() if k.startswith("AGE_")), default=_cost_mult)
+_MAX_COST_THRESHOLD = 20000 * _max_age_mult // 100
+_AGE_ONE_MAX_THRESHOLD = 640 * _age_one_mult // 100
 _adv_text = (GAMEDATA / "Advance.txt").read_text(encoding="latin-1")
 _age_cost = defaultdict(list)
 for _blk in _re_cost.split(r'(?=^ADVANCE_[A-Z0-9_]+\s*\{)', _adv_text, flags=_re_cost.M):

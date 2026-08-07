@@ -2122,16 +2122,23 @@ def _load_ae_advance_cost_bands() -> dict[str, tuple[int, int]]:
     _retune_mom_advance_costs is removed), so no raw base/WAW tail survives.
 
     The curve's SHAPE lives in advance_cost_bands.csv; the overall research PACE
-    lives in mod_policy advance_cost_scaling.cost_mult, a percentage applied to
-    both ends of every band here. Splitting them means pace can be retuned
-    without re-editing ten rows, and shape can be retuned without disturbing
-    pace. 100 is neutral and reproduces the CSV exactly.
+    lives in mod_policy advance_cost_scaling. Two scaling modes:
+
+      1. cost_mult_by_age: dict mapping AGE_X -> percentage multiplier (preferred).
+         Allows per-era pacing from the calendar_mapping design doc.
+      2. cost_mult: single percentage applied uniformly (fallback if per-age absent).
+
+    100 is neutral. 500 = 5× cost. Per-age takes precedence.
     """
-    mult = int(MOD_POLICY.get("advance_cost_scaling", {}).get("cost_mult", 100))
-    return {
-        r["age"]: (int(r["low"]) * mult // 100, int(r["high"]) * mult // 100)
-        for r in _policy_csv_rows("advance_cost_bands.csv")
-    }
+    scaling = MOD_POLICY.get("advance_cost_scaling", {})
+    per_age = scaling.get("cost_mult_by_age", {})
+    flat_mult = int(scaling.get("cost_mult", 100))
+    result = {}
+    for r in _policy_csv_rows("advance_cost_bands.csv"):
+        age = r["age"]
+        mult = int(per_age.get(age, flat_mult))
+        result[age] = (int(r["low"]) * mult // 100, int(r["high"]) * mult // 100)
+    return result
 
 
 def _load_ae_unit_cost_bands() -> dict[str, tuple[int, int]]:
