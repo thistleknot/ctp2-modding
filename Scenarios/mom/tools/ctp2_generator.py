@@ -3432,9 +3432,10 @@ def _emit_spellbook_pages() -> tuple[int, int]:
             slic_lines.append(f"// Page {page_num} of {num_pages} ({sphere})")
             slic_lines.append(f"alertbox '{alertbox_name}' {{")
             slic_lines.append(f"    Show();")
-            # Per-page title: "Life Spellbook (Page 1 of 15)"
+            # Per-page title as body text (Title() is ignored in alertbox --
+            # engine shows raw segment name in the title bar regardless).
             title_key = f"MOM_SPELLBOOK_TITLE_{sphere.upper()}_{page_num}"
-            slic_lines.append(f"    Title(ID_{title_key});")
+            slic_lines.append(f"    Text(ID_{title_key});")
             slic_lines.append(f"")
 
             # Arm 0: Close
