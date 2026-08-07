@@ -1929,12 +1929,21 @@ def _load_ae_advance_cost_bands() -> dict[str, tuple[int, int]]:
     fixed, monotonic, absolute curve anchored so AGE_ONE first techs cost <640 (<40 turns at
     ~16 science/turn) and AGE_TEN caps in the low tens of thousands (~50-140 turns at
     late-game science). Every advance is now retuned into this curve (the coverage gate in
-    _retune_mom_advance_costs is removed), so no raw base/WAW tail survives. Tune here.
+    _retune_mom_advance_costs is removed), so no raw base/WAW tail survives.
+
+    Research PACE is controlled by mod_policy advance_cost_scaling:
+      cost_mult_by_age: per-age percentage (from calendar_mapping.xlsx design doc)
+      cost_mult: flat fallback if per-age not present. 100 = neutral.
     """
-    return {
-        r["age"]: (int(r["low"]), int(r["high"]))
-        for r in _policy_csv_rows("advance_cost_bands.csv")
-    }
+    scaling = MOD_POLICY.get("advance_cost_scaling", {})
+    per_age = scaling.get("cost_mult_by_age", {})
+    flat_mult = int(scaling.get("cost_mult", 100))
+    result = {}
+    for r in _policy_csv_rows("advance_cost_bands.csv"):
+        age = r["age"]
+        mult = int(per_age.get(age, flat_mult))
+        result[age] = (int(r["low"]) * mult // 100, int(r["high"]) * mult // 100)
+    return result
 
 
 def _load_ae_unit_cost_bands() -> dict[str, tuple[int, int]]:
