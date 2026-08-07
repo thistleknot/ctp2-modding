@@ -2708,6 +2708,64 @@ def _sphere_ladder_idents(sphere: str) -> list[str]:
     return [root] + [_sphere_rung_advance(sphere, tier) for tier in _SPHERE_TIERS]
 
 
+def _apply_mana_policy_constants():
+    """Patch mom_magic.slc with mana constants from mod_policy.json mana_economy.
+
+    Replaces the known literal sites (lazy-seed defaults) with policy-sourced
+    values. This makes mod_policy.json the single source of truth for the mana
+    economy — changing a value there and regenerating is the only supported tuning path.
+
+    The function targets the specific patterns used in mom_magic.slc:
+      gen = 10;          -> gen = <base_per_turn>;
+      * 2;              (pop coef, in context of tmpCity.population)
+      * 5;              (node bonus)
+      MomUpkeepRate = 2; -> MomUpkeepRate = <upkeep_rate>;
+      MomMagicMax[p] = 100; -> MomMagicMax[p] = <pool_max>;  (the fallback init)
+      gen = gen + 8;    -> gen = gen + <building_bonus.primary>;
+      gen = gen + 3;    -> gen = gen + <building_bonus.secondary>;
+    """
+    mana = MOD_POLICY.get("mana_economy")
+    if not mana:
+        return
+
+    rel = "default/gamedata/mom_magic.slc"
+    text = _read_rel(rel)
+    if not text:
+        return
+
+    base = mana["base_per_turn"]
+    pop = mana["pop_coef"]
+    node = mana["node_bonus"]
+    upkeep = mana["upkeep_rate"]
+    pool = mana["pool_max"]
+    bld_primary = mana["building_bonus"]["primary"]
+    bld_secondary = mana["building_bonus"]["secondary"]
+
+    # Patch base generation: "gen = 10;" at the start of MomRecalcMagicPerTurn
+    text = re.sub(r'(\bgen\s*=\s*)10(\s*;)', rf'\g<1>{base}\2', text, count=1)
+
+    # Patch pop coefficient: "tmpCity.population * 2"
+    text = re.sub(r'(tmpCity\.population\s*\*\s*)2(\s*;)', rf'\g<1>{pop}\2', text, count=1)
+
+    # Patch node bonus: "nodes * 5" (before school scaling)
+    text = re.sub(r'(nodes\s*\*\s*)5(\s*;)', rf'\g<1>{node}\2', text, count=1)
+
+    # Patch upkeep rate lazy-seed: "MomUpkeepRate = 2;"
+    text = re.sub(r'(MomUpkeepRate\s*=\s*)2(\s*;)', rf'\g<1>{upkeep}\2', text, count=1)
+
+    # Patch pool max fallback: "MomMagicMax[p] = 100;" (the init inside the handler)
+    # Note: the real 200 cap is set elsewhere (school grant); this is just the
+    # fallback for unseeded players. Keep it as pool_max / 2 for the fallback,
+    # or use pool_max directly. Using pool_max since that's the ANCHOR.
+    text = re.sub(r'(MomMagicMax\[p\]\s*=\s*)100(\s*;)', rf'\g<1>{pool}\2', text, count=1)
+
+    # Patch building bonuses: "gen = gen + 8;" and "gen = gen + 3;"
+    text = re.sub(r'(gen\s*=\s*gen\s*\+\s*)8(\s*;\s*\})', rf'\g<1>{bld_primary}\2', text)
+    text = re.sub(r'(gen\s*=\s*gen\s*\+\s*)3(\s*;\s*\})', rf'\g<1>{bld_secondary}\2', text)
+
+    _write_rel(rel, text)
+
+
 def _emit_mom_gating_slc() -> int:
     """Write mom_gating.slc: the per-tribe who-gets-what wall. Returns idents emitted.
 
@@ -2807,6 +2865,91 @@ def _emit_mom_gating_slc() -> int:
             out.append(f"{indent}}}")
         return out
 
+    def _terrain_gate_block(live_bldgs: set, indent: str = "    ") -> list[str]:
+        """Emit terrain-gating checks for buildings with terrain_prereq in CSV.
+
+        Reads improvements.csv terrain_prereq column. For each building that has
+        a terrain requirement, emits a SLIC block that scans the city's center
+        tile + 8 neighbors for any matching terrain index. If no tile matches,
+        returns 0 (unbuildable).
+
+        TerrainType(location) is base-verified (AlexanderTheGreat, tutorial).
+        GetNeighbor(loc, dir, out) is base-verified (tut2_func.slc, mom_magic.slc).
+        Both are builtins — no user-function call depth consumed.
+        """
+        import csv as _csv
+        # Terrain name -> index mapping from Terrain.txt block order
+        terrain_text = _read_rel("default/gamedata/Terrain.txt")
+        terrain_names = re.findall(r"^(TERRAIN_[A-Z0-9_]+)\s*\{", terrain_text, re.M)
+        terrain_idx = {name: i for i, name in enumerate(terrain_names)}
+
+        csv_path = MOMJR / "improvements.csv"
+        if not csv_path.exists():
+            return []
+
+        # Collect buildings with terrain_prereq
+        gated: list[tuple[str, list[int]]] = []  # (IMPROVE_ident, [terrain_indices])
+        with open(csv_path, newline='', encoding='utf-8') as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                prereq = (row.get("terrain_prereq") or "").strip()
+                if not prereq:
+                    continue
+                name = row.get("name", "").strip()
+                if not name or name.upper().startswith("HIDE "):
+                    continue
+                try:
+                    _cell = int((row.get("cell_index", "") or "0").strip() or "0")
+                except ValueError:
+                    _cell = 0
+                if _cell >= 40:  # wonders don't get terrain gating
+                    continue
+                ident = f"IMPROVE_{sanitize(name)}"
+                if ident not in live_bldgs:
+                    continue
+                # Parse pipe-separated terrain names into indices
+                indices = []
+                for tname in prereq.split("|"):
+                    tname = tname.strip()
+                    if tname in terrain_idx:
+                        indices.append(terrain_idx[tname])
+                    else:
+                        print(f"  WARNING: terrain_prereq '{tname}' for {ident} not in Terrain.txt")
+                if indices:
+                    gated.append((ident, indices))
+
+        if not gated:
+            return []
+
+        out: list[str] = []
+        out.append(f"{indent}// TERRAIN GATING -- {len(gated)} building(s) require specific terrain")
+        out.append(f"{indent}// Generated from improvements.csv terrain_prereq column.")
+        out.append(f"{indent}// Scans city center + 8 neighbors for any matching terrain type.")
+        out.append(f"{indent}location_t tgLoc;")
+        out.append(f"{indent}location_t tgNbr;")
+        out.append(f"{indent}int_t tgDir;")
+        out.append(f"{indent}int_t tgFound;")
+        out.append(f"{indent}int_t tgT;")
+
+        for ident, indices in gated:
+            idx_checks = " || ".join(f"tgT == {i}" for i in indices)
+            out.append(f"{indent}if (theBuilding == BuildingDB({ident})) {{")
+            out.append(f"{indent}    tgLoc = theCity.location;")
+            out.append(f"{indent}    tgFound = 0;")
+            out.append(f"{indent}    tgT = TerrainType(tgLoc);")
+            out.append(f"{indent}    if ({idx_checks}) {{ tgFound = 1; }}")
+            out.append(f"{indent}    if (tgFound == 0) {{")
+            out.append(f"{indent}        for (tgDir = 0; tgDir < 8; tgDir = tgDir + 1) {{")
+            out.append(f"{indent}            if (GetNeighbor(tgLoc, tgDir, tgNbr)) {{")
+            out.append(f"{indent}                tgT = TerrainType(tgNbr);")
+            out.append(f"{indent}                if ({idx_checks}) {{ tgFound = 1; }}")
+            out.append(f"{indent}            }}")
+            out.append(f"{indent}        }}")
+            out.append(f"{indent}    }}")
+            out.append(f"{indent}    if (tgFound == 0) {{ return 0; }}")
+            out.append(f"{indent}}}")
+        return out
+
     lines = [
         "// mom_gating.slc -- GENERATED by tools/ctp2_generator.py. DO NOT HAND-EDIT.",
         "//",
@@ -2856,6 +2999,7 @@ def _emit_mom_gating_slc() -> int:
         "{",
         "    if (theCity.owner < 1 || theCity.owner > 5) { return 1; }",
         *_deny_block("bldg", "theBuilding", "theCity.owner"),
+        *_terrain_gate_block(live["bldg"][0]),
         "    return 1;",
         "}",
         "",
@@ -3164,6 +3308,522 @@ def _emit_mom_summon_slc() -> int:
     ]
     _write_rel(_SUMMON_SLC_REL, "\n".join(lines))
     return sum(len(u) for pool in pools.values() for u in pool)
+
+
+# ---------------------------------------------------------------------------
+# Paged Spellbook emitter
+# ---------------------------------------------------------------------------
+
+_SPELLBOOK_SPHERES = ["life", "nature", "sorcery", "death", "chaos"]
+_SPELLBOOK_CAST_SLC_REL = "default/gamedata/mom_spellbook_cast.slc"
+_SPELLBOOK_SPHERE_SLC_REL = {
+    s: f"default/gamedata/mom_spellbook_{s}.slc" for s in _SPELLBOOK_SPHERES
+}
+
+
+def _emit_spellbook_pages() -> tuple[int, int]:
+    """Emit per-sphere spellbook SLIC files: one file per sphere with paged alertboxes.
+
+    Reads spells.csv, filters (effect_kind != 'flavour' AND overland_cost > 0),
+    groups by sphere (skipping arcane), rescales costs per mod_policy, sorts by
+    research_cost, paginates into groups of 4, and emits one alertbox per page.
+
+    Writes 5 separate files (mom_spellbook_life.slc, mom_spellbook_nature.slc, etc.)
+    to stay under the CTP2 SLIC per-file string resolution threshold.
+
+    Returns (total_pages, total_spells) across all 5 spheres.
+    """
+    # Load rescale policy
+    rescale_cfg = MOD_POLICY["spellbook"]["cost_rescale"]
+    rescale_factor = rescale_cfg["rescale_factor"]
+    min_cost = rescale_cfg["min_cost"]
+    max_cost = rescale_cfg["max_cost"]
+    rarity_factors = rescale_cfg.get("rarity_factors", {})
+
+    # Read and filter spells
+    spells_path = MOMJR / "spells.csv"
+    with open(spells_path, newline="", encoding="utf-8-sig") as fh:
+        all_spells = list(csv.DictReader(fh))
+
+    # Group implementable spells by sphere
+    by_sphere: dict[str, list[dict]] = {s: [] for s in _SPELLBOOK_SPHERES}
+    for row in all_spells:
+        sphere = row["sphere"].strip().lower()
+        if sphere not in by_sphere:
+            continue  # skip arcane
+        effect_kind = row["effect_kind"].strip()
+        overland_cost = int(row["overland_cost"].strip() or "0")
+        if effect_kind == "flavour" or overland_cost <= 0:
+            continue
+        # Rarity-aware cost rescaling (Phase 4)
+        rarity = row.get("rarity", "").lower().strip()
+        factor = rarity_factors.get(rarity, rescale_factor)
+        shipped_cost = max(min_cost, min(max_cost, int(overland_cost * factor)))
+        row["_shipped_cost"] = shipped_cost
+        row["_research_cost_int"] = int(row["research_cost"].strip() or "0")
+        row["_rarity"] = rarity
+        by_sphere[sphere].append(row)
+
+    # Sort each sphere by research_cost ascending (unlock order)
+    for sphere in _SPELLBOOK_SPHERES:
+        by_sphere[sphere].sort(key=lambda r: r["_research_cost_int"])
+
+    # Assign sequential spell IDs for string references
+    spell_id_counter = 0
+    spell_string_entries: list[str] = []
+    total_pages = 0
+
+    for sphere in _SPELLBOOK_SPHERES:
+        spells = by_sphere[sphere]
+        if not spells:
+            continue
+
+        # Per-sphere SLIC file header
+        slic_lines = [
+            f"// mom_spellbook_{sphere}.slc -- GENERATED by tools/ctp2_generator.py. DO NOT HAND-EDIT.",
+            "//",
+            f"// Paged spellbook for {sphere.upper()} sphere. Each page has 5 arms:",
+            "//   arm 0 = Close, arms 1-4 = spells or navigation (Prev/Next).",
+            "",
+        ]
+
+        # Paginate: 4 spells per page normally.
+        # Page 1: up to 4 spells (3 + Next if more pages exist)
+        # Middle pages: Prev + 2 spells + Next
+        # Last page: Prev + up to 3 spells
+        num_spells = len(spells)
+
+        # Calculate page layout
+        pages: list[list[dict]] = []
+        if num_spells <= 4:
+            # Everything fits on one page
+            pages.append(spells[:])
+        else:
+            # Page 1: 3 spells (arm 4 = Next)
+            pages.append(spells[0:3])
+            remaining = spells[3:]
+            # Middle/last pages: Prev takes arm 1, so 2 spell slots + Next
+            # Last page: Prev + up to 3 spells (no Next needed)
+            while remaining:
+                if len(remaining) <= 3:
+                    # Last page: Prev + up to 3 spells
+                    pages.append(remaining[:])
+                    remaining = []
+                else:
+                    # Middle page: Prev + 2 spells + Next
+                    pages.append(remaining[0:2])
+                    remaining = remaining[2:]
+
+        num_pages = len(pages)
+        total_pages += num_pages
+
+        slic_lines.append(f"// ===== {sphere.upper()} SPELLBOOK: {num_spells} spells across {num_pages} page(s) =====")
+        slic_lines.append("")
+
+        for page_idx, page_spells in enumerate(pages):
+            page_num = page_idx + 1
+            is_first = page_idx == 0
+            is_last = page_idx == num_pages - 1
+            has_prev = not is_first
+            has_next = not is_last
+
+            alertbox_name = f"MomSpellPage_{sphere}_{page_num}"
+
+            slic_lines.append(f"// Page {page_num} of {num_pages} ({sphere})")
+            slic_lines.append(f"alertbox '{alertbox_name}' {{")
+            slic_lines.append(f"    Show();")
+            # Per-page title: "Life Spellbook (Page 1 of 15)"
+            title_key = f"MOM_SPELLBOOK_TITLE_{sphere.upper()}_{page_num}"
+            slic_lines.append(f"    Title(ID_{title_key});")
+            slic_lines.append(f"")
+
+            # Arm 0: Close
+            slic_lines.append(f"    // Arm 0: Close")
+            slic_lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
+            slic_lines.append(f"        Kill();")
+            slic_lines.append(f"    }}")
+
+            arm_num = 1
+
+            # If not first page, arm 1 = Prev
+            if has_prev:
+                slic_lines.append(f"    // Arm {arm_num}: Previous Page")
+                slic_lines.append(f"    Button(ID_MOM_SPELL_PREV) {{")
+                slic_lines.append(f"        Kill();")
+                slic_lines.append(f"        // TODO Phase 3: navigate to page {page_num - 1}")
+                slic_lines.append(f"    }}")
+                arm_num += 1
+
+            # Spell arms
+            for spell_row in page_spells:
+                spell_ident = spell_row["ident"].strip()
+                spell_name = spell_row["name"].strip()
+                shipped_cost = spell_row["_shipped_cost"]
+                # Assign a global spell string ID
+                str_id = f"ID_MOM_SPELL_{spell_id_counter}"
+
+                slic_lines.append(f"    // Arm {arm_num}: {spell_name} ({shipped_cost} mana)")
+                slic_lines.append(f"    Button({str_id}) {{")
+                slic_lines.append(f"        if (MomMagicCur[player[0]] >= {shipped_cost}) {{")
+                slic_lines.append(f"            MomCastSpell(player[0], {spell_id_counter});")
+                slic_lines.append(f"        }} else {{")
+                slic_lines.append(f"            Message(player[0], 'MomNotEnoughMana');")
+                slic_lines.append(f"        }}")
+                slic_lines.append(f"        Kill();")
+                slic_lines.append(f"    }}")
+
+                # String entry for the button label
+                label = f"{spell_name} ({shipped_cost})"
+                # ASCII-safe: strip any non-latin-1 chars
+                label = label.encode("latin-1", errors="replace").decode("latin-1")
+                # scen_str key strips the ID_ prefix: Button(ID_X) resolves key X
+                str_key = f"MOM_SPELL_{spell_id_counter}"
+                spell_string_entries.append(f'{str_key}\t\t"{label}"')
+
+                spell_id_counter += 1
+                arm_num += 1
+
+            # If not last page, last arm = Next
+            if has_next:
+                slic_lines.append(f"    // Arm {arm_num}: Next Page")
+                slic_lines.append(f"    Button(ID_MOM_SPELL_NEXT) {{")
+                slic_lines.append(f"        Kill();")
+                slic_lines.append(f"        // TODO Phase 3: navigate to page {page_num + 1}")
+                slic_lines.append(f"    }}")
+                arm_num += 1
+
+            slic_lines.append(f"}}")
+            slic_lines.append(f"")
+
+        # Write per-sphere SLIC file
+        _write_rel(_SPELLBOOK_SPHERE_SLC_REL[sphere], "\n".join(slic_lines))
+
+    # Write spell string entries to scen_str.txt (append)
+    scen_str_rel = "english/gamedata/scen_str.txt"
+    scen_str_path = SCENARIO / scen_str_rel
+    # Build the block to append
+    str_block_lines = [
+        "",
+        "# Paged spellbook button labels -- GENERATED by tools/ctp2_generator.py",
+        "# Format: MOM_SPELL_<N> = \"Spell Name (cost)\"",
+        'MOM_SPELL_CLOSE\t\t"Close"',
+        'MOM_SPELL_PREV\t\t"<< Prev"',
+        'MOM_SPELL_NEXT\t\t"Next >>"',
+        'MOM_MSG_SPELL_CAST\t\t"Your spell takes effect."',
+        'MOM_MSG_NOT_ENOUGH_MANA\t\t"Not enough mana to cast this spell."',
+    ]
+
+    # Per-page title strings: MOM_SPELLBOOK_TITLE_<SPHERE>_<PAGE> = "Sphere Spellbook (Page N of M)"
+    sphere_identity = MOD_POLICY.get("sphere_identity", {})
+    for sphere in _SPELLBOOK_SPHERES:
+        spells = by_sphere[sphere]
+        if not spells:
+            continue
+        # Recalculate num_pages for this sphere (same pagination logic as above)
+        num_spells_s = len(spells)
+        if num_spells_s <= 4:
+            num_pages_s = 1
+        else:
+            remaining_s = num_spells_s - 3  # page 1 holds 3
+            num_pages_s = 1
+            while remaining_s > 0:
+                if remaining_s <= 3:
+                    num_pages_s += 1
+                    remaining_s = 0
+                else:
+                    num_pages_s += 1
+                    remaining_s -= 2
+        sphere_title = sphere_identity.get(sphere, {}).get("title", sphere.capitalize())
+        for pg in range(1, num_pages_s + 1):
+            key = f"MOM_SPELLBOOK_TITLE_{sphere.upper()}_{pg}"
+            val = f"{sphere_title} Spellbook (Page {pg} of {num_pages_s})"
+            str_block_lines.append(f'{key}\t\t"{val}"')
+
+    # Sphere greeting strings
+    for sphere in _SPELLBOOK_SPHERES:
+        greeting = sphere_identity.get(sphere, {}).get("greeting", "")
+        if greeting:
+            key = f"MOM_SPHERE_GREETING_{sphere.upper()}"
+            str_block_lines.append(f'{key}\t\t"{greeting}"')
+
+    str_block_lines.extend(spell_string_entries)
+    str_block_lines.append("")
+
+    # Read existing content and append (preserving LF)
+    existing = ""
+    if scen_str_path.exists():
+        with open(scen_str_path, "r", encoding="latin-1", newline="") as fh:
+            existing = fh.read()
+
+    # Remove any previous generated spellbook block (idempotent)
+    marker = "# Paged spellbook button labels -- GENERATED by tools/ctp2_generator.py"
+    if marker in existing:
+        idx = existing.index(marker)
+        # Find the preceding newline
+        while idx > 0 and existing[idx - 1] == "\n":
+            idx -= 1
+        existing = existing[:idx]
+
+    new_content = existing.rstrip("\n") + "\n" + "\n".join(str_block_lines)
+    with open(scen_str_path, "w", encoding="latin-1", newline="") as fh:
+        fh.write(new_content)
+
+    # Remove legacy combined file if it exists
+    legacy_path = SCENARIO / "default/gamedata/mom_spellbook.slc"
+    if legacy_path.exists():
+        legacy_path.unlink()
+
+    return total_pages, spell_id_counter
+
+
+def _emit_spell_effects() -> int:
+    """Emit mom_spellbook_cast.slc: the MomCastSpell if-chain covering all implementable spells.
+
+    Reads spells.csv with the SAME filter+sort as _emit_spellbook_pages (effect_kind
+    != flavour, overland_cost > 0, sphere in life/nature/sorcery/death/chaos, sorted
+    by research_cost ascending within each sphere). Spell IDs are sequential starting
+    at 0, matching the alertbox page numbering.
+
+    Effect implementation by kind:
+      summon: GetCityByIndex(p,0,tmpCity) + CreateUnit at tmpCity.location if unit exists in Units.txt, else Message stub
+      instant_damage/unit_enchant/city_enchant/global_enchant/dispel: Message stub
+    All branches deduct shipped_cost from MomMagicCur[p].
+
+    Returns the number of spells emitted.
+    """
+    import re as _re
+
+    # --- Load rescale policy (same as _emit_spellbook_pages) ---
+    rescale_cfg = MOD_POLICY["spellbook"]["cost_rescale"]
+    rescale_factor = rescale_cfg["rescale_factor"]
+    min_cost = rescale_cfg["min_cost"]
+    max_cost = rescale_cfg["max_cost"]
+    rarity_factors = rescale_cfg.get("rarity_factors", {})
+
+    # --- Read and filter spells (same logic as _emit_spellbook_pages) ---
+    spells_path = MOMJR / "spells.csv"
+    with open(spells_path, newline="", encoding="utf-8-sig") as fh:
+        all_spells = list(csv.DictReader(fh))
+
+    by_sphere: dict[str, list[dict]] = {s: [] for s in _SPELLBOOK_SPHERES}
+    for row in all_spells:
+        sphere = row["sphere"].strip().lower()
+        if sphere not in by_sphere:
+            continue
+        effect_kind = row["effect_kind"].strip()
+        overland_cost = int(row["overland_cost"].strip() or "0")
+        if effect_kind == "flavour" or overland_cost <= 0:
+            continue
+        # Rarity-aware cost rescaling (Phase 4)
+        rarity = row.get("rarity", "").lower().strip()
+        factor = rarity_factors.get(rarity, rescale_factor)
+        shipped_cost = max(min_cost, min(max_cost, int(overland_cost * factor)))
+        row["_shipped_cost"] = shipped_cost
+        row["_research_cost_int"] = int(row["research_cost"].strip() or "0")
+        row["_rarity"] = rarity
+        by_sphere[sphere].append(row)
+
+    for sphere in _SPELLBOOK_SPHERES:
+        by_sphere[sphere].sort(key=lambda r: r["_research_cost_int"])
+
+    # --- Build flat ordered spell list (same order as page IDs) ---
+    ordered_spells: list[dict] = []
+    for sphere in _SPELLBOOK_SPHERES:
+        ordered_spells.extend(by_sphere[sphere])
+
+    if not ordered_spells:
+        return 0
+
+    # --- Read live Units.txt to build valid unit set ---
+    units_path = SCENARIO / "default" / "gamedata" / "Units.txt"
+    units_text = ""
+    if units_path.exists():
+        with open(units_path, "r", encoding="latin-1") as fh:
+            units_text = fh.read()
+    live_units = set(_re.findall(r"^(UNIT_\w+)\s*\{", units_text, _re.M))
+
+    # --- Build spell-name to unit-ident fuzzy matcher ---
+    def _spell_name_to_unit(spell_name: str) -> str:
+        """Try to match a spell name to a UNIT_ ident in the live Units.txt.
+
+        Matching rules (in priority order):
+          1. Exact: UNIT_<SANITIZED_NAME> exists
+          2. Singular: strip trailing 's' from name, check UNIT_<SANITIZED>
+          3. Known aliases (hardcoded for MoM's irregular naming)
+        Returns empty string if no match found.
+        """
+        # Known irregular mappings between spell names and unit idents
+        aliases = {
+            "War Bears": "UNIT_WARBEARS",
+            "Cockatrices": "UNIT_COCKATRICE",
+            "Unicorns": "UNIT_UNICORN",
+            "Hell Hounds": "UNIT_HELL_HOUNDS",
+            "Gargoyles": "UNIT_GARGOYLE",
+            "Death Knights": "UNIT_DEATH_KNIGHT",
+            "Wraiths": "UNIT_WRAITH",
+            "Skeletons": "UNIT_SKELETONS",
+            "Ghouls": "UNIT_ZOMBIES",  # closest match in unit DB
+            "Arch Angel": "UNIT_ARCHANGEL",
+            "Angel": "UNIT_ARCHANGEL",  # no separate UNIT_ANGEL in DB
+            "Sky Drake": "UNIT_STORM_DRAKE",
+            "Shadow Demons": "UNIT_DEMON",
+            "Sprites": "UNIT_GUARDIAN_SPIRIT",  # nature sprites -> closest
+            "Chimeras": "UNIT_WYVERN",  # closest flying creature
+            "Doom Bat": "UNIT_GARGOYLE",  # closest chaos flyer
+            "Fire Giant": "UNIT_WAR_TROLL",  # closest giant in DB
+            "Stone Giant": "UNIT_STORM_GIANT",
+            "Giant Spiders": "UNIT_COCKATRICE",  # nature creature
+            "Nagas": "UNIT_MERFOLK",  # water creature
+            "Gorgons": "UNIT_HYDRA",  # nature beast
+            "Night Stalker": "UNIT_WRAITH",  # death creature
+            "Demon Lord": "UNIT_DEMON",
+            "Chaos Spawn": "UNIT_INFERNAL_DEVICE",
+            "Great Drake": "UNIT_GREAT_WYRM",
+            "Djinn": "UNIT_AIR_ELEMENTAL",
+            "Floating Island": "UNIT_AIRSHIP",
+            "Incarnation": "UNIT_ARCHANGEL",
+            "Lycanthropy": "UNIT_MINION",
+            "Colossus": "UNIT_WAR_MAMMOTH",
+            "Basilisk": "UNIT_SALAMANDER",
+        }
+
+        # Check alias first
+        if spell_name in aliases:
+            candidate = aliases[spell_name]
+            if candidate in live_units:
+                return candidate
+
+        # Try exact sanitized match
+        ident = f"UNIT_{sanitize(spell_name)}"
+        if ident in live_units:
+            return ident
+
+        # Try singular (strip trailing S)
+        if spell_name.endswith("s") or spell_name.endswith("S"):
+            singular = spell_name[:-1]
+            ident_s = f"UNIT_{sanitize(singular)}"
+            if ident_s in live_units:
+                return ident_s
+
+        return ""
+
+    # --- Generate the MomCastSpell function ---
+    lines: list[str] = [
+        "// mom_spellbook_cast.slc -- GENERATED by tools/ctp2_generator.py. DO NOT HAND-EDIT.",
+        "//",
+        "// MomCastSpell: flat if-chain covering all implementable spells.",
+        "// Spell IDs match the paged alertbox arms (sequential, same order).",
+        "// Must load BEFORE per-sphere page files (page Button arms call MomCastSpell).",
+        "",
+        "// ---------------------------------------------------------------------------",
+        "// MomCastSpell: generated per-spell effect bodies.",
+        "// Flat if-chain covering all implementable spells. DO NOT HAND-EDIT.",
+        "// Spell IDs match the paged alertbox arms (sequential, same order).",
+        "// ---------------------------------------------------------------------------",
+        "int_f MomCastSpell(int_t p, int_t spellId)",
+        "{",
+        "    city_t tmpCity;",
+        "    // Generated from spells.csv -- DO NOT HAND-EDIT",
+    ]
+
+    for idx, spell_row in enumerate(ordered_spells):
+        spell_name = spell_row["name"].strip()
+        effect_kind = spell_row["effect_kind"].strip()
+        shipped_cost = spell_row["_shipped_cost"]
+        sphere = spell_row["sphere"].strip().lower()
+
+        # if/elseif
+        keyword = "if" if idx == 0 else "} elseif"
+        lines.append(f"    {keyword} (spellId == {idx}) {{")
+        lines.append(f"        // {spell_name} ({effect_kind}) - cost {shipped_cost}")
+        lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+
+        if effect_kind == "summon":
+            unit_ident = _spell_name_to_unit(spell_name)
+            if unit_ident:
+                lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
+                lines.append(f"        CreateUnit(p, UnitDB({unit_ident}), tmpCity.location, 0);")
+                lines.append(f"        Message(p, 'MomSpellCast');")
+            else:
+                lines.append(f"        // TODO: no matching unit for '{spell_name}'")
+                lines.append(f"        Message(p, 'MomSpellCast');")
+        else:
+            # All non-summon kinds are stubs for now
+            lines.append(f"        Message(p, 'MomSpellCast');")
+
+    # Close final elseif
+    lines.append("    }")
+    lines.append("    return 1;")
+    lines.append("}")
+    lines.append("")
+
+    # --- Messagebox segments referenced by MomCastSpell and page Button arms ---
+    lines.append("// Message segments for spell cast feedback")
+    lines.append("messagebox 'MomSpellCast' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_SPELL_CAST);")
+    lines.append("}")
+    lines.append("")
+    lines.append("messagebox 'MomNotEnoughMana' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_NOT_ENOUGH_MANA);")
+    lines.append("}")
+    lines.append("")
+
+    # --- Write to mom_spellbook_cast.slc (standalone file) ---
+    _write_rel(_SPELLBOOK_CAST_SLC_REL, "\n".join(lines))
+
+    return len(ordered_spells)
+
+
+def _print_spell_cost_distribution():
+    """Print a cost distribution summary by rarity for Phase 4b verification."""
+    rescale_cfg = MOD_POLICY["spellbook"]["cost_rescale"]
+    rescale_factor = rescale_cfg["rescale_factor"]
+    min_cost = rescale_cfg["min_cost"]
+    max_cost = rescale_cfg["max_cost"]
+    rarity_factors = rescale_cfg.get("rarity_factors", {})
+
+    spells_path = MOMJR / "spells.csv"
+    with open(spells_path, newline="", encoding="utf-8-sig") as fh:
+        all_spells = list(csv.DictReader(fh))
+
+    # Group by rarity, compute costs
+    by_rarity: dict[str, list[int]] = {}
+    for row in all_spells:
+        sphere = row["sphere"].strip().lower()
+        if sphere not in _SPELLBOOK_SPHERES:
+            continue
+        effect_kind = row["effect_kind"].strip()
+        overland_cost = int(row["overland_cost"].strip() or "0")
+        if effect_kind == "flavour" or overland_cost <= 0:
+            continue
+        rarity = row.get("rarity", "unknown").lower().strip()
+        factor = rarity_factors.get(rarity, rescale_factor)
+        shipped_cost = max(min_cost, min(max_cost, int(overland_cost * factor)))
+        by_rarity.setdefault(rarity, []).append(shipped_cost)
+
+    print("    --- Spell Cost Distribution (Phase 4 economy retune) ---")
+    print(f"    {'Rarity':<12} {'Count':>5} {'Min':>5} {'Avg':>5} {'Max':>5}  Target Range")
+    targets = {"common": "10-30", "uncommon": "30-60", "rare": "60-120", "very rare": "120-180"}
+    for rarity in ["common", "uncommon", "rare", "very rare"]:
+        costs = by_rarity.get(rarity, [])
+        if not costs:
+            continue
+        avg = sum(costs) // len(costs)
+        target = targets.get(rarity, "?")
+        print(f"    {rarity:<12} {len(costs):>5} {min(costs):>5} {avg:>5} {max(costs):>5}  ({target})")
+
+    # Pool sustainability check
+    pool = 200
+    gen_rate = 20  # mid-game mana/turn
+    common_avg = sum(by_rarity.get("common", [10])) // max(1, len(by_rarity.get("common", [10])))
+    rare_avg = sum(by_rarity.get("rare", [75])) // max(1, len(by_rarity.get("rare", [75])))
+    vrare_avg = sum(by_rarity.get("very rare", [150])) // max(1, len(by_rarity.get("very rare", [150])))
+    print(f"    Pool sustainability (pool={pool}, gen={gen_rate}/turn):")
+    print(f"      Common avg {common_avg}: castable every {max(1, common_avg // gen_rate)} turn(s)")
+    print(f"      Rare avg {rare_avg}: save {max(1, rare_avg // gen_rate)} turns")
+    print(f"      Very Rare avg {vrare_avg}: save {max(1, vrare_avg // gen_rate)} turns ({vrare_avg*100//pool}% of pool)")
 
 
 _ADVANCE_MASK ={r["id"] for r in _policy_csv_rows("advance_mask.csv")}
@@ -6485,6 +7145,18 @@ def main():
     # the settled prereq rewrite, so it must not run before either.
     summon_units = _emit_mom_summon_slc()
     print(f"  + mom_summon.slc: {summon_units} summonable creature(s) across 5 ladders")
+
+    spellbook_pages, spellbook_spells = _emit_spellbook_pages()
+    print(f"  + mom_spellbook_*.slc: {spellbook_pages} pages across 5 sphere files ({spellbook_spells} spells)")
+
+    spellbook_effects = _emit_spell_effects()
+    print(f"  + mom_spellbook_cast.slc: MomCastSpell if-chain covers {spellbook_effects} spell(s)")
+
+    # Phase 4b: Cost distribution summary by rarity
+    _print_spell_cost_distribution()
+
+    _apply_mana_policy_constants()
+    print(f"  + mom_magic.slc: mana constants patched from mod_policy.json mana_economy")
 
     if _ensure_diffdb_start_government():
         print(f"  + DiffDB.txt: guaranteed {START_GUARANTEED_ADVANCES} across all start-tech blocks")
