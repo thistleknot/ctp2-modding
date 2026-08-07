@@ -6236,6 +6236,19 @@ def main():
     if _ensure_diffdb_start_government():
         print(f"  + DiffDB.txt: guaranteed {START_GUARANTEED_ADVANCES} across all start-tech blocks")
 
+    # --- Calendar pacing (DiffDB TIME_SCALE + Const END_OF_GAME_YEAR) ---
+    try:
+        from gen_calendar import write_calendar
+        cal_result = write_calendar(MOD_POLICY, SCENARIO, _read_rel, _write_rel, _policy_csv_rows)
+        end_year = cal_result["end_year"]
+        ref_tier = cal_result["reference_tier"]
+        turns_target = int(MOD_POLICY["calendar"]["turns_target"])
+        tier_turns = [cal_result[f"end_turn_tier_{t}"] for t in range(6)]
+        print(f"  + calendar: END_OF_GAME_YEAR {end_year} (tier {ref_tier} reference, {turns_target} turns target)")
+        print(f"    game length in turns by difficulty tier 0-5: {', '.join(str(t) for t in tier_turns)}")
+    except (KeyError, FileNotFoundError) as e:
+        print(f"  ? calendar: skipped ({e})")
+
     retired_x = _retire_x_sentinels()
     if retired_x:
         print(f"  + retired {retired_x} AE 'X' sentinel improvement/wonder(s) (obsolete from turn 1)")

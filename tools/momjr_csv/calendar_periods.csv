@@ -1,0 +1,28 @@
+# Game calendar shape per difficulty tier. Tuned 2026-08 from calendar_mapping.xlsx.
+# Target: Beginner=800, Easy=940, Medium=1080, Hard=1221, VHard=1360, Impossible=1501.
+# Solved by distributing turn chunks across descending year rates per tier.
+tier,start_turn,years_per_turn
+0,0,9
+0,108,7
+0,307,6
+0,507,5
+1,0,8
+1,207,6
+1,442,5
+1,677,3
+2,0,7
+2,245,5
+2,515,4
+2,785,3
+3,0,6
+3,418,4
+3,724,3
+3,1029,2
+4,0,5
+4,430,4
+4,770,3
+4,1110,2
+5,0,5
+5,302,4
+5,676,3
+5,1051,2

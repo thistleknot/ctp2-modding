@@ -127,4 +127,11 @@
       "replace": "EnableAdvance ADVANCE_GREATER_ENCHANTMENTS"
     }
   ]
+,
+  "calendar": {
+    "reference_tier": 2,
+    "turns_target": 1080,
+    "start_year": -4000,
+    "early_warning_years_before_end": 100
+  }
 }
