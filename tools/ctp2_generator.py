@@ -6249,6 +6249,16 @@ def main():
     except (KeyError, FileNotFoundError) as e:
         print(f"  ? calendar: skipped ({e})")
 
+    # --- Spellbook (two-tier hub with rarity filter) ---
+    try:
+        import gen_spellbook
+        gen_spellbook.init(MOD_POLICY, MOMJR, SCENARIO, _write_rel, _policy_csv_rows)
+        sb_pages, sb_spells = gen_spellbook.emit_spellbook_pages()
+        sb_effects = gen_spellbook.emit_spell_effects()
+        print(f"  + spellbook: {sb_spells} spells across {sb_pages} pages, {sb_effects} cast effects")
+    except (KeyError, FileNotFoundError) as e:
+        print(f"  ? spellbook: skipped ({e})")
+
     retired_x = _retire_x_sentinels()
     if retired_x:
         print(f"  + retired {retired_x} AE 'X' sentinel improvement/wonder(s) (obsolete from turn 1)")
