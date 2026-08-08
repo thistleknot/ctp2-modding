@@ -82,6 +82,19 @@ int_f mod_CanCityBuildUnit(city_t theCity, int_t theUnit)
     // VESSELS -- 1, never buildable by anyone
     if (theUnit == UnitDB(UNIT_LAMP)
     ) { return 0; }
+    // DWARVES -- terrain-gated: hill/mountain cities only
+    if (theUnit == UnitDB(UNIT_DWARF_WARRIOR)
+    || theUnit == UnitDB(UNIT_DWARF_CROSSBOW)
+    || theUnit == UnitDB(UNIT_DWARF_RUNESMITH)
+    ) {
+        if (TerrainType(theCity.location) != 8
+        && TerrainType(theCity.location) != 9
+        && TerrainType(theCity.location) != 18
+        && TerrainType(theCity.location) != 19
+        && TerrainType(theCity.location) != 20
+        && TerrainType(theCity.location) != 21
+        ) { return 0; }
+    }
     if (theCity.owner < 1 || theCity.owner > 5) { return 1; }
     // LIFE -- 7 block(s)
     if (MomSphere[theCity.owner] != 1) {

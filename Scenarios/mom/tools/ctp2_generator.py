@@ -3001,6 +3001,21 @@ def _emit_mom_gating_slc() -> int:
         # vessel rule placed after it would leave a hole for exactly the players
         # the sphere system does not model.
         *_vessel_block(),
+        # DWARVES -- terrain-gated: only buildable in hill/mountain cities.
+        # Dwarves are neutral (not sphere-locked) but require mountain terrain.
+        "    // DWARVES -- terrain-gated: hill/mountain cities only",
+        "    if (theUnit == UnitDB(UNIT_DWARF_WARRIOR)",
+        "    || theUnit == UnitDB(UNIT_DWARF_CROSSBOW)",
+        "    || theUnit == UnitDB(UNIT_DWARF_RUNESMITH)",
+        "    ) {",
+        "        if (TerrainType(theCity.location) != 8",
+        "        && TerrainType(theCity.location) != 9",
+        "        && TerrainType(theCity.location) != 18",
+        "        && TerrainType(theCity.location) != 19",
+        "        && TerrainType(theCity.location) != 20",
+        "        && TerrainType(theCity.location) != 21",
+        "        ) { return 0; }",
+        "    }",
         "    if (theCity.owner < 1 || theCity.owner > 5) { return 1; }",
         *_deny_block("unit", "theUnit", "theCity.owner"),
         "    return 1;",
@@ -3326,57 +3341,57 @@ def _emit_mom_summon_slc() -> int:
 # ---------------------------------------------------------------------------
 
 def _emit_summon_selection_pages() -> int:
-    """Generate per-sphere summon selection alertbox pages.
+    """Generate per-sphere, per-rung summon selection alertbox pages.
 
-    Each sphere gets a page listing its summonable creatures (max 4 per page +
-    Close button = 5 total, the engine ceiling). Each creature button checks
-    rung and mana, then sets MomSummonChoice[p] to the specific UnitDB value.
+    Each sphere gets a page PER RUNG showing only creatures available at that
+    rung or lower. The MagicMenu navigates to the page matching the player's
+    current rung — so they never see creatures they can't summon.
 
-    Also emits a MomSummonRungOf lookup function used by MomSummonOrderTick
-    to determine prep time and upkeep rung for the chosen creature.
+    Button order: Close declared FIRST (renders rightmost), creature buttons
+    declared in forward order (1 renders leftmost, 2 next, etc.).
 
     Returns total creature buttons emitted.
     """
     pools = _summon_pool_by_rung()
     lines: list[str] = []
-    str_lines: list[str] = []  # scen_str entries
     total_buttons = 0
 
-    # Flatten each sphere's pool into a list of (unit_ident, rung) pairs
     for sphere in _SPHERE_PLAYER:
-        roster: list[tuple[str, int]] = []
         sphere_pools = pools[sphere]
+        # Build cumulative roster: at rung N, you can summon everything from rungs 0..N
+        all_creatures: list[tuple[str, int]] = []
         for rung_idx, rung_units in enumerate(sphere_pools):
             for uid in rung_units:
-                # rung_idx 0 = root (maps to rung 1 in the game)
                 display_rung = max(1, rung_idx)
-                roster.append((uid, display_rung))
+                all_creatures.append((uid, display_rung))
 
-        if not roster:
+        if not all_creatures:
             continue
 
-        # Split into pages of 4 creatures each (+ Close = 5 buttons max)
-        pages = [roster[i:i+4] for i in range(0, len(roster), 4)]
-        sphere_title = sphere.upper()
+        # Find the max rung that has creatures
+        max_rung = max(r for _, r in all_creatures)
 
-        for page_idx, page_creatures in enumerate(pages):
-            page_num = page_idx + 1
-            total_pages = len(pages)
-            seg_name = f"MomSummonPick_{sphere}_{page_num}"
+        # Generate one page per rung level (cumulative: shows all at or below that rung)
+        for rung_level in range(1, max_rung + 1):
+            available = [(uid, r) for uid, r in all_creatures if r <= rung_level]
+            if not available:
+                continue
 
-            # Build page text showing creature names + rung + cost
-            page_text_parts = [f"{sphere_title} Summons ({page_num}/{total_pages})"]
-            for btn_idx, (uid, rung) in enumerate(page_creatures):
+            # Page only the first 4 (engine 5-button limit minus Close)
+            page_creatures = available[:4]
+            seg_name = f"MomSummonPick_{sphere}_{rung_level}"
+            sphere_title = sphere.upper()
+
+            # Build page text
+            page_text_parts = [f"{sphere_title} Summons (rung {rung_level})"]
+            for btn_idx, (uid, r) in enumerate(page_creatures):
                 display_name = humanize_ident(uid, "UNIT_")
-                cost_expr = f"45+30*{rung}"
-                page_text_parts.append(f"{btn_idx+1}. {display_name} (rung {rung}, ~{45+30*rung} mana)")
+                page_text_parts.append(f"{btn_idx+1}. {display_name} (~{45+30*r} mana)")
             page_text = "\\n".join(page_text_parts)
 
-            # String ID for page text
-            str_id = f"MOM_SUMMON_PAGE_{sphere.upper()}_{page_num}"
-            str_lines.append(f'{str_id}\t\t"{page_text}"')
+            str_id = f"MOM_SUMMON_PAGE_{sphere.upper()}_{rung_level}"
 
-            # Alertbox
+            # Alertbox — Close FIRST (renders rightmost)
             lines.append(f"alertbox '{seg_name}' {{")
             lines.append(f"    Show();")
             lines.append(f"    Text(ID_{str_id});")
@@ -3385,21 +3400,18 @@ def _emit_summon_selection_pages() -> int:
             lines.append(f"        Kill();")
             lines.append(f"    }}")
 
-            # Creature buttons
-            for btn_idx, (uid, rung) in enumerate(page_creatures):
+            # Creature buttons declared in FORWARD order (last declared = leftmost)
+            # We want [1] leftmost, so declare [N] first, [1] last.
+            for btn_idx in range(len(page_creatures) - 1, -1, -1):
+                uid, r = page_creatures[btn_idx]
                 btn_label_id = f"MOM_SPELL_BTN_{btn_idx+1}"
-                # Cost formula: (45 + 30*rung) * MomSummonCivPct / 100
                 lines.append(f"    Button(ID_{btn_label_id}) {{")
-                lines.append(f"        if (MomSphereRung[player[0]] >= {rung}) {{")
-                lines.append(f"            if (MomSummonPrep[player[0]] > 0) {{")
-                lines.append(f"                Message(player[0], 'MomSummonBusy');")
-                lines.append(f"            }} elseif (MomMagicCur[player[0]] >= ((45 + 30 * {rung}) * MomSummonCivPct[player[0]]) / 100) {{")
-                lines.append(f"                MomSummonChoice[player[0]] = UnitDB({uid});")
-                lines.append(f"            }} else {{")
-                lines.append(f"                Message(player[0], 'MomSummonNoMana');")
-                lines.append(f"            }}")
+                lines.append(f"        if (MomSummonPrep[player[0]] > 0) {{")
+                lines.append(f"            Message(player[0], 'MomSummonBusy');")
+                lines.append(f"        }} elseif (MomMagicCur[player[0]] >= ((45 + 30 * {r}) * MomSummonCivPct[player[0]]) / 100) {{")
+                lines.append(f"            MomSummonChoice[player[0]] = UnitDB({uid});")
                 lines.append(f"        }} else {{")
-                lines.append(f"            Message(player[0], 'MomSpellLocked');")
+                lines.append(f"            Message(player[0], 'MomSummonNoMana');")
                 lines.append(f"        }}")
                 lines.append(f"        Kill();")
                 lines.append(f"    }}")
@@ -3841,23 +3853,24 @@ def _emit_spellbook_pages() -> tuple[int, int]:
 
     str_block_lines.extend(spell_string_entries)
 
-    # Summon selection page text strings
+    # Summon selection page text strings (per-rung)
     _sum_pools = _summon_pool_by_rung()
     for _s_sphere in _SPHERE_PLAYER:
-        _s_roster: list[tuple[str, int]] = []
+        _s_all: list[tuple[str, int]] = []
         for _ri, _ru in enumerate(_sum_pools.get(_s_sphere, [])):
             for _uid in _ru:
-                _s_roster.append((_uid, max(1, _ri)))
-        _s_pages = [_s_roster[i:i+4] for i in range(0, len(_s_roster), 4)]
-        for _pi, _pg in enumerate(_s_pages):
-            _pn = _pi + 1
-            _tp = len(_s_pages)
-            _parts = [f"{_s_sphere.upper()} Summons ({_pn}/{_tp})"]
-            for _bi, (_uid, _rung) in enumerate(_pg):
+                _s_all.append((_uid, max(1, _ri)))
+        if not _s_all:
+            continue
+        _max_r = max(r for _, r in _s_all)
+        for _rl in range(1, _max_r + 1):
+            _avail = [(_uid, _r) for _uid, _r in _s_all if _r <= _rl][:4]
+            _parts = [f"{_s_sphere.upper()} Summons (rung {_rl})"]
+            for _bi, (_uid, _rung) in enumerate(_avail):
                 _dn = humanize_ident(_uid, "UNIT_")
-                _parts.append(f"{_bi+1}. {_dn} (rung {_rung}, ~{45+30*_rung} mana)")
+                _parts.append(f"{_bi+1}. {_dn} (~{45+30*_rung} mana)")
             _val = "\\n".join(_parts)
-            _key = f"MOM_SUMMON_PAGE_{_s_sphere.upper()}_{_pn}"
+            _key = f"MOM_SUMMON_PAGE_{_s_sphere.upper()}_{_rl}"
             str_block_lines.append(f'{_key}\t\t"{_val}"')
 
     str_block_lines.append("")
@@ -4029,6 +4042,8 @@ def _emit_spell_effects() -> int:
         "UNIT_HELL_HOUNDS", "UNIT_MINOTAUR", "UNIT_GARGOYLE", "UNIT_SALAMANDER",
         "UNIT_INFERNAL_DEVICE", "UNIT_HYDRA", "UNIT_EFREET", "UNIT_TAURON", "UNIT_WARRAX",
     ]
+    # Innately magic-resistant units: 50% base resist to ALL spells (dwarven anti-magic)
+    MAGIC_RESISTANT_UNITS = ["UNIT_DWARF_RUNESMITH", "UNIT_IRON_GOLEM"]
     SPHERE_RESISTANCE = {
         "death": {
             "elite": [
@@ -4105,7 +4120,13 @@ def _emit_spell_effects() -> int:
             ll.append(f"{indent}        }}")
             ll.append(f"{indent}    }}")
             ll.append(f"{indent}}}")
-        # Tier 4: hero self-save (35%)
+        # Tier 4: magic-resistant units (50% — dwarven anti-magic)
+        ll.append(f"{indent}// Magic-resistant units (50%)")
+        ll.append(f"{indent}if (bestAtk < 50) {{")
+        for u in MAGIC_RESISTANT_UNITS:
+            ll.append(f"{indent}    if (killUnit.type == UnitDB({u})) {{ bestAtk = 50; }}")
+        ll.append(f"{indent}}}")
+        # Tier 5: hero self-save (35%)
         ll.append(f"{indent}// Hero self-save (35%)")
         ll.append(f"{indent}if (bestAtk < 35) {{")
         for u in HERO_UNITS:

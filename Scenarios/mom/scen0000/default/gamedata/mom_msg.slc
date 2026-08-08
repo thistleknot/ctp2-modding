@@ -468,18 +468,38 @@ alertbox 'MagicMenu' {
 		// to the player as the arm doing nothing. That divergence class already
 		// bit this mod once on the upkeep rate and is what gate 27 watches for.
 		} elseif (MomMagicCur[g.player] >= ((45 + 30 * MomSphereRung[g.player]) * MomSummonCivPct[g.player]) / 100) {
-			// Navigate to sphere-specific creature selection page
+			// Navigate to sphere-specific creature selection page (rung-gated)
 			Kill();
 			if (MomSphere[g.player] == 1) {
-				Message(g.player, 'MomSummonPick_life_1');
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_life_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_life_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_life_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_life_2'); }
+				else { Message(g.player, 'MomSummonPick_life_1'); }
 			} elseif (MomSphere[g.player] == 2) {
-				Message(g.player, 'MomSummonPick_nature_1');
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_nature_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_nature_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_nature_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_nature_2'); }
+				else { Message(g.player, 'MomSummonPick_nature_1'); }
 			} elseif (MomSphere[g.player] == 3) {
-				Message(g.player, 'MomSummonPick_sorcery_1');
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_sorcery_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_sorcery_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_sorcery_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_sorcery_2'); }
+				else { Message(g.player, 'MomSummonPick_sorcery_1'); }
 			} elseif (MomSphere[g.player] == 4) {
-				Message(g.player, 'MomSummonPick_death_1');
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_death_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_death_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_death_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_death_2'); }
+				else { Message(g.player, 'MomSummonPick_death_1'); }
 			} elseif (MomSphere[g.player] == 5) {
-				Message(g.player, 'MomSummonPick_chaos_1');
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_chaos_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_chaos_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_chaos_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_chaos_2'); }
+				else { Message(g.player, 'MomSummonPick_chaos_1'); }
 			}
 		} else {
 			Message(g.player, 'MomSummonNoMana');

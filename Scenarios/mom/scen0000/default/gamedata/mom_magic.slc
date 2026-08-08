@@ -124,11 +124,7 @@ int_f MomRecalcMagicPerTurn(int_t mp_1)
         for (i = 0; i < 32; i = i + 1) {
             idx = base + i;
             if (MomSummonRung[idx] > 0) {
-                if (MomSummonUnit[idx].valid) {
-                    upkeep = upkeep + MomSummonRung[idx] * MomUpkeepRate;
-                } else {
-                    MomSummonRung[idx] = 0;   // creature died -- free the slot
-                }
+                upkeep = upkeep + MomSummonRung[idx] * MomUpkeepRate;
             }
         }
     }
@@ -257,12 +253,9 @@ HandleEvent(BeginTurn) 'MomMagicPoolTick' post {
             }
             if (insSlot >= 0) {
                 insIdx = insBase + insSlot;
-                if (MomSummonUnit[insIdx].valid) {
-                    KillUnit(MomSummonUnit[insIdx]);
-                }
-                // Refund this turn's charge for the creature just released, so
-                // the pool reflects the lighter army immediately instead of
-                // disbanding a second one next turn for a debt already paid.
+                // SAVE/LOAD FIX: no unit_t handle to kill. Just free the slot
+                // and refund the upkeep. The creature lives but its magical
+                // bond snaps — it no longer costs upkeep.
                 MomMagicCur[p] = MomMagicCur[p] + MomSummonRung[insIdx] * MomUpkeepRate;
                 MomSummonRung[insIdx] = 0;
                 if (IsHumanPlayer(p)) {

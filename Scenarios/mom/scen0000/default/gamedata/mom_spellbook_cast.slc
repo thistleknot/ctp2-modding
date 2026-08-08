@@ -641,6 +641,11 @@ int_f MomCastSpell(int_t p, int_t spellId)
                             }
                         }
                     }
+                    // Magic-resistant units (50%)
+                    if (bestAtk < 50) {
+                        if (killUnit.type == UnitDB(UNIT_DWARF_RUNESMITH)) { bestAtk = 50; }
+                        if (killUnit.type == UnitDB(UNIT_IRON_GOLEM)) { bestAtk = 50; }
+                    }
                     // Hero self-save (35%)
                     if (bestAtk < 35) {
                         if (killUnit.type == UnitDB(UNIT_ARIEL)) { bestAtk = 35; }
@@ -869,6 +874,11 @@ int_f MomCastSpell(int_t p, int_t spellId)
                         }
                     }
                 }
+                // Magic-resistant units (50%)
+                if (bestAtk < 50) {
+                    if (killUnit.type == UnitDB(UNIT_DWARF_RUNESMITH)) { bestAtk = 50; }
+                    if (killUnit.type == UnitDB(UNIT_IRON_GOLEM)) { bestAtk = 50; }
+                }
                 // Hero self-save (35%)
                 if (bestAtk < 35) {
                     if (killUnit.type == UnitDB(UNIT_ARIEL)) { bestAtk = 35; }
@@ -1036,6 +1046,11 @@ int_f MomCastSpell(int_t p, int_t spellId)
                                 if (auraUnit.type == UnitDB(UNIT_SERENA)) { bestAtk = 40; }
                             }
                         }
+                    }
+                    // Magic-resistant units (50%)
+                    if (bestAtk < 50) {
+                        if (killUnit.type == UnitDB(UNIT_DWARF_RUNESMITH)) { bestAtk = 50; }
+                        if (killUnit.type == UnitDB(UNIT_IRON_GOLEM)) { bestAtk = 50; }
                     }
                     // Hero self-save (35%)
                     if (bestAtk < 35) {
@@ -1264,6 +1279,11 @@ int_f MomCastSpell(int_t p, int_t spellId)
                             }
                         }
                     }
+                    // Magic-resistant units (50%)
+                    if (bestAtk < 50) {
+                        if (killUnit.type == UnitDB(UNIT_DWARF_RUNESMITH)) { bestAtk = 50; }
+                        if (killUnit.type == UnitDB(UNIT_IRON_GOLEM)) { bestAtk = 50; }
+                    }
                     // Hero self-save (35%)
                     if (bestAtk < 35) {
                         if (killUnit.type == UnitDB(UNIT_ARIEL)) { bestAtk = 35; }
@@ -1337,6 +1357,11 @@ int_f MomCastSpell(int_t p, int_t spellId)
                                 if (auraUnit.type == UnitDB(UNIT_STORM_GIANT)) { bestAtk = 40; }
                             }
                         }
+                    }
+                    // Magic-resistant units (50%)
+                    if (bestAtk < 50) {
+                        if (killUnit.type == UnitDB(UNIT_DWARF_RUNESMITH)) { bestAtk = 50; }
+                        if (killUnit.type == UnitDB(UNIT_IRON_GOLEM)) { bestAtk = 50; }
                     }
                     // Hero self-save (35%)
                     if (bestAtk < 35) {

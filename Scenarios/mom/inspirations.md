@@ -201,3 +201,56 @@ know what's coming.
 `Terraform(location, terrain_index)` is base-verified (MagnificentSamurai scenario).
 `TerrainType(location)` reads current terrain. Both are SLIC builtins.
 Trigger: `HandleEvent(GrantAdvance)` on the sphere Master advance.
+
+
+---
+
+## The Dwarf Question (TRIZ + Six Hats Synthesis)
+
+### The Contradiction
+Dwarves are earth-aligned (Nature) but also industrial/technological (anti-Nature).
+They're orderly (Life) but insular (not holy). They span multiple axes and don't
+fit any single sphere cleanly.
+
+### Resolution: Neutral Terrain-Gated
+
+Dwarves are NOT a sphere. They're a RESOURCE — like iron deposits or mana nodes.
+They exist where MOUNTAINS are. Any tribe that holds mountain territory and
+researches the right advance can recruit them.
+
+This matches:
+- Original MoM: neutral race, recruitable by any wizard who conquered their cities
+- Tolkien: independent, allied with no one permanently
+- D&D: resistant to magic, earth-focused, their own civilization
+- Gameplay: mountains become a strategic objective worth fighting over
+
+### Implementation Path
+
+1. Units: Dwarf Warrior (melee tank), Dwarf Crossbow (ranged), Dwarf Runesmith (magic-resistant)
+2. Sphere: neutral (buildable by any tribe)
+3. Advance prereqs: Iron Working / Masonry / Thaumaturgy
+4. Terrain gate: mod_CanCityBuildUnit checks city terrain is hill/mountain
+5. Resistance: Runesmith gets 50% base resist in the graduated affinity system
+
+### Phase 2: Sphere Variants
+
+Once recruited, dwarves can be UPGRADED by sphere-specific advances:
+- Life → Holy Dwarf (healing aura)
+- Nature → Stone Dwarf (earth elemental traits)
+- Sorcery → Rune Dwarf (enchanted weapons)
+- Death → Cursed Dwarf (Duergar, underdark)
+- Chaos → Forge Dwarf (fire resistance, volcanic)
+
+### What This Means for the Full Roster
+
+The 5 spheres keep their core identities:
+- Life = Humans, Angels, Paladins, Priests (holy order)
+- Nature = Elves, Fey, Sprites, Treants, Beasts (wild court)
+- Sorcery = Wizards, Mages, Golems, Elementals, Djinn (arcane enclave)
+- Death = Undead, Skeletons, Liches, Wraiths, Vampires (necropolis)
+- Chaos = Goblins, Orcs, Ogres, Demons, Drow (underworld)
+- Neutral = Dwarves, Knights, Settlers, Iron Golem (available to all, advance-gated)
+
+Dwarves sit alongside Knights and Catapults as the "anyone can have these if they
+invest in the right tech" tier. The investment is terrain (hold mountains) + research
+(mundane advances). No magic required — which IS the dwarven identity.
