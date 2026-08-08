@@ -1,0 +1,585 @@
+---
+description: 'Powers a player EARNS rather than buys — capacity granted by artifacts, creatures unlocked by holding other creatures, and bounded wishes from a genie or a captured avatar. Every high-impact effect names a reachable counter, so it is a threat to prepare against rather than an event that simply happens to you.'
+---
+
+***definitions***
+
+- :Anchor: is the fixed 200 mana pool defined by [[fixed-anchor-scaling]]. This
+  spec extends it and does not repeal it.
+- :EarnedCapacity: is a temporary increase to a player's pool above the
+  :Anchor:, granted by a possession and lost with it. It is stated as a
+  FRACTION of the :Anchor:, never as an absolute.
+- :ConditionalUnlock: is a creature or effect that no rung of the summon ladder
+  can reach, opened instead by holding a stated set of things — three dragons, a
+  building, an artifact.
+- :Wish: is one entry in a fixed, enumerated list of effects. There is no
+  open-ended wish.
+- :WishTier: is `minor` or `major`. A :Genie: grants only `minor`; only a
+  captured :Avatar: grants `major`.
+- :TargetedEffect: is a :Wish: or creature ability aimed at a specific city or
+  unit belonging to another player.
+- :Counter: is the stated, reachable condition under which a :TargetedEffect:
+  fails or rebounds — mounted ballistae on a city wall, a veteran escort.
+- :PersistentHazard: is a :TargetedEffect: that changes the RULES of a place
+  rather than its state: it alters the ground, then recurs on a schedule the
+  victim can see coming but not prevent.
+- :PoisonedGift: is a :PersistentHazard: whose altered ground is also BETTER
+  than what it replaced. The victim chooses between abandoning it and working it
+  under threat, and that choice is the mechanic.
+- :Attributable: describes a divergence between players that can be traced to a
+  named in-game event, as opposed to a constant that differed from turn one.
+- :Site: is a map location where a :Vessel: may be found — a cavern, a ruin, the
+  remains of a lost city. It is defined by terrain and neighbourhood, never by a
+  bare random roll.
+- :Vessel: is a discovered object that carries a power rather than being one — a
+  lamp holding a :Genie:. Found, not built; the power comes out of it later.
+- :Binding: is the act of forcing a defeated :Genie: back into a :Vessel:, after
+  which the vessel is banished to a :Site: nobody is told about.
+- :Hero: is one of the nine named units already in the roster. Five of them ARE
+  their tribe's leader — `UNIT_ARIEL` is both a unit and the Tribes of Life's
+  named leader — so the wizard is the lord and walks the map.
+- :Anchored: describes a :Vessel: with `MaxMovePoints 0`. It never travels; it
+  is a PLACE, and the only way to hold one is to build a city around it.
+- :Borne: describes a :Vessel: carried with a group. Its movement is set at the
+  roster's ceiling so it is never the slowest member and therefore never slows
+  the party nor gets left behind.
+- :Bearing: is a :Hero: and a :Vessel: sharing a tile or army. It is the whole
+  equipment system, because CTP2 has no inventory.
+- :SummonLane: is the part of a sphere's roster the summon roll may return.
+- :EarnedLane: is the rest of it — units a player may only reach by holding
+  something, researching a capstone, or capturing. Nothing in it is ever rolled.
+- :WishGiver: is an entity that grants :Wish:es. A :Genie: and a :Lich: sit at
+  the SAME tier; only a captured :Avatar: grants the top wish.
+- :SharedCreature: is a creature more than one sphere may roll — demons belong
+  to both Death and Chaos.
+- :WildRoll: is Chaos's signature: a chance for its summon to return a creature
+  from ANY sphere, including one no other sphere would give it.
+- :Boon: is what an artifact gives its bearer.
+- :Bane: is what the same artifact takes. It is not optional and cannot be
+  declined separately from the :Boon:.
+- :Precondition: is the terrain-and-neighbourhood test a tile must pass to be a
+  :Site:. Because it depends only on the map, it can be evaluated ONCE at game
+  start rather than per turn.
+
+***requirements***
+
+**The STARTING pool SHALL remain the :Anchor: for every player.**
+:EarnedCapacity: is added on top and only ever by an in-game cause.
+
+> This is the whole reconciliation with [[fixed-anchor-scaling]], and it is a
+> real distinction rather than a loophole. That spec forbids a per-peer
+> *baseline* because a constant that differs from turn one creates a degenerate
+> direction in the parameter space — you cannot tell tuning from outcome.
+> :EarnedCapacity: is :Attributable:: every player starts identical, and any
+> later difference has a cause you can point at. Earned divergence is the
+> mechanic; assumed divergence is the defect.
+
+**:EarnedCapacity: SHALL be expressed as a fraction of the :Anchor:** (`+25%`,
+not `+50`), so the anchor stays the unit of account and a later change to the
+anchor rescales it automatically.
+
+**:EarnedCapacity: SHALL be revocable.** Lose the artifact, lose the capacity;
+if the pool then exceeds the new maximum it is clamped, not banked.
+
+**A :ConditionalUnlock: SHALL state its condition in things the player can
+SEE.** Counting creatures they own or buildings they built is legible; a hidden
+counter is not.
+
+**A :Wish: SHALL come from an enumerated list.** The list is the design.
+
+> The tiers are the limit that makes the fantasy safe. A :Genie: is common
+> enough to be a tactic, so it grants only `minor`. An :Avatar: must be
+> CAPTURED — a tribe leader taken alive — which is rare, costly, and visible to
+> the victim before it happens.
+
+**A :TargetedEffect: SHALL leave the target something to DO, and SHALL NOT
+target a capital.**
+
+> This supersedes an earlier draft that said "SHALL NOT destroy a city outright"
+> and justified it by magnitude. Magnitude was the wrong axis. A one-shot
+> deletion is bad because it removes the victim's ability to respond; a hazard
+> ten times larger is fine if it demands a response instead of ending the
+> conversation. **Duration and answerability are the axes, not size.**
+
+**Magic SHALL be calibrated to a FANTASY ERA'S imagination, not to a modern
+weapon.**
+
+> Vesuvius was the ancient world's apocalypse. The scale to reach for sits
+> between the era's most powerful conventional weapon and the unthinkable — and
+> the unthinkable in that frame is a mountain opening, a plague, a river of
+> fire. Magic does not have to out-do a warhead to be terrifying; it has to
+> out-do a catapult by enough that no catapult answers it.
+
+**A :PersistentHazard: SHALL be preferred to an instant effect of the same
+weight.** Six TRIZ inversions produce it from "destroy the city", and each one
+is a design gain rather than a compromise:
+
+| TRIZ move | applied |
+|---|---|
+| The other way round (13) | change the GROUND, not the city |
+| Segmentation (1) | one apocalypse → many small eruptions |
+| Periodic action (19) | intermittent, so there are planning windows |
+| Local quality (3) | exposure varies with distance from the mountain |
+| Prior counteraction (9) | defences buildable BEFORE the first blast |
+| **Harm into benefit (22)** | **volcanic soil is the most fertile there is** |
+
+> Move 22 is the one that changes the design. A cursed tile that is also the
+> best tile turns grief into a :PoisonedGift: — and that IS the operator's
+> "mixed wish", arrived at from the other direction. It also makes the effect
+> usable on ONESELF: accepting recurring devastation for yield is a coherent
+> Chaos strategy rather than an own-goal.
+
+**A :PersistentHazard: SHALL be geographically conditioned.** A volcano needs a
+mountain. Terrain that must already be there makes the wish a matter of where
+the victim settled, which is a decision they made and can learn from.
+
+**Every :TargetedEffect: SHALL declare a :Counter:, and that :Counter: SHALL be
+reachable by the target before the effect is available to the attacker.**
+
+> A counter unlocked later than the threat is not a counter, it is a delay. The
+> tech that mounts ballistae on walls and on ships must sit at or below the
+> advance that opens the dragon.
+
+**A :Counter: SHALL be expressed in state SLIC can actually read.**
+
+> MEASURED against the 230-file corpus: `IsVeteran` (4 sites) and
+> `ToggleVeteran` (6) exist; **`IsEntrenched` does not exist at all**. So
+> "fortified OR veteran" is not directly expressible. Either the rule leans on
+> veteran alone, or fortification is latched by SLIC from the `EntrenchOrder` /
+> `DetrenchOrder` events into state this mod maintains — which costs an array
+> and a lifetime, and must be judged against that cost rather than assumed free.
+
+**A :Vessel: SHALL be found at a :Site:, never scattered at random.**
+
+> Reward density and danger density are the same map. A lamp in open grassland is
+> a lottery ticket that pays whoever built the most explorers; a lamp in the
+> caverns of a lost city, in bad terrain, with barbarians thick around it, is a
+> CONTESTED OBJECTIVE — it asks whether you will commit force, which makes it a
+> mid-game decision instead of an early-game scramble.
+
+**A :Site:'s :Precondition: SHALL be evaluated at GAME START and stored, not
+recomputed per turn.**
+
+> The test is "treacherous terrain AND near a lost city", and both halves are
+> map facts that do not change. Evaluating a neighbourhood predicate over every
+> tile every turn would be the most expensive thing in the mod for an answer
+> that is constant. Compute the set once, keep the sites, spend nothing after.
+> This is the operator's own point: some huts carry PRE-CALCULATED
+> preconditions, and the alternative is a per-turn distance scan.
+
+**A :Site: SHALL raise the barbarian presence around it**, so the reward is
+guarded by something the map itself explains.
+
+**A defeated :Genie: SHALL be BOUND into a :Vessel: and banished to an
+undisclosed :Site:, not destroyed.**
+
+> This is the loop that makes the whole system self-feeding, and it costs
+> nothing extra: a genie removed from play re-enters the world as a lamp
+> somewhere unknown, findable by anyone including the player who just lost it.
+> Genies are therefore CONSERVED rather than consumed — the world holds roughly
+> as much magic as it started with, redistributed by who is willing to go and
+> get it. It also answers where lamps come from after turn one without seeding
+> more, and it is the same emergent principle as letting the ruins of cities
+> that actually fell become the sites.
+
+> The banishment SHALL NOT be announced to the binder. Knowing where you sent it
+> turns a banishment into a deposit.
+
+> PARTIALLY BUILT 2026-08-04. Killing an efreet frees its vessel WHERE IT FELL,
+> in the hands of the player it served, rather than banishing it to an
+> undisclosed :Site:. The banishment half needs the :Site: system — huts with
+> preconditions evaluated and stored at game start — and that is not built.
+>
+> What the partial keeps is the load-bearing part: genies are CONSERVED, and a
+> lamp enters play through combat rather than being handed out. What it loses is
+> the redistribution — the vessel does not change hands or location, so it does
+> not become findable by anyone else, and the loop is not yet self-feeding.
+>
+> This is a deviation to close when :Site: lands, not a settled design.
+
+**A :Vessel: SHALL declare BOTH a :Boon: and a :Bane:, and they SHALL be
+inseparable.**
+
+> Artifacts give and they taketh away. Same design language as the
+> :PoisonedGift: volcano, applied to an object instead of a place: power arrives
+> attached to a liability.
+>
+> An earlier draft of this spec called abandonment "the release valve that keeps
+> artifacts moving". **That was wrong — an artifact CANNOT be abandoned**, and
+> the correction changes what the :Bane: is for. It is not a cost you re-answer
+> each turn; it is a cost you accepted once and now cannot escape.
+
+**A :Vessel: SHALL NOT be abandoned, dropped, disbanded or gifted. It leaves a
+player ONLY by loss.**
+
+> This is what makes an artifact a commitment rather than a tool. You cannot put
+> it down when the :Bane: turns inconvenient, so picking it up is irreversible
+> and the cost runs for as long as you hold it — which is until somebody takes
+> it from you.
+>
+> **Circulation therefore happens by VIOLENCE, not by choice.** That is a
+> stronger economy than the abandonment model it replaces: an artifact makes its
+> bearer a target, everyone can see who carries it, and the only way to get one
+> is to go and take it. It also composes with the rest of this spec — the
+> Artifacts menu has no Drop arm, and :Binding: is the one sanctioned disposal
+> route in the whole system, which is exactly why it should be costly.
+
+**A sphere's roster SHALL be split into a :SummonLane: and an :EarnedLane:, and
+the roll SHALL only ever return from the :SummonLane:.**
+
+> Not everything a sphere owns should be conjurable. A death knight is a
+> CHAMPION and a lich is a TRANSFORMATION; handing either out on a 70% per-turn
+> roll makes the ladder's top indistinguishable from its bottom. The machinery
+> for this already exists and is already correct — `_summon_pool_by_rung`
+> excludes heroes from every pool — so the :EarnedLane: is that exclusion
+> generalised from "heroes" to "heroes, champions and capstones".
+
+**Death's ladder, as specified:**
+
+| rung | :SummonLane: | notes |
+|---|---|---|
+| 1 | Zombies, **Skeletons** | the cheap dead; Skeletons was an addition |
+| 2 | Wraiths | already at rung 2 today |
+| 3 | Demon | shared with Chaos, per the multi-sphere rule below |
+| 4 | **Dracolich** | an addition; sits BELOW Undead Dragon, not in place of it |
+| 5 | Undead Dragon | the sphere's capstone summon |
+
+> Rungs 3 and 5 were unassigned when this was written and Dracolich's
+> relationship to Undead Dragon was open. Both are now settled in
+> `mom_summon.slc`: Demon stayed at 3 rather than moving to Chaos, and the
+> dracolich turned out to be a DISTINCT creature one rung below the dragon
+> rather than the dragon renamed. `MomSummonRungOf` is generated from the same
+> pools as the roll, so these rungs and the mana-upkeep rates charged for them
+> cannot drift apart.
+
+| :EarnedLane: | tier | how |
+|---|---|---|
+| **Death Knight** | champion | never summoned — Death's hero-class unit |
+| **Lich** | capstone | never summoned — a transformation, per the bounded-boon rule |
+
+**A creature MAY belong to more than one sphere.**
+
+> Demons are a fair split between Death and Chaos — they are of the underworld,
+> which is Death's, and they are destruction without order, which is Chaos's.
+> Nothing requires a roster to partition cleanly, and the pools are DERIVED from
+> each unit's sphere rather than hand-listed, so sharing costs only a second
+> sphere tag.
+
+**Chaos SHALL have a :WildRoll: — a chance to summon from ANY sphere.**
+
+> This is the x-factor that makes Chaos itself rather than "Death with better
+> numbers": it can call a demon or an ANGEL, and it does not get to choose. It
+> is also the only mechanic in the mod where a sphere reaches outside its own
+> roster, which is precisely why it should belong to Chaos and to nothing else.
+>
+> It composes with the existing economy without new machinery — the roll already
+> exists, the wild branch just draws from a wider pool — and it pairs with the
+> measurement that Chaos already pays the highest prices (92%) and earns the
+> fastest (140%). High variance on all three axes is one coherent identity.
+
+**Creature slots per rung SHALL NOT be capped at one.**
+
+> The one-creature-per-rung shape of today's pools is an ACCIDENT of a thin
+> roster, not a design: pools are derived from whichever units carry that rung's
+> advance, and rung 1 happens to have one each. Splitting champions and
+> capstones into the :EarnedLane: frees rung slots, and there is prior art to
+> draw on rather than invent — `H:\games\ctp2` carries Lord of the Rings with
+> BALROG, SMAUG, KRAKEN, LEVIATHON and WATCHER already modelled as CTP2 units.
+
+**A :Lich: SHALL be a :WishGiver: at the same tier as a :Genie: — every wish
+EXCEPT the top one.**
+
+> That boundary is the whole tier system in one line: minor and middling wishes
+> are reachable by holding the right entity, and the single most powerful wish
+> is reachable only by CAPTURING a rival's :Avatar:. It also generalises — each
+> sphere should own a wish-giver at this tier, and Death's is the lich.
+
+**A :Boon: SHALL be BOUNDED. A transformation belongs to the sphere ladder, not
+to an artifact.**
+
+> The operator reached for lichdom as an artifact boon and then corrected it in
+> the same breath — *"lichdom would be a pretty powerful death power, not
+> necessarily tied to a semi-cursed artifact"* — and that correction is the
+> rule. An artifact is a trinket with a price: it modifies what you already do.
+> Becoming something else is a CAPSTONE, earned up your own sphere's ladder or
+> through a :ConditionalUnlock:, and it should cost the research and the
+> commitment that implies.
+>
+> The test is whether losing the object would undo it. You can lose a lamp; you
+> cannot un-become a lich. Anything that fails that test is not an artifact
+> boon.
+
+**A :Bane: SHALL be disclosed BEFORE the artifact is taken.**
+
+> Irreversible AND hidden is a gotcha, and this mod's design language is
+> legibility everywhere else — visible unlock conditions, stated counters,
+> prices on arms. An irreversible commitment has to be an informed one. The
+> gamble in this game lives in what the void sends you when you summon, not in
+> traps you cannot walk back out of.
+
+**A :Vessel: SHALL be either :Anchored: or :Borne:. Both are `Civilian` with no
+defence; they differ only in movement.**
+
+| class | movement | consequence |
+|---|---|---|
+| :Anchored: | `MaxMovePoints 0` | cannot flee, cannot be carried — hold it by founding a city on it |
+| :Borne: | roster ceiling (`1000`) | never the slowest in a group, so never a bottleneck and never left behind |
+
+> **:Anchored: artifacts are why you settle somewhere bad.** One that cannot move
+> and cannot defend is taken by anyone who walks up to it — so the only way to
+> keep it is to plant a city around it, in whatever treacherous terrain it was
+> hidden in. That closes the loop with the :Site: rule: the reward is guarded by
+> geography, and claiming it permanently means committing a city to that
+> geography. The artifact stops being loot and becomes a map objective.
+>
+> **:Borne: artifacts need NO SLIC.** CTP2 armies move at their SLOWEST member's
+> speed, so an artifact that is never the slowest is never the constraint. Set
+> its movement at the mod's ceiling — 1000, the fastest unit in the roster — and
+> "moves with the group, never left behind" falls out of one data field. It
+> still cannot act or defend, so moving it alone is suicide rather than a
+> strategy.
+>
+> Splitting the class rather than choosing one is TRIZ *local quality*: the
+> property varies where varying it does work.
+
+> PRIOR ART, and it validates the shape: Lord of the Rings models the palantiri
+> as UNITS — `UNIT_PALANTIR_I`, `MaxMovePoints 0`, `VisionRange 2`, `NoZoc`. So
+> artifact-as-immobile-unit is a road already walked in a shipped CTP2 mod.
+>
+> One deliberate divergence: LOTR gave its palantir `Attack 15 / Defense 15`, so
+> theirs fights for itself. Ours must NOT — an artifact cannot be defended and
+> passes to whoever survives on its tile, which needs `Civilian`. Their
+> `VisionRange 2` is worth stealing though: a :Boon: expressed in the unit's own
+> stats costs no SLIC at all.
+>
+> **RETRACTED 2026-08-05 — the capture claim was wrong, and I asserted it
+> without checking.** The two paragraphs that stood here said a civilian is
+> "CAPTURED rather than fought", so "picked up by whoever survives" was stock
+> behaviour needing no new mechanism. Both are false:
+>
+> * **CTP2 has no unit-ownership transfer at all.** No `SetOwner` path for a
+>   unit anywhere in `gs/gameobj`, and no SLIC verb for one. The engine captures
+>   CITIES, never units. A vessel can be created and destroyed — never taken.
+> * **`CanBeExpelled` is not a transfer.** `Unit::CanBeExpelled` requires the
+>   unit to be OFF its owner's territory, and the only caller is the path where
+>   a non-hostile AI would rather push past than attack (`armyevent.cpp`). It is
+>   a courtesy, not a capture.
+> * **The prior art does not support it either.** `UNIT_PALANTIR_I` carries no
+>   `Civilian` flag; it is `UNIT_CATEGORY_RANGED` with `BombRounds 3` and
+>   `ShieldHunger 7` — a buildable bombard tower, not a transferable artifact.
+>
+> What survives is the part that was actually checked: **immobility follows from
+> `MaxMovePoints 0`**, and the palantir confirms artifact-as-immobile-unit is a
+> road already walked.
+>
+> **So the contest is DENIAL, not seizure.** An enemy who reaches a vessel
+> destroys it, stripping the holder's capacity boon and any unspent wishes. That
+> is a real mechanic and it is what ships. "Picked up by the survivor" and
+> "neutral when abandoned" are NOT implemented and cannot be on stock rules
+> without a transfer mechanism the engine does not have — reaching them needs a
+> SLIC scheme that can attribute a kill, which the unusable `KillUnit` handler
+> currently rules out.
+>
+> Vessels are conserved at the level of the SYSTEM rather than the tile: every
+> efreet that dies frees one, so the world keeps roughly as much magic as it
+> started with even though no single lamp ever changes hands.
+
+**A :Vessel: SHALL be usable only while BORNE by a :Hero:.**
+
+> This is what makes heroes matter without inventing a hero system. MoM proper
+> gave heroes equipment slots; CTP2 has none, so :Bearing: is co-location —
+> "equipping" is moving, and a lamp left in a city is inert until someone
+> carries it. It also puts the artifact at risk exactly where the hero is, which
+> is the interesting place for it to be.
+
+**A :Hero:'s death SHALL be an EVENT, not a unit loss.**
+
+> The nine heroes exist in the roster today and have ZERO mechanics — each name
+> appears exactly once across all SLIC, in the summon-pool exclusion, and
+> nowhere else. Meanwhile MOMJR's own `Events.txt` carries death events for
+> Ariel, Freya, Jafar, Rjak and Warrax — *"Ariel has been killed. The Tribes of
+> Life are in disarray."* That is the one piece of the source mod this port
+> never brought across, and five of the nine heroes ARE tribe leaders, so their
+> deaths are already narratively load-bearing whether or not the mod says so.
+
+**A :Hero: SHALL be able to acquire a :Vessel: from battle, hut or conquest.**
+
+> All three triggers exist: `HandleEvent(Battle)` (40 corpus sites),
+> `HandleEvent(CaptureCity)` (39), and the hut/:Site: path this spec already
+> defines. Acquisition is therefore about WHERE a hero has been, which is what
+> makes a hero a piece you move rather than a statline.
+
+**A :ConditionalUnlock: or :Wish: SHALL NOT be granted to a player who is not in
+play.**
+
+> Not hypothetical. Chaos has 0 units and 0 mana in all ten samples of a
+> 200-turn run, and Death holds its cap for 200 turns without summoning. A power
+> layered on top of a tribe that never enters play is invisible work.
+
+***scenarios***
+
+**Given** a player holding an artifact worth `+25%`, **when** the artifact is
+lost, **then** the maximum SHALL return to the :Anchor: and any excess held mana
+SHALL be clamped away rather than kept.
+
+**Given** a player holding three dragons, **when** the :ConditionalUnlock:
+condition is evaluated, **then** the unlocked creature SHALL become available,
+and **when** one dragon dies, **then** it SHALL become unavailable again.
+
+**Given** a dragon adjacent to a city WITHOUT mounted ballistae, **when** it
+breathes fire, **then** the city SHALL lose population and the dragon SHALL take
+no damage.
+
+**Given** the same attack on a city WITH mounted ballistae, **when** it
+resolves, **then** the dragon SHALL take damage.
+
+**Given** a captured :Avatar: and a `major` :Wish: flipping a city, **when** the
+target is a capital, **then** the wish SHALL be refused with a stated reason.
+
+**Given** a `major` :Wish: aimed at a tile with no mountain in range, **when** it
+is cast, **then** it SHALL be refused — the volcano has nowhere to come from.
+
+**Given** a tile converted to `TERRAIN_VOLCANIC`, **when** it is worked, **then**
+it SHALL yield MORE than the terrain it replaced, and **when** the eruption
+timer fires, **then** the adjacent city SHALL lose population and tile
+improvements.
+
+**Given** a volcanic tile and a built ward, **when** the eruption fires, **then**
+the loss SHALL be reduced rather than prevented — a hazard that can be fully
+neutralised stops being a hazard and becomes free fertility.
+
+**Given** a plague :Wish:, **when** it resolves, **then** it SHALL spread and
+decay on its own schedule rather than resolving in one turn.
+
+**Given** the map at game start, **when** :Site: :Precondition:s are evaluated,
+**then** the set of sites SHALL be fixed for the game and SHALL NOT be
+recomputed on any later turn.
+
+**Given** a tile in open grassland far from any ruin, **when** sites are chosen,
+**then** it SHALL NOT be one — a :Vessel: is earned by reaching somewhere hard.
+
+**Given** a lamp sitting in a city with no :Hero: present, **when** its Wishes
+arm is sought, **then** it SHALL be unavailable — an unborne :Vessel: is inert.
+
+**Given** a :Hero: bearing a lamp who dies in the field, **when** the loss
+resolves, **then** the lamp SHALL remain on the tile, undefended, and SHALL pass
+to whoever reaches it first.
+
+**Given** an artifact whose :Bane: has become intolerable, **when** its bearer
+looks for a way to be rid of it, **then** there SHALL be none short of losing it
+— no Drop arm, no disband, no gift.
+
+**Given** an artifact on offer, **when** the player decides whether to take it,
+**then** its :Bane: SHALL already be visible — the commitment is irreversible,
+so it must be informed.
+
+**Given** any artifact, **when** its :Boon: is taken, **then** its :Bane: SHALL
+apply for as long as it is borne, with no way to hold one without the other.
+
+**Given** any :Hero:'s death, **when** it resolves, **then** the tribe SHALL be
+told, because five of the nine are that tribe's leader.
+
+**Given** any two players at turn 1, **when** their pools are compared, **then**
+they SHALL be equal — every later difference :Attributable: to a named event.
+
+***policy***
+
+Per-mod, in `mod_policy.json` under `earned_powers`:
+
+| key | meaning |
+|---|---|
+| `capacity_grants` | possession -> fraction of :Anchor: it adds |
+| `conditional_unlocks` | visible condition -> what it opens |
+| `wishes` | tier -> the enumerated effect list |
+| `counters` | effect -> its :Counter: and the advance that reaches it |
+| `hazards` | terrain it creates, its recurrence odds, and its yield change |
+
+Feasibility is settled, not assumed. Corpus call sites: `Terraform` 6,
+`TerrainType` 472, `TerrainDB` 491, `Plague` 16, `PlagueDamage` 24,
+`GetCityByLocation` 195, `CutImprovements` 46, `HappinessHit` 156. MoM owns
+`terrain.txt` with 26 entries, so `TERRAIN_VOLCANIC` is an addition rather than
+an engine change.
+
+***acceptance***
+
+**Assertions** — these fail the build:
+
+1. Every player's STARTING pool equals the :Anchor: (extends
+   `gate_mana_upkeep.py` assertion 14, which must learn to read a declared
+   baseline rather than the live maximum).
+2. Every `capacity_grants` value is a fraction, not an absolute.
+3. Every :Wish: appears in the enumerated list; no effect reachable outside it.
+4. Every :TargetedEffect: has a `counters` entry.
+5. Every :Counter:'s advance is at or below the advance that opens its threat.
+6. No :TargetedEffect: names a capital as a legal target.
+
+**Diagnostics** — reported, fail nothing:
+
+7. Maximum total :EarnedCapacity: reachable by one player, as a multiple of the
+   :Anchor: — the honest measure of how far this spec bends its own constant.
+
+***rejected***
+
+- **Varying the starting pool per tribe.** The defect
+  [[fixed-anchor-scaling]] exists to prevent; unchanged by anything here.
+- **Open-ended wishes.** Unspecifiable, ungateable, and unbalanceable.
+- **Outright city destruction** — but for AGENCY, not magnitude. It ends the
+  conversation instead of starting one. The nuke also already occupies that slot
+  and is special-cased through the engine.
+- **A hazard that a defence fully neutralises.** Then the wish is a gift of
+  fertile land with a tax the victim pays once, and the threat evaporates.
+- **Benchmarking magic against modern weapons.** The reference frame is the
+  era's own imagination; a mountain opening is apocalyptic enough.
+- **A :Counter: gated behind a later advance than its threat.** That is a delay
+  dressed as counterplay.
+
+***open***
+
+- **Fortification is not readable.** `IsEntrenched` has zero corpus call sites.
+  Whether to latch it from the entrench events or drop it from the catapult rule
+  is undecided, and it is the only mechanic here whose state SLIC cannot
+  currently see.
+- **What a captured :Avatar: costs to hold.** Capture implies it can be lost
+  again; nothing yet says whether it is a unit, a flag, or a building.
+- **Whether :EarnedCapacity: should raise the pool at all**, versus raising
+  income or lowering price by the same fraction. All three are expressible
+  against the :Anchor:; only the first changes the constant the player has
+  learned to trust.
+- **Who owns the eruption timer.** A per-tile schedule needs state per volcanic
+  tile. SLIC arrays are flat and fixed-size, so either the count of volcanic
+  tiles is capped or the timer is derived from the turn number and tile
+  coordinates — deriving it costs nothing and cannot leak, and is probably
+  right, but it makes the hazard predictable to a player who works out the rule.
+- **Whether a :PoisonedGift: can be cast on oneself.** It is coherent Chaos
+  play and it is also an exploit surface if the yield outruns the risk.
+- ~~`UNIT_ZOMBIES` has `MaxMovePoints 0`~~ — **RETRACTED, this was never true.**
+  Zombies has `MaxMovePoints 100`, which on CTP2's x100 scale is one move point
+  and matches MOMJR's `1.` exactly. The port is correct. The claim came from a
+  regex whose non-greedy `.*?` under `re.S` ran past the end of the Zombies
+  block and matched `UNIT_CITY`'s legitimate zero far later in the file — the
+  only zero-move unit in the mod, and correctly so. Left here rather than
+  deleted because a spec that quietly drops a retracted "confirmed defect" is
+  how the same false finding gets rediscovered.
+- **RESOLVED — Which rung Dracolich replaces.** It replaces none. Undead Dragon
+  keeps rung 5 and Dracolich shipped at rung 4 as a distinct creature, not the
+  dragon renamed. Demon was reconsidered and STAYED at rung 3, shared between
+  Death and Chaos under the multi-sphere rule rather than moved out of Death.
+  Rungs 3 and 5 are no longer unassigned.
+- **Undead Dragon costs 3, the CHEAPEST unit Death owns, with its STRONGEST
+  statline (12a/6d).** A pricing inversion that predates all of this and that
+  any rung assignment will inherit.
+- **Death's roster is the thinnest in the game and a DEATH KNIGHT would fill
+  it.** Measured: Death's rung-5 creatures average 760 shields against
+  1412–1590 for every other sphere, and its whole line is Zombies / Wraith /
+  Undead Dragon. MOMJR has no lich, death knight, skeleton or vampire, so this
+  is an ADDITION rather than a port — justified by a measured gap rather than by
+  flavour, which is the bar an addition has to clear.
+- **Where the lost cities come from.** `TileHasDeadCity` (10 corpus sites) and
+  `StoreDeadCityLocation` (4) exist, but a dead city is normally the ruin of a
+  city destroyed IN PLAY, so at turn 1 there may be none. Two readings, and they
+  are different games: designate sites from terrain alone at game start (available
+  immediately, arbitrary), or let the ruins of cities that actually fell in THIS
+  game become the sites (emergent, narratively excellent, unavailable early).
+- **Sequencing.** Death does not summon and Chaos does not play. Both are open
+  defects, and every power in this spec lands on top of the summon system they
+  are failing to reach.

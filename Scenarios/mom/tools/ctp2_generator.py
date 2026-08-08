@@ -8,7 +8,12 @@ sys.path.insert(0, str(ROOT_DIR))
 sys.path.insert(0, str(TOOLS_DIR))
 import ctp2_parser as P
 import civ2_sprite_extractor as extractor
-from export_mod_workbook import DEFAULT_OUTPUT as MOD_WORKBOOK_PATH, export_workbook
+import gl_descriptions
+try:
+    from export_mod_workbook import DEFAULT_OUTPUT as MOD_WORKBOOK_PATH, export_workbook
+except ImportError:
+    MOD_WORKBOOK_PATH = None
+    export_workbook = None
 
 MOMJR = Path(
     os.environ.get(
@@ -45,7 +50,10 @@ def _policy_csv_rows(name: str) -> list[dict[str, str]]:
             f"ctp2_generator: missing control-plane policy file {path} "
             f"(bootstrap with dump_mod_policy.py or author one for this mod)")
     with path.open(newline="", encoding="utf-8-sig") as handle:
-        return list(csv.DictReader(handle))
+        # '#' lines are documentation, not data: these files are the mod's
+        # control plane and the rationale has to live next to the numbers.
+        lines = [ln for ln in handle if not ln.lstrip().startswith("#")]
+    return list(csv.DictReader(lines))
 
 
 def _load_mod_policy() -> dict:
@@ -179,6 +187,156 @@ MOM_PREREQ_ADVANCE_LANE = {
 # Codes that mean "no advance required" (heroes / starter units)
 _NO_ADVANCE = {'nil', 'no', ''}
 
+# `nil` and `no` are OPPOSITE sentinels in civ2 Rules.txt, and _NO_ADVANCE is the
+# UNION of them -- correct only for the question "is this slot a usable code?".
+#
+#   nil = no prerequisite   -> the advance IS researchable, from turn one
+#   no  = never available   -> the advance must NEVER be researchable
+#
+# Stock civ2 documents this at RULES.TXT ~line 419 ("If these units are given
+# prerequisites other than 'no' they will appear in the game..."); stock @CIVILIZE
+# never uses `no`, and MoM JR uses it only on disabled/placeholder slots.
+# Collapsing them shipped ADVANCE_GLYPHS as a free cost-455 AGE_ONE root.
+#
+# Disabled means ALL non-`nil` slots are `no`. Measured against advances.csv:
+# `no,no` -> {User Def Tech A, Extra Advance 4, Glyphs}; a lone `no` beside a real
+# code (`Animism` = `Uni,no`) is just an unused second slot, NOT a disable.
+_DISABLED_SLOT = 'no'
+_UNSPEC_SLOTS = {'nil', ''}
+
+
+def _advance_row_is_disabled(row) -> bool:
+    """True when a civ2 @CIVILIZE row marks the advance permanently unavailable.
+
+    Require: `row` is an advances.csv DictReader row with prereq1/prereq2.
+    Guarantee: True iff at least one slot is `no` and no slot carries a real code.
+    Maintain: `nil`/empty slots are ignored -- they mean "unspecified", not "none".
+
+    The CTP2 realisation of True is a self-prerequisite
+    (`ctp2_parser.ensure_self_prerequisite`), which makes canResearch FALSE while
+    the block stays in the DB so every reference to it still resolves.
+    """
+    slots = [(row.get(c) or '').strip() for c in ('prereq1', 'prereq2')]
+    real = [s for s in slots if s and s not in _UNSPEC_SLOTS and s != _DISABLED_SLOT]
+    return any(s == _DISABLED_SLOT for s in slots) and not real
+
+
+def self_prereq_advances(advance_text: str) -> set[str]:
+    """Advances closed by CTP2's self-prerequisite idiom (Advances.cpp:498).
+
+    Require: `advance_text` is the full text of the Advance.txt an entity will
+    ship against.
+    Guarantee: every ident that lists ITSELF as a prerequisite, i.e. every
+    advance `ResetCanResearch` forces to canResearch=FALSE.
+    """
+    return {
+        m.group(1)
+        for m in re.finditer(r'^(ADVANCE_\w+) \{(.*?)^\}', advance_text, re.S | re.M)
+        if re.search(r'Prerequisites\s+' + m.group(1) + r'\b', m.group(2))
+    }
+
+
+def never_buildable_gate(disabled: set[str], fallback: str) -> str:
+    """EnableAdvance for an entity civ2 marks `no` — never available.
+
+    Require: `disabled` is `self_prereq_advances` over the SAME Advance.txt.
+    Guarantee: a deterministic ident that exists in the DB and can never be
+    researched, so the block stays resolvable (no "not found in Advance
+    database" dialog) while being permanently unbuildable.
+
+    The unit and improvement lanes had the same `nil`/`no` union bug the advance
+    lane did: both collapsed into _NO_ADVANCE and gated on ADVANCE_WARRIOR_CODE,
+    which is buildable on turn one. `Coastal Fortress` shipped that way.
+
+    Falls back to `fallback` only when nothing is disabled — impossible in MoM
+    (169 base advances are closed) but must not crash a stock tree.
+    """
+    return sorted(disabled)[0] if disabled else fallback
+
+
+def gl_age_display(age_text: str) -> dict[str, str]:
+    """AGE_* -> the number the Great Library prints, derived from age.txt.
+
+    Require: `age_text` is the scenario's age.txt.
+    Guarantee: one entry per declared age, mapping the ident to its ordinal.
+
+    ctp2_parser hardcoded five era WORDS (Ancient/Medieval/Renaissance/
+    Industrial/Modern). Two problems, both measured: MoM ships SEVEN ages, so
+    AGE_SIX and AGE_SEVEN printed as raw idents; and `age.txt` carries no
+    display name at all -- the AGE_* record is purely ordinal (`Age N`), so
+    those words were invented, not derived. The engine's own AGE_NAME_* strings
+    in ldl_str.txt are a different, five-valued concept and do not line up.
+
+    The ordinal is the only claim the data actually supports, and it stays
+    correct when the ladder is re-laid out (AGE_FIVE becomes a magic tier, not
+    "Modern").
+    """
+    return {
+        m.group(1): m.group(2)
+        for m in re.finditer(r'^(AGE_\w+) \{(?:.*?)^\s*Age\s+(\d+)',
+                             age_text, re.S | re.M)
+    }
+
+
+def reconcile_advance_statistics(gl_library, advance_text: str,
+                                 age_text: str = "") -> int:
+    """Re-derive every ADVANCE_*_STATISTICS Cost/Age/Branch from the live DB.
+
+    Require: `advance_text` is the FINAL Advance.txt -- call after every cost
+    rescale and prereq pass, alongside the Great Library description pass.
+    Guarantee: no _STATISTICS line disagrees with the block it describes.
+    Returns the number of sections changed.
+
+    ctp2_parser.Advance.register stamps these three lines at REGISTRATION time,
+    but `_retune_mom_advance_costs` rewrites Cost ~1300 lines later, so the
+    Library shipped `Cost: 1000` for an advance the DB priced at 1025. Same
+    pass-ordering class as the improvement rescale; the fix is the same one --
+    derive from the artifact at the end, never carry a value forward.
+
+    Rewrites only the numeric tail of each line, so the `<c:...><h:...>` colour
+    tag gl_descriptions prefixes survives regardless of which pass runs first.
+    """
+    ages = gl_age_display(age_text)
+    live: dict[str, dict[str, str]] = {}
+    for m in re.finditer(r'^(ADVANCE_\w+) \{(.*?)^\}', advance_text, re.S | re.M):
+        body = m.group(2)
+        fields = {}
+        for key, pat in (("Cost", r'^\s*Cost\s+(\S+)'),
+                         ("Age", r'^\s*Age\s+(\S+)'),
+                         ("Branch", r'^\s*Branch\s+(\S+)')):
+            f = re.search(pat, body, re.M)
+            if f:
+                fields[key] = f.group(1)
+        live[m.group(1)] = fields
+
+    changed = 0
+    for section, text in list((getattr(gl_library, "sections", None) or {}).items()):
+        if not section.endswith("_STATISTICS"):
+            continue
+        fields = live.get(section[: -len("_STATISTICS")])
+        if not fields:
+            continue
+        out = []
+        for line in (text or "").splitlines():
+            for key in ("Cost", "Age", "Branch"):
+                if key not in fields:
+                    continue
+                m = re.match(rf'^(.*?){key}:\s*(.*)$', line)
+                if not m:
+                    continue
+                value = fields[key]
+                if key == "Age":
+                    value = ages.get(value, value)
+                line = f"{m.group(1)}{key}: {value}"
+                break
+            out.append(line)
+        new_text = "\n".join(out)
+        if new_text != text:
+            gl_library.sections[section] = new_text
+            changed += 1
+    return changed
+
+
 # Engine-required unit slots that must stay visible even in a MoM-only scenario.
 _ENGINE_REQUIRED_UNITS = {
     "UNIT_CITY",
@@ -202,6 +360,132 @@ def _parse_int_stat(s: str) -> int:
 def _parse_move(s: str) -> int:
     """Parse MoM move float string ('1.', '1.5', '2') → CTP2 MaxMovePoints."""
     return int(float(s.strip()) * 100)
+
+
+# --------------------------------------------------------------------------
+# STAT RANK-CAST
+#
+# The civ2 source and CTP2 use different magnitudes for the same concepts
+# (civ2 attack runs 1..15, CTP2's own units run 10..100), so the port has to
+# rescale. It used to do that with a flat multiplier -- `attack_raw * 5`,
+# `max(5, def_raw * 5)`, `hp = 10` -- and that is what produced the balance the
+# operator reported:
+#
+#   * LINEAR MULTIPLY LETS THE TOP RUN AWAY. civ2's attack median is 5.5, so
+#     x5 pins most of the roster at 5-30 while a 15a Great Wyrm reaches 75. The
+#     gap between a dragon and an army grows without bound instead of saturating.
+#   * A FLOOR CRUSHES THE BOTTOM. civ2's defense median is 2-3, so `max(5, d*5)`
+#     put nearly every buildable unit at 5-15 and threw away the real spread the
+#     source has (built units run 0d-8d: War Troll 5d, Iron Golem 5d, Ariel 8d).
+#   * hp_raw WAS PARSED AND DISCARDED. Every unit shipped MaxHP 10, so civ2's
+#     own durability axis -- 1h Spearmen through 6h Great Wyrm -- was lost. The
+#     engine does honour MaxHP (UnitData.cpp:6256), stock simply never varies it.
+#
+# The replacement places each unit by its RANK POSITION within the civ2
+# distribution and re-casts that onto the CTP2 target range, anchored so source
+# min/median/max land exactly on target min/median/max. Ordering is the
+# designer's; only the range and the curve are ours.
+#
+# The warp is smoothstep, w = p^2 * (3 - 2p). Its GRADIENT rises to a peak at the
+# midpoint and decays after -- power climbs steeply out of the trash tier and
+# then saturates, so massed cheap units stay relevant against a top-tier
+# creature. That is the shape asked for: S-curve up to a peak, decay past it.
+#
+# Require: MOD_POLICY["unit_stat_scaling"]["stat_curve"] carries a [min, median,
+#   max] target per axis and a source_outlier_cutoff.
+# Guarantee: returns an int within the axis target range; monotonic in `raw`, so
+#   a unit stronger in the source is never weaker in the output.
+# --------------------------------------------------------------------------
+_STAT_SOURCE_CACHE: dict[str, tuple[float, float, float]] = {}
+
+
+def _stat_source_dist(axis: str) -> tuple[float, float, float]:
+    """(min, median, max) of the civ2 values for `axis`, outliers excluded.
+
+    Measured from the control plane itself rather than hardcoded, so editing
+    units.csv reshapes the scale instead of silently disagreeing with it. The
+    cutoff keeps one broken row from stretching the range for all 63 units --
+    Infernal Device is 99a where the next attack is 15a.
+    """
+    if axis in _STAT_SOURCE_CACHE:
+        return _STAT_SOURCE_CACHE[axis]
+    import statistics as _st
+    cut = int(MOD_POLICY["unit_stat_scaling"]["stat_curve"]["source_outlier_cutoff"])
+    vals = []
+    for row in _policy_csv_rows("units.csv"):
+        name = (row.get("name") or "").strip()
+        if not name or name.lower() == "blah":
+            continue
+        if len(name) == 2 and name[0].upper() == "B" and name[1].isdigit():
+            continue
+        v = _parse_int_stat(row.get(axis, "") or "0")
+        if 0 < v < cut:
+            vals.append(v)
+    if not vals:                      # degenerate control plane; caller floors it
+        vals = [1]
+    dist = (float(min(vals)), float(_st.median(vals)), float(max(vals)))
+    _STAT_SOURCE_CACHE[axis] = dist
+    return dist
+
+
+_SUMMON_ROSTER_CACHE = None
+
+
+def _summon_roster() -> set:
+    """UNIT_* idents that mom_summon.slc can actually summon.
+
+    Read from the SLIC rather than restated in mod_policy.json: that file is the
+    engine-side gate on what a summon spell may produce, so a creature added or
+    removed there cannot silently disagree with the summon curve. Every
+    UnitDB(UNIT_X) reference in the file is a thing the summon path can create.
+    Empty set is a safe fallback -- every unit then keeps the general curve,
+    i.e. exactly today's behaviour.
+    """
+    global _SUMMON_ROSTER_CACHE
+    if _SUMMON_ROSTER_CACHE is None:
+        try:
+            txt = (SCENARIO / "default" / "gamedata" / "mom_summon.slc").read_text(
+                encoding="latin-1")
+            _SUMMON_ROSTER_CACHE = set(
+                re.findall(r"UnitDB\(\s*(UNIT_[A-Z0-9_]+)\s*\)", txt))
+        except OSError:
+            _SUMMON_ROSTER_CACHE = set()
+    return _SUMMON_ROSTER_CACHE
+
+
+def _stat_cast(raw: int, axis: str, ident: str = "") -> int:
+    """Cast one civ2 stat onto its CTP2 target range by rank position.
+
+    `ident` selects WHICH target range. Summonable creatures use
+    summon_stat_curve -- same source distribution and same smoothstep, only a
+    different destination box, so a summon stays ranked correctly against its
+    peers while being capped as a wall rather than a bomb. Callers that pass no
+    ident get the general curve unchanged.
+    """
+    curve = "stat_curve"
+    if ident and ident in _summon_roster():
+        summon_curve = MOD_POLICY["unit_stat_scaling"].get("summon_stat_curve")
+        if summon_curve and axis in summon_curve:
+            curve = "summon_stat_curve"
+    lo, mid, hi = _stat_source_dist(axis)
+    tlo, tmid, thi = (float(x) for x in
+                      MOD_POLICY["unit_stat_scaling"][curve][axis])
+    if raw <= lo or hi == lo:
+        p = 0.0
+    elif raw >= hi:
+        p = 1.0
+    elif raw <= mid:
+        # Two half-ranges so the SOURCE median lands exactly on the TARGET
+        # median. A single min->max interpolation would drift the middle
+        # wherever the distribution happens to be skewed, and civ2's stats are
+        # heavily bottom-skewed (attack median 5.5 against a max of 15).
+        p = 0.5 * (raw - lo) / (mid - lo) if mid > lo else 0.0
+    else:
+        p = 0.5 + 0.5 * (raw - mid) / (hi - mid) if hi > mid else 1.0
+    w = p * p * (3.0 - 2.0 * p)
+    out = (tlo + (tmid - tlo) * (w / 0.5) if w <= 0.5
+           else tmid + (thi - tmid) * ((w - 0.5) / 0.5))
+    return int(round(out))
 
 
 _AVAILABLE_SPRITES_CACHE = None
@@ -335,6 +619,156 @@ def _ensure_diffdb_start_government(rel: str = "default/gamedata/DiffDB.txt") ->
         _write_rel(rel, final_text)
         return True
     return False
+
+
+def _calendar_periods() -> dict[int, list[tuple[int, int]]]:
+    """Load calendar_periods.csv into {tier: [(start_turn, years_per_turn), ...]}.
+
+    Validates the surface the engine actually depends on: six tiers, each
+    starting at turn 0, start turns strictly ascending, positive years/turn.
+    """
+    tiers: dict[int, list[tuple[int, int]]] = {}
+    for row in _policy_csv_rows("calendar_periods.csv"):
+        if not (row.get("tier") or "").strip():
+            continue
+        tier = int(row["tier"])
+        start = int(row["start_turn"])
+        ypt = int(row["years_per_turn"])
+        if ypt < 1:
+            raise SystemExit(
+                f"calendar_periods.csv: tier {tier} start_turn {start} has "
+                f"years_per_turn {ypt}; must be >= 1 or the calendar stalls")
+        tiers.setdefault(tier, []).append((start, ypt))
+    if sorted(tiers) != list(range(6)):
+        raise SystemExit(
+            f"calendar_periods.csv: expected tiers 0-5 (one per DiffDB "
+            f"difficulty block), got {sorted(tiers)}")
+    for tier, periods in tiers.items():
+        periods.sort()
+        if periods[0][0] != 0:
+            raise SystemExit(
+                f"calendar_periods.csv: tier {tier} has no start_turn 0 row; "
+                f"the engine has no rule for turns before the first period")
+        starts = [p[0] for p in periods]
+        if len(set(starts)) != len(starts):
+            raise SystemExit(
+                f"calendar_periods.csv: tier {tier} has duplicate start_turn "
+                f"values {starts}")
+    return tiers
+
+
+def _calendar_end_turn(periods: list[tuple[int, int]], end_year: int,
+                       start_year: int, cap: int = 20000) -> int:
+    """First turn on which the calendar has reached end_year for these periods."""
+    year = start_year
+    ypt = periods[0][1]
+    for turn in range(cap):
+        for start, per_turn in periods:
+            if start <= turn:
+                ypt = per_turn
+        if year >= end_year:
+            return turn
+        year += ypt
+    return cap
+
+
+def _calendar_year_at(periods: list[tuple[int, int]], turns: int,
+                      start_year: int) -> int:
+    """Calendar year reached after advancing `turns` turns from start_year."""
+    year = start_year
+    ypt = periods[0][1]
+    for turn in range(turns):
+        for start, per_turn in periods:
+            if start <= turn:
+                ypt = per_turn
+        year += ypt
+    return year
+
+
+def _write_calendar() -> dict[str, int]:
+    """Own the game calendar: DiffDB TIME_SCALE blocks + Const END_OF_GAME_YEAR.
+
+    SHAPE (years per turn, per difficulty tier) comes from
+    calendar_periods.csv; PACE comes from mod_policy calendar.turns_target,
+    which says how many turns the reference tier's game should run. The end
+    year is derived by walking the reference tier's periods for that many
+    turns, so pace can be retuned without re-authoring the shape.
+
+    The engine ends the game on a YEAR, not a turn, so tiers whose calendar
+    runs faster get shorter games. That is intended, but silent, so the return
+    value carries each tier's resulting end turn for the caller to print.
+    """
+    policy = MOD_POLICY.get("calendar")
+    if not policy:
+        raise SystemExit("mod_policy.json: missing 'calendar' block")
+    start_year = int(policy["start_year"])
+    ref_tier = int(policy["reference_tier"])
+    turns_target = int(policy["turns_target"])
+    warn_gap = int(policy["early_warning_years_before_end"])
+    tiers = _calendar_periods()
+    if ref_tier not in tiers:
+        raise SystemExit(
+            f"mod_policy calendar.reference_tier {ref_tier} has no rows in "
+            f"calendar_periods.csv")
+
+    end_year = _calendar_year_at(tiers[ref_tier], turns_target, start_year)
+
+    # --- DiffDB TIME_SCALE blocks, in file order == difficulty tier order ---
+    rel = "default/gamedata/DiffDB.txt"
+    text = _read_rel(rel)
+    block_re = re.compile(r"(?ms)^TIME_SCALE\{\n.*?^\}")
+    seen = 0
+
+    def _replace(match: re.Match[str]) -> str:
+        nonlocal seen
+        tier = seen
+        seen += 1
+        periods = tiers[tier]
+        lines = [
+            "TIME_SCALE{",
+            f"\tSTART_YEAR\t{start_year}",
+            f"\tNUM_PERIODS\t{len(periods)}",
+        ]
+        for start, ypt in periods:
+            lines += ["\tPERIOD {",
+                      f"\t\tSTART_TURN\t{start}",
+                      f"\t\tYEARS_PER_TURN\t{ypt}",
+                      "\t}"]
+        lines += ["\tNEGATIVE_YEAR_FORMAT BC_YEAR_FORMAT",
+                  "\tPOSITIVE_YEAR_FORMAT AD_YEAR_FORMAT",
+                  "}"]
+        return "\n".join(lines)
+
+    new_text = block_re.sub(_replace, text)
+    if seen != 6:
+        raise SystemExit(
+            f"{rel}: expected 6 TIME_SCALE blocks (one per difficulty), "
+            f"found {seen}")
+    path = SCENARIO / rel
+    if not path.exists() or path.read_text(encoding="latin-1") != new_text:
+        _write_rel(rel, new_text)
+
+    # --- Const.txt end-of-game year, derived from the reference tier ---
+    const_rel = "default/gamedata/Const.txt"
+    const_text = _read_rel(const_rel)
+    for key, value in (("END_OF_GAME_YEAR", end_year),
+                       ("END_OF_GAME_YEAR_EARLY_WARNING", end_year - warn_gap)):
+        const_text, hits = re.subn(
+            rf"(?m)^({re.escape(key)}\s+)-?\d+$",
+            lambda m, v=value: f"{m.group(1)}{v}",
+            const_text)
+        if hits != 1:
+            raise SystemExit(
+                f"{const_rel}: expected exactly one {key} line, found {hits}")
+    const_path = SCENARIO / const_rel
+    if not const_path.exists() or const_path.read_text(encoding="latin-1") != const_text:
+        _write_rel(const_rel, const_text)
+
+    result = {"end_year": end_year, "reference_tier": ref_tier}
+    for tier in sorted(tiers):
+        result[f"end_turn_tier_{tier}"] = _calendar_end_turn(
+            tiers[tier], end_year, start_year)
+    return result
 
 
 def _retire_x_sentinels() -> int:
@@ -497,6 +931,107 @@ def _save_raw_block_file(rel: str, file_obj: P.RawBlockTextFile) -> None:
     _write_rel(rel, file_obj.render())
 
 
+# ---------------------------------------------------------------------------
+# Legal effect fields for a Building block.
+#
+# Transcribed from the engine record schema, H:/Games/civctp2/ctp2_code/gs/newdb/
+# building.cdb -- the same file dbgen compiles into BuildingRecord. A token that
+# is not here is a typo: CTP2's parser aborts scenario load on an unknown field,
+# so the generator refuses rather than emitting it.
+#
+# Value kinds mirror the .cdb declaration: 'flag' takes no argument, 'int' takes
+# a whole number, 'float' takes a fraction (percent effects are 0.15 == +15%).
+# ---------------------------------------------------------------------------
+BUILDING_EFFECT_FIELDS: dict[str, str] = {
+    # economy / growth
+    "FoodPercent": "float",
+    "ProductionPercent": "float",
+    "CommercePercent": "float",
+    "SciencePercent": "float",
+    "SciencePerPop": "float",
+    "GoldPerCitizen": "int",
+    "FoodVat": "float",
+    "StarvationProtection": "int",
+    "RaiseOvercrowdingLevel": "int",
+    "RaiseMaxPopulation": "int",
+    "IncreaseBaseOvercrowding": "int",
+    "IncreaseMaxPopulation": "int",
+    # happiness / order
+    "HappyInc": "int",
+    "NoUnhappyPeople": "flag",
+    "LowerCrime": "float",
+    "PreventConversion": "float",
+    "PreventSlavery": "float",
+    "LowerPeaceMovement": "float",
+    "IsReligious": "flag",
+    "Cathedral": "flag",
+    "Capitol": "flag",
+    "Brokerage": "flag",
+    # military
+    "DefendersPercent": "float",
+    "OffenseBonusLand": "float",
+    "OffenseBonusWater": "float",
+    "OffenseBonusAir": "float",
+    "IncreaseHP": "int",
+    "CityWalls": "flag",
+    "ForceField": "flag",
+    "AllowGrunts": "flag",
+    "EnablesAllVeterans": "flag",
+    "EnablesLandVeterans": "flag",
+    "EnablesSeaVeterans": "flag",
+    "EnablesAirVeterans": "flag",
+    # siting
+    "CoastalBuilding": "flag",
+    "CantBuildInSea": "flag",
+    "CantBuildOnLand": "flag",
+    "OnePerCiv": "flag",
+    "CantSell": "flag",
+    # pollution
+    "PopulationPollutionPercent": "float",
+    "ProductionPollutionPercent": "float",
+    "PollutionAmount": "float",
+}
+
+
+def parse_effects(spec: str, owner: str) -> list[str]:
+    """Turn one `effects` cell into validated `\\tField value` emitter lines.
+
+    Grammar: semicolon-separated tokens, each `Field` (flag) or `Field value`.
+    Require: every field is in BUILDING_EFFECT_FIELDS and carries the arity that
+    schema declares. Guarantee: the returned lines are parseable by the engine,
+    or SystemExit -- a bad field is a scenario-load abort, so failing the build
+    is strictly cheaper than shipping it.
+    """
+    lines: list[str] = []
+    for token in (spec or "").split(";"):
+        token = token.strip()
+        if not token:
+            continue
+        parts = token.split()
+        field, value = parts[0], (parts[1] if len(parts) > 1 else None)
+        kind = BUILDING_EFFECT_FIELDS.get(field)
+        if kind is None:
+            raise SystemExit(
+                f"improvements.csv: {owner!r} names unknown building field {field!r} "
+                f"(not in building.cdb)")
+        if len(parts) > 2:
+            raise SystemExit(f"improvements.csv: {owner!r} effect {token!r} has extra words")
+        if kind == "flag":
+            if value is not None:
+                raise SystemExit(f"improvements.csv: {owner!r} flag {field!r} takes no value")
+            lines.append(f"\t{field}")
+            continue
+        if value is None:
+            raise SystemExit(f"improvements.csv: {owner!r} field {field!r} needs a {kind} value")
+        try:
+            float(value) if kind == "float" else int(value)
+        except ValueError:
+            raise SystemExit(
+                f"improvements.csv: {owner!r} field {field!r} wants a {kind}, got {value!r}")
+        lines.append(f"\t{field} {value}")
+    return lines
+
+
 def _merge_mom_improvements_into_buildings() -> int:
     """Reconstruct buildings.txt STRICTLY from the control plane (improvements.csv).
 
@@ -518,11 +1053,7 @@ def _merge_mom_improvements_into_buildings() -> int:
     advances = set(_adv_file.blocks) or set(
         _re.findall(r'^(ADVANCE_[A-Z0-9_]+)', _advance_text, _re.M))
     # Advances disabled by self-prerequisite — see the prereq resolution below.
-    _disabled_advances = {
-        _m.group(1)
-        for _m in _re.finditer(r'^(ADVANCE_\w+) \{(.*?)^\}', _advance_text, _re.S | _re.M)
-        if _re.search(r'Prerequisites\s+' + _m.group(1) + r'\b', _m.group(2))
-    }
+    _disabled_advances = self_prereq_advances(_advance_text)
 
     # RECONSTRUCT FROM NOTHING: Start with a completely empty file.
     bld = P.RawBlockTextFile()
@@ -579,7 +1110,13 @@ def _merge_mom_improvements_into_buildings() -> int:
                 desc = f"DESCRIPTION_{ident}"
                 
                 prereq = row.get("prereq", "").strip()
-                if prereq in _NO_ADVANCE:
+                if prereq == _DISABLED_SLOT:
+                    # `no` = NEVER available, the OPPOSITE of `nil`. Gate on a
+                    # self-prerequisite advance so the block still resolves but
+                    # can never be built. Collapsing the two sentinels is what
+                    # shipped Coastal Fortress as a turn-one buildable.
+                    adv = never_buildable_gate(_disabled_advances, fallback_adv)
+                elif prereq in _NO_ADVANCE:
                     adv = "ADVANCE_WARRIOR_CODE"
                 else:
                     # Resolution CHAIN, most specific first. A flat override of
@@ -615,33 +1152,18 @@ def _merge_mom_improvements_into_buildings() -> int:
                 if adv:
                     lines.append(f"	EnableAdvance {adv}")
                 lines += [f"\tProductionCost {cost}", f"\tUpkeep {upkeep}"]
+                # Effects are what makes a building worth its cost. Without
+                # them every block was DefaultIcon/Description/EnableAdvance/
+                # ProductionCost/Upkeep and nothing else -- 21 buildings that
+                # charged upkeep and did literally nothing.
+                lines += parse_effects(row.get("effects", ""), name)
                 lines.append("}")
                 bld.add_block(ident, "\n".join(lines))
                 merged += 1
     
-    for ident, fields in {} .items():  # Dummy loop to keep rest of function intact
-        if ident in bld.blocks:
-            continue  # AE base building — keep verbatim
-        icon = fields.get("IMPROVE_DEFAULT_ICON") or fields.get("DefaultIcon") or f"ICON_{ident}"
-        desc = fields.get("IMPROVE_DESCRIPTION") or fields.get("Description") or f"DESCRIPTION_{ident}"
-        adv = fields.get("ENABLING_ADVANCE") or fields.get("EnableAdvance") or ""
-        adv = remap.get(adv, adv)
-        if adv and adv not in advances:
-            adv = fallback_adv
-        cost = fields.get("IMPROVEMENT_PRODUCTION_COST") or fields.get("ProductionCost") or "100"
-        upkeep = fields.get("IMPROVEMENT_UPKEEP") or fields.get("Upkeep") or "1"
-        lines = [f"{ident} {{", f"\tDefaultIcon {icon}", f"\tDescription {desc}"]
-        if adv:
-            lines.append(f"\tEnableAdvance {adv}")
-        lines += [f"\tProductionCost {cost}", f"\tUpkeep {upkeep}"]
-        
-        # NOTE: buildings.txt does NOT support NoIndex or GLHidden flags.
-        # Injecting them here causes CTP2 parser corruption and Icon database errors.
-        # Hidden base improvements are handled by omitting them from build lists instead.
-            
-        lines.append("}")
-        bld.add_block(ident, "\n".join(lines))
-        merged += 1
+    # NOTE: buildings.txt does NOT support NoIndex or GLHidden flags. Injecting
+    # them causes CTP2 parser corruption and Icon database errors. Hidden base
+    # improvements are handled by omitting them from build lists instead.
     _save_raw_block_file("default/gamedata/buildings.txt", bld)
     # Improve.txt is never loaded by the engine (not in gamefile.txt) — remove it so it
     # can't be mistaken for the live improvement DB.
@@ -923,6 +1445,19 @@ def _ensure_runtime_unit_gl_surfaces(
     return added_strings, added_sections
 
 
+def _gl_desc_text(rel: str) -> str:
+    """Current text of a scenario DB file, preferring unsaved in-memory content.
+
+    reg.text() reads disk, which during a run still holds the PREVIOUS run's
+    output -- deriving descriptions from that would quote last run's costs. Use
+    the parsed object's render() whenever the file has been loaded this run.
+    """
+    obj = reg._parsed.get(rel)
+    if obj is not None and hasattr(obj, "render"):
+        return obj.render()
+    return reg.text(rel)
+
+
 def _section_base_id(section_id: str):
     for suffix in ("_GAMEPLAY", "_HISTORICAL", "_PREREQ", "_STATISTICS"):
         if section_id.endswith(suffix):
@@ -940,6 +1475,26 @@ def _prune_gl_sections(library: P.LibraryFile, keep_ids: set[str], prefixes: tup
     return removed
 
 
+def _wonder_article(display_name: str) -> str:
+    """The `#ARTICLE` string for a wonder, derived from its display name.
+
+    Require: the wonder's gl_str display name.
+    Guarantee: `""` for a name that already reads definite, `"the "` otherwise.
+
+    `#ARTICLE` is an ident-suffix lookup -- the engine reads `<IDENT>_ARTICLE`
+    out of gl_str.txt -- so this value IS the article, not a hint. Derived
+    rather than authored in a csv column so a rename can never desync the two.
+
+    Matches the base game's own convention exactly: WONDER_PYRAMIDS_ARTICLE
+    "the ", WONDER_THE_APPIAN_WAY_ARTICLE "" (already definite),
+    WONDER_ARISTOTLES_LYCEUM_ARTICLE "" (possessive).
+    """
+    name = display_name.strip()
+    if name.lower().startswith("the ") or "'s" in name.lower():
+        return ""
+    return "the "
+
+
 def _prune_gl_strings(strings: P.StringDBFile, keep_ids: set[str], prefixes: tuple[str, ...]) -> int:
     removed = 0
     for key in list(strings.entries):
@@ -950,6 +1505,14 @@ def _prune_gl_strings(strings: P.StringDBFile, keep_ids: set[str], prefixes: tup
                 matched_id = candidate
         elif key.startswith(prefixes):
             matched_id = key
+        # `<IDENT>_ARTICLE` belongs to <IDENT>, the same way `DESCRIPTION_<IDENT>`
+        # does. Without this the suffixed key never matches a keep_id, so every
+        # inherited article string was deleted on every run -- and any we write
+        # later would be pruned straight back out. gl_str shipped ZERO articles,
+        # which made `{name#ARTICLE}{name}` fall back to the name and render it
+        # twice: `Bardic CollegeBardic College` (2026-07-28).
+        if matched_id and matched_id.endswith("_ARTICLE"):
+            matched_id = matched_id[:-len("_ARTICLE")]
         if matched_id and matched_id not in keep_ids:
             del strings.entries[key]
             removed += 1
@@ -993,6 +1556,134 @@ def _scrub_hidden_tileimp_gl_file(rel_path: str, hidden_tileimp_ids: set[str]) -
         removed += count
     if removed:
         _write_rel(rel_path, text)
+    return removed
+
+
+def _scrub_dead_tileimp_surfaces() -> int:
+    """Re-anchor every AI improvement list off a tile improvement the cap deleted.
+
+    Require: scen tileimp.txt is the live terrain-improvement DB.
+    Guarantee: no file the engine parses cites a TILEIMP_* absent from it.
+    Why: the scenario ships an aidata/ directory but no ImprovementLists.txt, so
+    the engine loaded the BASE copy -- whose IMPROVEMENT_LIST_MISC still pointed
+    at TILEIMP_LISTENING_POSTS, one of the 17 industrial tileimps item 3 deleted.
+    That surfaced in-game as "Listening Post not found in terrainimprovement
+    database". Identical shape to the Pop.txt defect: the blind spot is base-tree
+    fallback, not the file. Re-anchor rather than drop the list -- an empty AI
+    list is an untested engine path, and TRADING_POST is the live misc-utility
+    improvement the MISC list is for.
+    """
+    rel = "default/gamedata/tileimp.txt"
+    live = set(re.findall(r"^(TILEIMP_[A-Z0-9_]+)\s*\{", _read_rel(rel), re.M))
+    if not live:
+        return 0
+    changed = 0
+    for rel, repl in (("default/aidata/ImprovementLists.txt",
+                       "TILEIMP_TRADING_POST"),):
+        text = _read_rel(rel)
+        if not text:
+            continue
+        before = text
+        text = re.sub(r"\bTILEIMP_[A-Z0-9_]+\b",
+                      lambda m: m.group(0) if m.group(0) in live else repl, text)
+        if text != before:
+            changed += 1
+            _write_rel(rel, text)
+    return changed
+
+
+def _scrub_dead_advance_surfaces() -> int:
+    """Remove every Great Library surface naming an advance the tech cap cut.
+
+    Require: Advance.txt is final (mask + re-layout have run).
+    Guarantee: no GL section, GL index link, uniticon block or gl_str key names
+    an ADVANCE_* absent from the live Advance.txt. Idempotent.
+    Why: mom-db-error-class -- an orphan Great Library section referencing a
+    missing advance surfaces as 'not found in Advance database' at load. The
+    tech cap CREATES this surface, so the scrub ships with it, not after it.
+    """
+    live = set(re.findall(r"^(ADVANCE_[A-Z0-9_]+)\s*\{",
+                          _read_rel("default/gamedata/Advance.txt"), re.M))
+    removed = 0
+
+    def _dead(text: str) -> set[str]:
+        return {m for m in set(re.findall(r"\bADVANCE_[A-Z0-9_]+\b", text))
+                if re.sub(r"_(GAMEPLAY|HISTORICAL|PREREQ|STATISTICS)$", "", m)
+                not in live}
+
+    for rel in ("english/gamedata/Great_Library.txt",
+                "english/gamedata/WAW_Great_Library.txt"):
+        text = _read_rel(rel)
+        if not text:
+            continue
+        before = text
+        for ident in sorted({re.sub(r"_(GAMEPLAY|HISTORICAL|PREREQ|STATISTICS)$", "", m)
+                             for m in _dead(text)}):
+            for suffix in ("PREREQ", "STATISTICS", "GAMEPLAY", "HISTORICAL"):
+                text, n = re.subn(rf"\[{re.escape(ident)}_{suffix}\].*?\[END\](?:\r?\n)?",
+                                  "", text, flags=re.DOTALL)
+                removed += n
+            text, n = re.subn(rf"<L:DATABASE_ADVANCES,{re.escape(ident)}>(.*?)<e>",
+                              r"\1", text)
+            removed += n
+        if text != before:
+            _write_rel(rel, text)
+
+    # uniticon.txt: one ICON_ADVANCE_* block per line.
+    #
+    # ICON_ADVANCE_DEFAULT is NOT an advance icon -- it is the engine's fallback,
+    # and ADVANCE_NA (the null sentinel the engine always keeps) points at it. Its
+    # ident ADVANCE_DEFAULT is never a live advance, so the _dead() sweep pruned
+    # it and the scenario died at load with a native "DB Error:
+    # ICON_ADVANCE_DEFAULT not found in Icon database" modal -- invisible to every
+    # static gate, because no *advance* record referenced it.
+    rel = "default/gamedata/uniticon.txt"
+    text = _read_rel(rel)
+    if text:
+        kept_lines = [l for l in text.splitlines(keepends=True)
+                      if not (l.lstrip().startswith("ICON_ADVANCE_")
+                              and not l.lstrip().startswith("ICON_ADVANCE_DEFAULT")
+                              and _dead(l))]
+        if len(kept_lines) != len(text.splitlines()):
+            removed += len(text.splitlines()) - len(kept_lines)
+            _write_rel(rel, "".join(kept_lines))
+
+    # gl_str.txt: one "ADVANCE_X <tab> "Name"" key per line.
+    rel = "english/gamedata/gl_str.txt"
+    text = _read_rel(rel)
+    if text:
+        kept_lines = [l for l in text.splitlines(keepends=True)
+                      if not (l.lstrip().startswith("ADVANCE_") and _dead(l))]
+        if len(kept_lines) != len(text.splitlines()):
+            removed += len(text.splitlines()) - len(kept_lines)
+            _write_rel(rel, "".join(kept_lines))
+
+    # Pop.txt: the specialist DB, parsed at civapp.cpp:1104 from g_pop_filename.
+    #
+    # The scenario did not ship this file, so the engine loaded the BASE copy --
+    # whose POP_LABORER points at ADVANCE_INDUSTRIAL_REVOLUTION and POP_MERCHANT
+    # at ADVANCE_ECONOMICS, both cut by the tech cap. AdvanceRecord's resolver
+    # then killed the load with "Industrial Revolution not found in Advance
+    # database" (it prints the DISPLAY NAME, not the ident, which is why the
+    # ident greps came up empty). Every static gate was blind to it because they
+    # only ever looked at files the scenario overrides.
+    #
+    # Re-anchor rather than delete: all five specialists stay playable, and both
+    # replacements are mundane and pre-Renaissance, so the age cap holds.
+    rel = "default/gamedata/Pop.txt"
+    text = _read_rel(rel)
+    if text:
+        before = text
+        for pop, advance in (("POP_LABORER", "ADVANCE_CONSTRUCTION"),
+                             ("POP_MERCHANT", "ADVANCE_TRADE")):
+            text = re.sub(
+                rf"({re.escape(pop)}\s*\{{[^}}]*?EnableAdvance\s+)(ADVANCE_[A-Z0-9_]+)",
+                lambda m, a=advance: m.group(1) + (a if m.group(2) not in live
+                                                   else m.group(2)),
+                text, flags=re.DOTALL)
+        if text != before:
+            removed += 1
+            _write_rel(rel, text)
     return removed
 
 
@@ -1163,48 +1854,111 @@ def _prune_strategy_government_lines(rel: str, keep_ids: set[str]) -> int:
     return removed
 
 
-def _write_empty_wonder_build_lists() -> None:
-    """Write a scenario aidata override so stock wonder AI lists cannot leak in."""
+# Effect keyword -> AI wonder-list category. The engine picks wonders for a goal
+# out of these seven lists, so a wonder in NO list is a wonder the AI can never
+# choose. Categories are matched against the wonder's own effect lines, so a
+# wonder that gains or loses an effect re-files itself on the next generate --
+# a hand-typed roster would silently desync the moment Wonder.txt changed.
+WONDER_LIST_EFFECTS: dict[str, tuple[str, ...]] = {
+    "HAPPINESS": ("IncHappinessEmpire", "AllCitizensContent",
+                  "TemporaryFullHappiness", "IncreaseCathedrals",
+                  "IncreaseRegard", "NoPollutionUnhappiness"),
+    "GROWTH": ("IncreaseFoodAllCities",),
+    "PRODUCTION": ("IncreaseProduction", "DecreaseMaintenance"),
+    "GOLD": ("BonusGold", "GoldPerWaterTradeRoute", "IncreaseBrokerages",
+             "GoldPerInternationalTrade"),
+    "SCIENCE": ("IncKnowledgePercent", "RandomAdvanceChance",
+                "IncreaseScientists", "IncreaseSpecialists"),
+    "OFFENSE": ("IncreaseHp", "ReduceReadinessCost", "IncreaseBoatMovement",
+                "AllBoatsD"),
+    "DEFENSE": ("ProtectFromBarbarians", "PreventConversion",
+                "DecCrimePercent", "SpiesEverywhere", "EmbassiesEverywhere",
+                "FreeSlaves", "ProhibitSlavers", "GlobalRadar"),
+}
+
+WONDER_LIST_ORDER = ("HAPPINESS", "GROWTH", "PRODUCTION", "GOLD",
+                     "OFFENSE", "DEFENSE", "SCIENCE")
+
+
+def _write_wonder_build_lists() -> int:
+    """Populate the scenario's AI wonder lists FROM the generated Wonder.txt.
+
+    Require: default/gamedata/Wonder.txt has been written.
+    Guarantee: every emitted `Wonder WONDER_*` ident is a block that exists in
+      that file, and every live non-disabled wonder appears in at least one list.
+
+    WHY THIS IS NOT EMPTY ANY MORE. The override used to write seven empty
+    lists. The stated reason was sound -- an empty scenario file stops the
+    engine falling back to stock aidata, whose wonder idents do not exist in the
+    MoM WonderDB and would dangle. But empty lists do not merely avoid stock
+    wonders; they leave the AI with no candidates at all, so the AI never builds
+    ANY of the 23 live MoM wonders.
+
+    That has one consequence past cosmetics: EndGameObjects.txt defines the
+    scenario's victory as holding WONDER_RUNE_OF_RULERSHIP for 10 turns. With
+    every list empty, no AI can ever build it, so in an AI-only game the wonder
+    victory is unreachable BY CONSTRUCTION and the only terminal state left is
+    END_OF_GAME_YEAR (turn 1000 under this scenario's TIME_SCALE). Two headless
+    playthroughs ran to turn 200 and 600 without an ending, which is exactly
+    what this predicts.
+
+    Deriving the lists from the live DB keeps the original guarantee -- no stock
+    ident can appear, because every ident is read out of Wonder.txt itself.
+    """
+    text = _read_rel("default/gamedata/Wonder.txt")
+    blocks = re.findall(r'^(WONDER_[A-Z0-9_]+)\s*\{(.*?)^\}', text,
+                        re.S | re.M)
+
+    lists: dict[str, list[str]] = {k: [] for k in WONDER_LIST_ORDER}
+    skipped: list[str] = []
+    for ident, body in blocks:
+        enable = re.search(r'\bEnableAdvance\s+(\S+)', body)
+        obsolete = re.search(r'\bObsoleteAdvance\s+(\S+)', body)
+        # A wonder whose ObsoleteAdvance IS its EnableAdvance is obsolete the
+        # instant it becomes available -- the disabled-stub idiom the X* wonders
+        # use. Offering those to the AI would burn its production on a dead end.
+        if enable and obsolete and enable.group(1) == obsolete.group(1):
+            skipped.append(ident)
+            continue
+        hit = False
+        for cat in WONDER_LIST_ORDER:
+            if any(re.search(r'\b' + kw, body) for kw in WONDER_LIST_EFFECTS[cat]):
+                lists[cat].append(ident)
+                hit = True
+        if not hit:
+            # Never orphan a live wonder: an uncategorised one is still worth
+            # building, and PRODUCTION is the least opinionated bucket.
+            lists["PRODUCTION"].append(ident)
+
+    out = [
+        "#" + "-" * 76,
+        "#",
+        "# MoM scenario override -- GENERATED by ctp2_generator.py.",
+        "# Do not hand-edit, and do not edit the ctp2_data version for scenario",
+        "# changes; regenerate instead.",
+        "#",
+        "# Every ident below is read out of this scenario's own Wonder.txt, so no",
+        "# stock aidata wonder reference can leak in. Wonders disabled by the",
+        f"# self-obsoleting idiom are excluded ({len(skipped)}).",
+        "#",
+        "#" + "-" * 76,
+        "",
+        "# 7",
+        "",
+    ]
+    for cat in WONDER_LIST_ORDER:
+        out.append(f"WONDER_BUILD_LIST_{cat} {{")
+        for ident in lists[cat]:
+            out.append(f"  Wonder {ident}")
+        out.append("}")
+        out.append("")
+    out.append("### ALL WONDERS DONE ###")
+
     rel = Path("default/aidata/WonderBuildLists.txt")
     path = SCENARIO / rel
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        "#----------------------------------------------------------------------------\n"
-        "#\n"
-        "# MoM scenario override -- do not edit ctp2_data version for scenario changes.\n"
-        "# Sync this file whenever the scenario wonder lane changes.\n"
-        "#\n"
-        "# The current MOMJR translation owns a 28-entry WonderDB lane. Keep these lists\n"
-        "# empty so the engine does not fall back to stock aidata wonder references.\n"
-        "#\n"
-        "#----------------------------------------------------------------------------\n"
-        "\n"
-        "# 7\n"
-        "\n"
-        "WONDER_BUILD_LIST_HAPPINESS {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_GROWTH {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_PRODUCTION {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_GOLD {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_OFFENSE {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_DEFENSE {\n"
-        "}\n"
-        "\n"
-        "WONDER_BUILD_LIST_SCIENCE {\n"
-        "}\n"
-        "\n"
-        "### ALL WONDERS DONE ###\n",
-        encoding='latin-1',
-    )
+    path.write_text("\n".join(out) + "\n", encoding='latin-1')
+    return sum(len(v) for v in lists.values())
 
 
 def _scan_unit_blocks(text: str) -> dict[str, str]:
@@ -1263,6 +2017,63 @@ def _scan_wonder_blocks(text: str) -> dict[str, str]:
     return blocks
 
 
+def _write_advance_icon_file() -> int:
+    """Emit scen0000 advanceicon.txt keyed to our own Great Library sections.
+
+    Require: Advance.txt and english/gamedata/Great_Library.txt are final on disk.
+    Guarantee: every live ADVANCE_* has an icon record whose Gameplay/Historical/
+    Prerequisites/Statistics fields name sections that exist in OUR Great Library.
+    Maintain: the icon/movie art fields are carried over from the base record when
+    one exists, so nothing regresses visually.
+
+    Why it exists: the Great Library panel key is the icon record's field VERBATIM
+    (greatlibrarywindow.cpp:343 -> Look_Up_Data). Nothing derives `IDENT_GAMEPLAY`.
+    Stock advanceicon.txt names `GAMEA011.txt`-style keys, which no Great Library
+    file in this install defines -- so every stock-ident advance rendered base
+    prose or nothing at all, no matter what we wrote into our own GL file.
+    """
+    adv_path = SCENARIO / "default/gamedata/Advance.txt"
+    gl_path = SCENARIO / "english/gamedata/Great_Library.txt"
+    if not adv_path.exists() or not gl_path.exists():
+        return 0
+    sections = set(re.findall(
+        r'^\[([A-Z0-9_]+)\]', gl_path.read_text(encoding="latin-1"), re.M))
+    blocks = _scan_advance_blocks(
+        re.sub(r"//.*", "", adv_path.read_text(encoding="latin-1")))
+
+    base_art: dict[str, tuple[str, str]] = {}
+    base_icon = CTP2_DATA / "default/gamedata/advanceicon.txt"
+    if base_icon.exists():
+        for ident, body in re.findall(
+                r'^(ICON_[A-Z0-9_]+)\s*\{(.*?)\}', base_icon.read_text(encoding="latin-1"),
+                re.M | re.S):
+            art = re.search(r'Icon\s+"([^"]*)"', body)
+            movie = re.search(r'Movie\s+"([^"]*)"', body)
+            base_art[ident] = (art.group(1) if art else "NULL",
+                               movie.group(1) if movie else "NULL")
+
+    lines = []
+    for ident, block_text in sorted(blocks.items()):
+        icon_id = _raw_block_value(block_text, "Icon") or f"ICON_{ident}"
+        keys = [f"{ident}_GAMEPLAY", f"{ident}_HISTORICAL",
+                f"{ident}_PREREQ", f"{ident}_STATISTICS"]
+        if not all(k in sections for k in keys):
+            continue
+        art, movie = base_art.get(icon_id, (f"{icon_id}.tga", "NULL"))
+        lines.append(
+            f'{icon_id} {{ Icon "{art}" Movie "{movie}" '
+            f'Gameplay "{keys[0]}" Historical "{keys[1]}" '
+            f'Prerequisites "{keys[2]}" Vari "{keys[3]}" '
+            f'Frame "Null" Statistics "{keys[3]}" }}'
+        )
+    if not lines:
+        return 0
+    out = SCENARIO / "default/gamedata/advanceicon.txt"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(lines) + "\n", encoding="latin-1")
+    return len(lines)
+
+
 def _scan_advance_blocks(text: str) -> dict[str, str]:
     """Return nested-brace-safe ADVANCE_* blocks keyed by advance ID."""
     blocks: dict[str, str] = {}
@@ -1312,12 +2123,26 @@ def _load_ae_advance_cost_bands() -> dict[str, tuple[int, int]]:
     fixed, monotonic, absolute curve anchored so AGE_ONE first techs cost <640 (<40 turns at
     ~16 science/turn) and AGE_TEN caps in the low tens of thousands (~50-140 turns at
     late-game science). Every advance is now retuned into this curve (the coverage gate in
-    _retune_mom_advance_costs is removed), so no raw base/WAW tail survives. Tune here.
+    _retune_mom_advance_costs is removed), so no raw base/WAW tail survives.
+
+    The curve's SHAPE lives in advance_cost_bands.csv; the overall research PACE
+    lives in mod_policy advance_cost_scaling. Two scaling modes:
+
+      1. cost_mult_by_age: dict mapping AGE_X -> percentage multiplier (preferred).
+         Allows per-era pacing from the calendar_mapping design doc.
+      2. cost_mult: single percentage applied uniformly (fallback if per-age absent).
+
+    100 is neutral. 500 = 5× cost. Per-age takes precedence.
     """
-    return {
-        r["age"]: (int(r["low"]), int(r["high"]))
-        for r in _policy_csv_rows("advance_cost_bands.csv")
-    }
+    scaling = MOD_POLICY.get("advance_cost_scaling", {})
+    per_age = scaling.get("cost_mult_by_age", {})
+    flat_mult = int(scaling.get("cost_mult", 100))
+    result = {}
+    for r in _policy_csv_rows("advance_cost_bands.csv"):
+        age = r["age"]
+        mult = int(per_age.get(age, flat_mult))
+        result[age] = (int(r["low"]) * mult // 100, int(r["high"]) * mult // 100)
+    return result
 
 
 def _load_ae_unit_cost_bands() -> dict[str, tuple[int, int]]:
@@ -1488,6 +2313,146 @@ def _load_mom_wonder_source_specs(
     }
 
 
+# ---------------------------------------------------------------------------
+# Legal effect fields for a Wonder block.
+#
+# From gs/newdb/wonder.cdb, then INTERSECTED with the fields stock CTP2's own
+# Wonder.txt actually uses. wonder.cdb declares a dozen more that no shipped
+# wonder touches and several the comments mark "FU" (future use); a field the
+# retail data never exercises is one whose engine support is unproven, and an
+# unproven effect on a 3240-production wonder is worse than none.
+#
+# Wonder effects are EMPIRE-wide, not city-wide. Percent-valued ones here are
+# whole-number Ints (DecCrimePercent 30 == -30% crime), unlike the Building
+# lane's floats -- that asymmetry is the engine's, not ours.
+# ---------------------------------------------------------------------------
+WONDER_EFFECT_FIELDS: dict[str, str] = {
+    "IncKnowledgePercent": "int",
+    "DecCrimePercent": "int",
+    "IncHappinessEmpire": "int",
+    "IncreaseRegard": "int",
+    "IncreaseProduction": "int",
+    "IncreaseFoodAllCities": "int",
+    "IncreaseScientists": "int",
+    "IncreaseSpecialists": "int",
+    "IncreaseHp": "int",
+    "IncreaseBoatMovement": "int",
+    "IncreaseCathedrals": "int",
+    "IncreaseBrokerages": "int",
+    "BonusGold": "int",
+    "GoldPerWaterTradeRoute": "int",
+    "GoldPerInternationalTradeRoute": "int",
+    "DecEmpireSize": "int",
+    "ReduceReadinessCost": "int",
+    "TemporaryFullHappiness": "int",
+    "RandomAdvanceChance": "int",
+    "DecreaseMaintenance": "int",
+    "MultiplyTradeRoutes": "int",
+    "ProtectFromBarbarians": "flag",
+    "PreventConversion": "flag",
+    "RevoltingCitiesJoinPlayer": "flag",
+    "FreeSlaves": "flag",
+    "ProhibitSlavers": "flag",
+    "ReformCities": "flag",
+    "FreeTradeRoutes": "flag",
+    "GlobalRadar": "flag",
+    "SpiesEverywhere": "flag",
+    "EmbassiesEverywhere": "flag",
+    "EmbassiesEverywhereEvenAtWar": "flag",
+    "AllCitizensContent": "flag",
+    "AllBoatsDeepWater": "flag",
+    "ForcefieldEverywhere": "flag",
+    "NoPollutionUnhappiness": "flag",
+    "CantBuildInSea": "flag",
+    "CantBuildOnLand": "flag",
+    "CoastalBuilding": "flag",
+    "OnePerCiv": "flag",
+}
+
+# Fields a wonder block carries for reasons other than effect.
+WONDER_STRUCTURAL_FIELDS = frozenset({
+    "DefaultIcon", "Description", "Movie", "EnableAdvance", "ObsoleteAdvance",
+    "ProductionCost", "PrerequisiteBuilding",
+})
+
+
+def parse_wonder_effects(spec: str, owner: str) -> list[str]:
+    """Same grammar as parse_effects, against the Wonder schema."""
+    lines: list[str] = []
+    for token in (spec or "").split(";"):
+        token = token.strip()
+        if not token:
+            continue
+        parts = token.split()
+        field, value = parts[0], (parts[1] if len(parts) > 1 else None)
+        kind = WONDER_EFFECT_FIELDS.get(field)
+        if kind is None:
+            raise SystemExit(
+                f"wonders.csv: {owner!r} names unknown wonder field {field!r} "
+                f"(not in wonder.cdb, or unused by stock CTP2)")
+        if len(parts) > 2:
+            raise SystemExit(f"wonders.csv: {owner!r} effect {token!r} has extra words")
+        if kind == "flag":
+            if value is not None:
+                raise SystemExit(f"wonders.csv: {owner!r} flag {field!r} takes no value")
+            lines.append(f"   {field}")
+            continue
+        if value is None:
+            raise SystemExit(f"wonders.csv: {owner!r} field {field!r} needs an int value")
+        try:
+            int(value)
+        except ValueError:
+            raise SystemExit(f"wonders.csv: {owner!r} field {field!r} wants an int, got {value!r}")
+        lines.append(f"   {field} {value}")
+    return lines
+
+
+def _apply_wonder_effects() -> int:
+    """Rewrite every wonder block's effect tail from wonders.csv `effects`.
+
+    Require: Wonder.txt blocks exist (this runs after the wonder passes).
+    Guarantee: each block's non-structural lines are EXACTLY the CSV's, so the
+    pass is idempotent -- it strips whatever effect tail is there before
+    appending, and a second run therefore produces identical bytes.
+
+    Why it exists: all 24 MoM wonders shipped as DefaultIcon/Description/
+    EnableAdvance/ProductionCost and nothing else -- 3240 production for no
+    mechanical effect whatsoever, the same inert-block defect as the buildings.
+    """
+    if not _csv_exists("wonders.csv"):
+        return 0
+    effects_by_id = {
+        (row.get("id") or "").strip(): (row.get("effects") or "").strip()
+        for row in _csv_rows("wonders.csv")
+    }
+    rel = "default/gamedata/Wonder.txt"
+    wonder_file = _load_raw_block_file(rel)
+    changed = 0
+    for ident, block_text in list(wonder_file.blocks.items()):
+        spec = effects_by_id.get(ident)
+        if spec is None:
+            continue
+        head, body = [], block_text.splitlines()
+        for line in body:
+            stripped = line.strip()
+            if (stripped and not stripped.startswith("//") and stripped != "}"
+                    and "{" not in stripped
+                    and stripped.split()[0] not in WONDER_STRUCTURAL_FIELDS):
+                continue  # an old effect line: drop it, the CSV is the truth
+            head.append(line)
+        closer = head.pop() if head and head[-1].strip() == "}" else "}"
+        rebuilt = "\n".join(head + parse_wonder_effects(spec, ident) + [closer])
+        if rebuilt != block_text:
+            wonder_file.add_block(ident, rebuilt)
+            changed += 1
+    if changed:
+        _save_raw_block_file(rel, wonder_file)
+        refreshed = P.WonderFile()
+        refreshed.parse(_read_rel(rel))
+        reg._parsed[rel] = refreshed
+    return changed
+
+
 def _retune_mom_wonder_costs(advance_ages: dict[str, str]) -> int:
     """Rewrite MoM wonder costs into base CTP2 age bands from raw MOMJR costs."""
     ae_bands = _load_ae_wonder_cost_bands()
@@ -1599,6 +2564,2396 @@ def _load_mom_improvement_source_specs(
     }
 
 
+# --- Sphere gating: move sphere'd content onto its own ladder rung -----------
+#
+# The five tribes are only distinct if their content is. Faction identity lives
+# in the `sphere` column of units.csv / improvements.csv; this pass is what
+# turns that column into an enforced tech gate by rewriting EnableAdvance.
+#
+# The advance ident is DERIVED from (sphere, tier) rather than looked up in
+# advance_code_map.csv, deliberately: the map's `prereq` lane is incomplete for
+# the ladders and actively wrong for three codes ('Inv' means INVENTION there,
+# not LIFE_LORE), so routing improvements through it would mis-gate them. The
+# derivation is verified against the generated Advance.txt by the gate.
+_SPHERE_TIERS = ["lore", "adept", "mage", "wizard", "master"]
+
+# Short-code -> (sphere, tier). A prereq already sitting on one of these rungs
+# is an AUTHORED decision and outranks any cost-derived guess.
+_SPHERE_LADDER_CODES = {
+    code: (sphere, _SPHERE_TIERS[i])
+    for sphere, codes in {
+        "life":    ["Inv", "Lab", "Las", "Too", "Mag"],
+        "nature":  ["Plu", "PT",  "Rad", "Rec", "Ref"],
+        "death":   ["Rfg", "Rob", "SFl", "Sth", "SE"],
+        "chaos":   ["MP",  "Med", "Met", "Min", "Mob"],
+        "sorcery": ["The", "X2",  "NP",  "Phy", "Pla"],
+    }.items()
+    for i, code in enumerate(codes)
+}
+
+
+def _sphere_rung_advance(sphere: str, tier: str) -> str:
+    """(sphere, tier) -> the ADVANCE_* ident for that ladder rung.
+
+    One irregular name, honoured verbatim because the advance really is called
+    this: the Sorcery lore rung is ADVANCE_SORCEROUS_LORE, not
+    ADVANCE_SORCERY_LORE. Every other rung is regular.
+    """
+    if sphere == "sorcery" and tier == "lore":
+        return "ADVANCE_SORCEROUS_LORE"
+    return f"ADVANCE_{sphere.upper()}_{tier.upper()}"
+
+
+def _sphere_cost_tier(cost: int) -> str:
+    """Seed a tier from production cost. ONLY for rows with no ladder prereq.
+
+    Measured 2026-07-26: against the 20 summon units that DO carry an authored
+    ladder prereq, this heuristic disagrees on 8 -- and every disagreement
+    demotes a master-tier summon (Undead Dragon, cost 3, would land on `lore`,
+    a turn-1 dragon). So it must never override an authored rung.
+    """
+    if cost <= 4:   return "lore"
+    if cost <= 8:   return "adept"
+    if cost <= 15:  return "mage"
+    if cost <= 40:  return "wizard"
+    return "master"
+
+
+# block ident -> owning sphere, populated as a side effect of
+# sphere_gate_targets(). The wall MUST read the sphere from here rather than
+# reverse-looking it up from the gate advance: a NORMAL racial troop gates on a
+# mundane advance that belongs to no ladder, so the reverse lookup silently
+# returns None and drops the unit out of mod_CanCityBuildUnit entirely. That
+# regression shipped for exactly one generator run on 2026-07-29 -- the wall fell
+# from 87 idents to 59 -- and gate_faction_gating's A9 caught it.
+_BLOCK_SPHERE: dict[str, str] = {}
+
+
+def sphere_gate_targets() -> dict[str, str]:
+    """THE SHARED PREDICATE: block ident -> the advance it must gate on.
+
+    Owned here so `gate_faction_gating.py` reports on exactly what this pass
+    writes; the two cannot drift apart. Rows whose sphere is `neutral` (or
+    blank) are absent from the result -- they are deliberately universal and
+    keep whatever prereq they already had.
+
+    NORMAL vs FANTASTIC (added 2026-07-29, and the whole point of this pass).
+    A sphere row is NOT automatically a magic creature. MoM's own design splits
+    a race's troops -- built in cities, the mainstay -- from its fantastic
+    creatures, which are summoned. MOMJR already encodes which is which, in the
+    `unit` lane of advance_code_map.csv: Centaurs -> SHAMANISM, Elven Archers ->
+    PANTHEISM, Minotaur -> WARRIOR_CODE, War Troll -> LEADERSHIP are RACIAL
+    TROOPS gated on mundane advances, while Warbears -> NATURE_LORE, Cockatrice
+    -> NATURE_ADEPT, Great Wyrm -> NATURE_MASTER already name a ladder rung.
+
+    This pass used to ignore that and push EVERY sphere row onto a rung derived
+    from its cost. The result shipped and was caught in play: all 13 Nature units
+    sat behind NATURE_LORE (1865 science, itself behind GRAND_MASTERY and
+    ELDRITCH_LORE), so for the entire early game a Nature city could build only
+    the 13 neutral units and produced nothing but Spearmen -- twelve of them,
+    until it hit the units-per-tile cap. A tribe with no racial troops has no
+    identity until the mid game, which is the opposite of what the faction work
+    was for. The cost-derived tier is a LAST RESORT now, not the default
+    ([[mom-authored-rung-beats-derived-tier]] -- same lesson, other direction).
+
+    Faction gating is UNAFFECTED: a normal unit still appears in this map, so
+    mod_CanCityBuildUnit still walls it to its own tribe. Only Nature may build
+    Elven Archers -- it may just do so from turn one instead of at 1865 science.
+    """
+    ladder_advances = {a for s in _SPHERE_PLAYER for a in _sphere_ladder_idents(s)}
+    targets: dict[str, str] = {}
+    _BLOCK_SPHERE.clear()
+    for csv_name, prefixes in (("units.csv", ("UNIT_",)),
+                               ("improvements.csv", ("IMPROVE_", "WONDER_"))):
+        path = MOMJR / csv_name
+        if not path.exists():
+            continue
+        with open(str(path), newline="", encoding="utf-8-sig") as fh:
+            for row in csv.DictReader(fh):
+                sphere = (row.get("sphere") or "").strip()
+                if sphere not in {"life", "nature", "death", "chaos", "sorcery"}:
+                    continue
+                prereq = (row.get("prereq") or "").strip()
+                mapped = MOM_UNIT_ADVANCE.get(prereq) or PREREQ_CODE_MAP.get(prereq)
+                if prereq in _SPHERE_LADDER_CODES:
+                    # Authored rung wins outright.
+                    advance = _sphere_rung_advance(
+                        sphere, _SPHERE_LADDER_CODES[prereq][1])
+                elif mapped and mapped not in ladder_advances:
+                    # NORMAL racial troop: the source gates it on a mundane
+                    # advance, so keep that. Buildable early, still tribe-walled.
+                    advance = mapped
+                elif mapped:
+                    # FANTASTIC: the source already names a ladder rung.
+                    advance = mapped
+                else:
+                    # No mapping at all -- fall back to the cost-derived rung.
+                    advance = _sphere_rung_advance(sphere, _sphere_cost_tier(
+                        int(re.sub(r"[^0-9]", "", str(row.get("cost", "0"))) or 0)))
+                base = sanitize(row.get("name", ""))
+                for prefix in prefixes:
+                    targets[prefix + base] = advance
+                    _BLOCK_SPHERE[prefix + base] = sphere
+    return targets
+
+
+# Tribe player index, fixed by the SLIC faction predicates (mom_func.slc
+# MomPlayerIsLife is p == 1, ... MomPlayerIsChaos is p == 5) and corroborated by
+# the summon table in mom_msg.slc. Player 0 is the barbarian.
+# Chaos's WildRoll chance, in percent. One knob, documented where the sphere
+# seating is, because it is a property OF Chaos rather than of the roll.
+_WILDROLL_PCT = 15
+
+_SPHERE_PLAYER = {"life": 1, "nature": 2, "sorcery": 3, "death": 4, "chaos": 5}
+
+_GATING_SLC_REL = "default/gamedata/mom_gating.slc"
+
+
+def _sphere_ladder_idents(sphere: str) -> list[str]:
+    """Root + five rungs for one sphere, in ladder order.
+
+    The Sorcery root is ADVANCE_SORCERY (not ..._SORCERY_MAGIC) and its lore
+    rung is ADVANCE_SORCEROUS_LORE -- the only two irregular names in the tree.
+    """
+    root = "ADVANCE_SORCERY" if sphere == "sorcery" else f"ADVANCE_{sphere.upper()}_MAGIC"
+    return [root] + [_sphere_rung_advance(sphere, tier) for tier in _SPHERE_TIERS]
+
+
+def _apply_mana_policy_constants():
+    """Patch mom_magic.slc with mana constants from mod_policy.json mana_economy.
+
+    Replaces the known literal sites (lazy-seed defaults) with policy-sourced
+    values. This makes mod_policy.json the single source of truth for the mana
+    economy — changing a value there and regenerating is the only supported tuning path.
+
+    The function targets the specific patterns used in mom_magic.slc:
+      gen = 10;          -> gen = <base_per_turn>;
+      * 2;              (pop coef, in context of tmpCity.population)
+      * 5;              (node bonus)
+      MomUpkeepRate = 2; -> MomUpkeepRate = <upkeep_rate>;
+      MomMagicMax[p] = 100; -> MomMagicMax[p] = <pool_max>;  (the fallback init)
+      gen = gen + 8;    -> gen = gen + <building_bonus.primary>;
+      gen = gen + 3;    -> gen = gen + <building_bonus.secondary>;
+    """
+    mana = MOD_POLICY.get("mana_economy")
+    if not mana:
+        return
+
+    rel = "default/gamedata/mom_magic.slc"
+    text = _read_rel(rel)
+    if not text:
+        return
+
+    base = mana["base_per_turn"]
+    pop = mana["pop_coef"]
+    node = mana["node_bonus"]
+    upkeep = mana["upkeep_rate"]
+    pool = mana["pool_max"]
+    bld_primary = mana["building_bonus"]["primary"]
+    bld_secondary = mana["building_bonus"]["secondary"]
+
+    # Patch base generation: "gen = 10;" at the start of MomRecalcMagicPerTurn
+    text = re.sub(r'(\bgen\s*=\s*)10(\s*;)', rf'\g<1>{base}\2', text, count=1)
+
+    # Patch pop coefficient: "tmpCity.population * 2"
+    text = re.sub(r'(tmpCity\.population\s*\*\s*)2(\s*;)', rf'\g<1>{pop}\2', text, count=1)
+
+    # Patch node bonus: "nodes * 5" (before school scaling)
+    text = re.sub(r'(nodes\s*\*\s*)5(\s*;)', rf'\g<1>{node}\2', text, count=1)
+
+    # Patch upkeep rate lazy-seed: "MomUpkeepRate = 2;"
+    text = re.sub(r'(MomUpkeepRate\s*=\s*)2(\s*;)', rf'\g<1>{upkeep}\2', text, count=1)
+
+    # Patch pool max fallback: "MomMagicMax[p] = 100;" (the init inside the handler)
+    # Note: the real 200 cap is set elsewhere (school grant); this is just the
+    # fallback for unseeded players. Keep it as pool_max / 2 for the fallback,
+    # or use pool_max directly. Using pool_max since that's the ANCHOR.
+    text = re.sub(r'(MomMagicMax\[p\]\s*=\s*)100(\s*;)', rf'\g<1>{pool}\2', text, count=1)
+
+    # Patch building bonuses: "gen = gen + 8;" and "gen = gen + 3;"
+    text = re.sub(r'(gen\s*=\s*gen\s*\+\s*)8(\s*;\s*\})', rf'\g<1>{bld_primary}\2', text)
+    text = re.sub(r'(gen\s*=\s*gen\s*\+\s*)3(\s*;\s*\})', rf'\g<1>{bld_secondary}\2', text)
+
+    _write_rel(rel, text)
+
+
+def _emit_mom_gating_slc() -> int:
+    """Write mom_gating.slc: the per-tribe who-gets-what wall. Returns idents emitted.
+
+    Require: Advance.txt, Units.txt, buildings.txt and Wonder.txt are FINAL --
+    every ident is filtered against the live block names, so a stale run would
+    emit a dangling ref (mom-db-error-class) or silently drop a real one.
+    Guarantee: bodies are FLAT (no user-function call -- a 2-level chain from an
+    engine callback is a 0xC0000005), every comparison goes through
+    AdvanceDB()/UnitDB()/BuildingDB()/WonderDB(), and the player guard is first
+    because ResetCanResearch calls the advance hook once per advance per player.
+    Identity: g.player on the advance hook -- the thePlayer PARAMETER is built as
+    SLIC_SYM_PLAYER and SetIntValue only writes SLIC_SYM_IVAR, so reading it
+    always yields 0 (probe B3). theCity.owner on the build hooks (probe B2).
+    """
+    def _blocks(rel: str, prefix: str) -> set[str]:
+        return set(re.findall(rf"^({prefix}[A-Z0-9_]+)\s*\{{", _read_rel(rel), re.M))
+
+    live_adv = _blocks("default/gamedata/Advance.txt", "ADVANCE_")
+    live = {
+        "unit":  (_blocks("default/gamedata/Units.txt", "UNIT_"), "UnitDB"),
+        "bldg":  (_blocks("default/gamedata/buildings.txt", "IMPROVE_"), "BuildingDB"),
+        "wndr":  (_blocks("default/gamedata/Wonder.txt", "WONDER_"), "WonderDB"),
+    }
+
+    targets = sphere_gate_targets()
+    by_sphere: dict[str, dict[str, list[str]]] = {
+        s: {"advance": [], "unit": [], "bldg": [], "wndr": []} for s in _SPHERE_PLAYER}
+    for sphere in _SPHERE_PLAYER:
+        by_sphere[sphere]["advance"] = [a for a in _sphere_ladder_idents(sphere)
+                                        if a in live_adv]
+    for ident, advance in sorted(targets.items()):
+        # The sphere comes from _BLOCK_SPHERE, recorded by the same pass that
+        # chose the advance. It must NOT be reverse-looked-up from the advance:
+        # a NORMAL racial troop gates on a mundane advance (Centaurs ->
+        # SHAMANISM) that belongs to no ladder, so the lookup would return None
+        # and silently drop it from the wall -- which is precisely how 23 units
+        # briefly became buildable by every tribe.
+        sphere = _BLOCK_SPHERE.get(ident)
+        if sphere is None:
+            continue
+        for kind, (idents, _) in live.items():
+            if ident in idents:
+                by_sphere[sphere][kind].append(ident)
+
+    def _vessel_block(indent: str = "    ") -> list[str]:
+        """Emit the unconditional never-build wall for artifact vessels.
+
+        A vessel is FOUND, or left behind when a genie is defeated -- never
+        produced in a city by anyone. That is a property of the vessel, not of
+        any tribe, so unlike `_deny_block` this carries no sphere test and no
+        owner term.
+
+        Sourced from `mod_policy.json:unit_roles.vessels`, and filtered against
+        the live unit DB the same way the sphere walls are, so a vessel that was
+        declared in policy but never emitted as a unit cannot leave a dangling
+        `UnitDB()` reference here (mom-db-error-class).
+        """
+        declared = MOD_POLICY.get("unit_roles", {}).get("vessels", [])
+        live_units = live["unit"][0]
+        idents = [i for i in declared if i in live_units]
+        missing = [i for i in declared if i not in live_units]
+        if missing:
+            raise ValueError(
+                f"unit_roles.vessels names {missing}, which the unit DB does not "
+                f"contain. Either add the unit to units.csv or drop it from policy "
+                f"-- emitting it here would be a dangling UnitDB() reference."
+            )
+        if not idents:
+            return []
+        out = [f"{indent}// VESSELS -- {len(idents)}, never buildable by anyone"]
+        terms = [f"theUnit == {live['unit'][1]}({i})" for i in idents]
+        out.append(f"{indent}if ({terms[0]}")
+        for term in terms[1:]:
+            out.append(f"{indent}|| {term}")
+        out.append(f"{indent}) {{ return 0; }}")
+        return out
+
+    def _deny_block(kind: str, var: str, owner: str, indent: str = "    ") -> list[str]:
+        db = "AdvanceDB" if kind == "advance" else live[kind][1]
+        out: list[str] = []
+        for sphere, index in sorted(_SPHERE_PLAYER.items(), key=lambda kv: kv[1]):
+            idents = by_sphere[sphere][kind]
+            if not idents:
+                continue
+            terms = [f"{var} == {db}({i})" for i in idents]
+            out.append(f"{indent}// {sphere.upper()} -- {len(idents)} block(s)")
+            # SPHERE, NOT SEAT. `owner` is a player index and the seat a
+            # tribe occupies is chosen at setup, so comparing it to a
+            # sphere number walled the wrong civ -- a Nature player at
+            # seat 1 was handed Life's roster. MomSphere[] is resolved
+            # from PlayerCivilization once per turn (mom_func.slc).
+            out.append(f"{indent}if (MomSphere[{owner}] != {index}) {{")
+            out.append(f"{indent}    if ({terms[0]}")
+            for term in terms[1:]:
+                out.append(f"{indent}    || {term}")
+            out.append(f"{indent}    ) {{ return 0; }}")
+            out.append(f"{indent}}}")
+        return out
+
+    def _terrain_gate_block(live_bldgs: set, indent: str = "    ") -> list[str]:
+        """Emit terrain-gating checks for buildings with terrain_prereq in CSV.
+
+        Reads improvements.csv terrain_prereq column. For each building that has
+        a terrain requirement, emits a SLIC block that scans the city's center
+        tile + 8 neighbors for any matching terrain index. If no tile matches,
+        returns 0 (unbuildable).
+
+        TerrainType(location) is base-verified (AlexanderTheGreat, tutorial).
+        GetNeighbor(loc, dir, out) is base-verified (tut2_func.slc, mom_magic.slc).
+        Both are builtins — no user-function call depth consumed.
+        """
+        import csv as _csv
+        # Terrain name -> index mapping from Terrain.txt block order
+        terrain_text = _read_rel("default/gamedata/Terrain.txt")
+        terrain_names = re.findall(r"^(TERRAIN_[A-Z0-9_]+)\s*\{", terrain_text, re.M)
+        terrain_idx = {name: i for i, name in enumerate(terrain_names)}
+
+        csv_path = MOMJR / "improvements.csv"
+        if not csv_path.exists():
+            return []
+
+        # Collect buildings with terrain_prereq
+        gated: list[tuple[str, list[int]]] = []  # (IMPROVE_ident, [terrain_indices])
+        with open(csv_path, newline='', encoding='utf-8') as f:
+            reader = _csv.DictReader(f)
+            for row in reader:
+                prereq = (row.get("terrain_prereq") or "").strip()
+                if not prereq:
+                    continue
+                name = row.get("name", "").strip()
+                if not name or name.upper().startswith("HIDE "):
+                    continue
+                try:
+                    _cell = int((row.get("cell_index", "") or "0").strip() or "0")
+                except ValueError:
+                    _cell = 0
+                if _cell >= 40:  # wonders don't get terrain gating
+                    continue
+                ident = f"IMPROVE_{sanitize(name)}"
+                if ident not in live_bldgs:
+                    continue
+                # Parse pipe-separated terrain names into indices
+                indices = []
+                for tname in prereq.split("|"):
+                    tname = tname.strip()
+                    if tname in terrain_idx:
+                        indices.append(terrain_idx[tname])
+                    else:
+                        print(f"  WARNING: terrain_prereq '{tname}' for {ident} not in Terrain.txt")
+                if indices:
+                    gated.append((ident, indices))
+
+        if not gated:
+            return []
+
+        out: list[str] = []
+        out.append(f"{indent}// TERRAIN GATING -- {len(gated)} building(s) require specific terrain")
+        out.append(f"{indent}// Generated from improvements.csv terrain_prereq column.")
+        out.append(f"{indent}// Scans city center + 8 neighbors for any matching terrain type.")
+        out.append(f"{indent}location_t tgLoc;")
+        out.append(f"{indent}location_t tgNbr;")
+        out.append(f"{indent}int_t tgDir;")
+        out.append(f"{indent}int_t tgFound;")
+        out.append(f"{indent}int_t tgT;")
+
+        for ident, indices in gated:
+            idx_checks = " || ".join(f"tgT == {i}" for i in indices)
+            out.append(f"{indent}if (theBuilding == BuildingDB({ident})) {{")
+            out.append(f"{indent}    tgLoc = theCity.location;")
+            out.append(f"{indent}    tgFound = 0;")
+            out.append(f"{indent}    tgT = TerrainType(tgLoc);")
+            out.append(f"{indent}    if ({idx_checks}) {{ tgFound = 1; }}")
+            out.append(f"{indent}    if (tgFound == 0) {{")
+            out.append(f"{indent}        for (tgDir = 0; tgDir < 8; tgDir = tgDir + 1) {{")
+            out.append(f"{indent}            if (GetNeighbor(tgLoc, tgDir, tgNbr)) {{")
+            out.append(f"{indent}                tgT = TerrainType(tgNbr);")
+            out.append(f"{indent}                if ({idx_checks}) {{ tgFound = 1; }}")
+            out.append(f"{indent}            }}")
+            out.append(f"{indent}        }}")
+            out.append(f"{indent}    }}")
+            out.append(f"{indent}    if (tgFound == 0) {{ return 0; }}")
+            out.append(f"{indent}}}")
+        return out
+
+    lines = [
+        "// mom_gating.slc -- GENERATED by tools/ctp2_generator.py. DO NOT HAND-EDIT.",
+        "//",
+        "// The per-tribe who-gets-what wall, via the engine's four mod functions",
+        "// (SlicEngine::AddModFuncs, gs/slic/SlicEngine.cpp:3092; bound after scenario",
+        "// segments compile, :1020). Shipped reference: AlexanderTheGreat/AG_mod.slc.",
+        "//",
+        "// IDENTITY, settled by the step-0 probe campaign (2026-07-26):",
+        "//   * advance hook -> g.player. The thePlayer PARAMETER CANNOT carry identity:",
+        "//     CallMod builds it as SLIC_SYM_PLAYER and SetIntValue only writes when the",
+        "//     type is SLIC_SYM_IVAR, so the index is never stored and reads return 0.",
+        "//   * build hooks -> theCity.owner, proven to resolve (probe B2).",
+        "//",
+        "// CONSTRAINTS honoured here (slic-two-crash-classes):",
+        "//   * bodies are FLAT -- a 2-level user-function chain from an engine callback",
+        "//     is an access violation.",
+        "//   * every comparison goes through AdvanceDB()/UnitDB()/BuildingDB()/WonderDB().",
+        "//   * the player guard is FIRST: ResetCanResearch calls the advance hook once",
+        "//     per advance per player.",
+        "//",
+        "// Every ident below was filtered against the live generated DB at emit time, so",
+        "// a typo cannot survive here (mom-db-error-class).",
+        "",
+        "int_f mod_CanPlayerHaveAdvance(int_t thePlayer, int_t theAdvance)",
+        "{",
+        "    // Barbarians and any out-of-range player are unrestricted.",
+        "    if (MomSphere[g.player] < 1) { return 1; }",
+        *_deny_block("advance", "theAdvance", "g.player"),
+        "    return 1;",
+        "}",
+        "",
+        "int_f mod_CanCityBuildUnit(city_t theCity, int_t theUnit)",
+        "{",
+        # VESSELS FIRST, ahead of the owner guard. A vessel is FOUND or left
+        # behind by a defeated genie -- it is never produced. This block sits
+        # before the guard deliberately: the guard ALLOWS out-of-range owners
+        # through (it exists to keep barbarians out of the sphere walls), so a
+        # vessel rule placed after it would leave a hole for exactly the players
+        # the sphere system does not model.
+        *_vessel_block(),
+        # DWARVES -- terrain-gated: only buildable in hill/mountain cities.
+        # Dwarves are neutral (not sphere-locked) but require mountain terrain.
+        "    // DWARVES -- terrain-gated: hill/mountain cities only",
+        "    if (theUnit == UnitDB(UNIT_DWARF_WARRIOR)",
+        "    || theUnit == UnitDB(UNIT_DWARF_CROSSBOW)",
+        "    || theUnit == UnitDB(UNIT_DWARF_RUNESMITH)",
+        "    ) {",
+        "        if (TerrainType(theCity.location) != 8",
+        "        && TerrainType(theCity.location) != 9",
+        "        && TerrainType(theCity.location) != 18",
+        "        && TerrainType(theCity.location) != 19",
+        "        && TerrainType(theCity.location) != 20",
+        "        && TerrainType(theCity.location) != 21",
+        "        ) { return 0; }",
+        "    }",
+        "    if (theCity.owner < 1 || theCity.owner > 5) { return 1; }",
+        *_deny_block("unit", "theUnit", "theCity.owner"),
+        "    return 1;",
+        "}",
+        "",
+        "int_f mod_CanCityBuildBuilding(city_t theCity, int_t theBuilding)",
+        "{",
+        "    if (theCity.owner < 1 || theCity.owner > 5) { return 1; }",
+        *_deny_block("bldg", "theBuilding", "theCity.owner"),
+        *_terrain_gate_block(live["bldg"][0]),
+        "    return 1;",
+        "}",
+        "",
+        "int_f mod_CanCityBuildWonder(city_t theCity, int_t theWonder)",
+        "{",
+        "    if (theCity.owner < 1 || theCity.owner > 5) { return 1; }",
+        *_deny_block("wndr", "theWonder", "theCity.owner"),
+        "    return 1;",
+        "}",
+        "",
+    ]
+    _write_rel(_GATING_SLC_REL, "\n".join(lines))
+    return sum(len(v[k]) for v in by_sphere.values() for k in v)
+
+
+_SUMMON_SLC_REL = "default/gamedata/mom_summon.slc"
+
+
+def _summon_pool_by_rung() -> dict[str, list[list[str]]]:
+    """Per sphere, the summonable creatures at each ladder rung.
+
+    Require: Units.txt is FINAL and sphere_gate_targets() reflects the prereq
+      rewrite, so a masked unit cannot be resurrected into a summon pool.
+    Guarantee: index r holds the units whose gate advance IS rung r; heroes are
+      excluded; every ident is a live Units.txt block.
+
+    The rung is READ BACK off each unit's gate advance rather than recomputed, so
+    the summon table and the who-gets-what wall in mom_gating.slc cannot disagree
+    about which rung owns a creature -- the same discipline _emit_mom_gating_slc
+    uses when it reads the sphere back off the advance.
+
+    Heroes are excluded because they are unique tribe leaders: a repeatable
+    summon that could roll Ariel would let a Life player field an army of its own
+    founder. There is no hero flag in any data file, so the roster lives in
+    mod_policy.json's unit_roles -- policy, where this mod's other taxonomies
+    already live, and machine-visible to the gate.
+    """
+    live = set(re.findall(r"^(UNIT_[A-Z0-9_]+)\s*\{",
+                          _read_rel("default/gamedata/Units.txt"), re.M))
+    # THE EARNED LANE. A sphere's roster splits into what the roll may return and
+    # what must be earned some other way. Heroes were always excluded; champions
+    # (a Death Knight) and capstones (a Lich) join them, because handing either
+    # out on a 70% per-turn roll makes the top of the ladder indistinguishable
+    # from its bottom. Each list has real members, so this guarantee enforces
+    # something rather than shipping as decoration.
+    _roles = MOD_POLICY.get("unit_roles", {})
+    heroes = (set(_roles.get("heroes", []))
+              | set(_roles.get("champions", []))
+              | set(_roles.get("capstones", [])))
+    targets = sphere_gate_targets()
+    pools: dict[str, list[list[str]]] = {}
+    for sphere in _SPHERE_PLAYER:
+        ladder = _sphere_ladder_idents(sphere)
+        pools[sphere] = [
+            sorted(i for i, adv in targets.items()
+                   if adv == rung and i in live and i not in heroes
+                   and i.startswith("UNIT_"))
+            for rung in ladder
+        ]
+    return pools
+
+
+def _emit_mom_summon_slc() -> int:
+    """Write mom_summon.slc: rung tracking + the weighted summon roll.
+
+    Require: Advance.txt and Units.txt are FINAL (same contract as
+      _emit_mom_gating_slc -- every ident is filtered against live blocks).
+    Guarantee: two segments, both FLAT. MomSphereRungTick calls NOTHING;
+      MomSummonRoll calls NOTHING and only returns an index.
+
+    WHY A RETURNED INDEX AND NOT A void_f THAT SPAWNS: a 2-level user-function
+    chain from a HandleEvent body is a 0xC0000005 (slic-two-crash-classes), and
+    MomSummonOrderTick already spends its one level on MomSpawnSphereUnit. So the
+    roll must hand an index BACK to the handler, which then makes its own
+    one-level spawn call. Both calls sit at depth 1.
+
+    WHY RUNGS ARE TRACKED IN AN ARRAY AND NOT READ WITH HasAdvance: HasAdvance is
+    used ZERO times in this codebase and every mod that does use it passes an
+    ID_ADVANCE_* bare ident. Two things make that unsafe here -- the engine
+    SILENTLY AUTO-CREATES unknown symbols (so a name that does not resolve returns
+    a permanent false rather than erroring), and validate_all_surfaces.py's
+    surface-7 regex is anchored `\\bADVANCE_`, which cannot match inside
+    ID_ADVANCE_*, so nothing would catch the typo. Comparing value[0] against
+    AdvanceDB() in a GrantAdvance handler uses only primitives this mod has
+    already proven, and IS covered by surface 7.
+
+    Rung 0 is the sphere root; it carries no creature of its own (the root's
+    milestone unit is granted once by mom_city_effects.slc, which is correct for
+    a milestone). The roll therefore only fires from rung 1 up.
+    """
+    pools = _summon_pool_by_rung()
+    lines = [
+        "// mom_summon.slc -- GENERATED by tools/ctp2_generator.py. DO NOT HAND-EDIT.",
+        "//",
+        "// Makes the six-rung sphere ladder govern what 75 mana buys. Before this,",
+        "// MomSummonOrderTick held five CONSTANTS -- Nature always summoned Warbears,",
+        "// the CHEAPEST of its units, at every rung -- so researching NATURE_ADEPT",
+        "// through NATURE_MASTER changed nothing and 12 of Nature's creatures were",
+        "// unreachable by summoning (reported in play 2026-07-28).",
+        "//",
+        "// CONSTRAINTS honoured here (slic-two-crash-classes):",
+        "//   * both bodies are FLAT -- neither calls a user function at all.",
+        "//   * MomSummonRoll RETURNS an index; the caller does the spawning, so the",
+        "//     handler's single call level is not already spent when it spawns.",
+        "//   * every comparison goes through AdvanceDB() / UnitDB(), never a bare ident.",
+        "//",
+        "// Every ident below was filtered against the live generated DB at emit time.",
+        "",
+        "// Highest ladder rung each player has reached, 0 = none. Written here and",
+        "// read by MomSummonRoll and mom_ai_magic.slc.",
+        "int_t MomSphereRung[31];",
+        "",
+        "// Rung attainment. A separate handler from mom_city_effects.slc's milestone",
+        "// blessings on purpose: that one fires once per sphere root, this one must see",
+        "// every rung. value[0] IS the granted advance index -- GrantAdvance does NOT",
+        "// populate advance[], and assigning value[0] into it does not make it readable",
+        "// (measured 2026-07-25).",
+        "HandleEvent(GrantAdvance) 'MomSphereRungTick' post {",
+        "    int_t p;",
+        "",
+        "    p = player[0];",
+        "    if (p >= 1 && p <= 5 && value[0] != 0) {",
+    ]
+    for sphere, index in sorted(_SPHERE_PLAYER.items(), key=lambda kv: kv[1]):
+        ladder = _sphere_ladder_idents(sphere)
+        lines.append(f"        // {sphere.upper()} (player {index})")
+        for rung, adv in enumerate(ladder):
+            # The ROOT counts as rung 1, not rung 0. Rung 0 owns no creature of
+            # its own, so leaving the root at 0 would make MomSummonRoll return
+            # 0 for a tribe that has only its *_MAGIC advance -- i.e. every tribe
+            # at the start -- and the summon would silently do nothing where it
+            # previously always produced that sphere's constant. Mapping the root
+            # onto rung 1 keeps the old creature reachable and merely widens the
+            # pool around it.
+            effective = max(rung, 1)
+            lines.append(
+                f"        if (MomSphere[p] == {index} && value[0] == AdvanceDB({adv})"
+                f" && MomSphereRung[p] < {effective})"
+                f" {{ MomSphereRung[p] = {effective}; }}")
+    lines += [
+        "    }",
+        "}",
+        "",
+        "// The weighted roll. Bands are cut from the COUNT of unlocked rungs, not from",
+        "// hardcoded percentages, so adding a rung cannot leave a dead band: the newest",
+        "// unlocked rung takes the widest slice and every older rung keeps a floor.",
+        "// Returns 0 when nothing is unlocked yet -- the caller must treat 0 as 'no",
+        "// summon' and leave the pool alone.",
+        "int_f MomSummonRoll(int_t p)",
+        "{",
+        "    int_t r;",
+        "    int_t roll;",
+        "    int_t wild;",
+        "",
+        "    r = MomSphereRung[p];",
+        "    // NO FLOOR. Rung 0 means 'this tribe has learned no magic of its own",
+        "    // sphere', and it must fall through every band below so this function",
+        "    // returns 0 -- which every caller already reads as 'no summon' and",
+        "    // which leaves the pool undebited (mom_msg.slc gates the 75 on",
+        "    // summonPick != 0, mom_ai_magic.slc on pick != 0).",
+        "    //",
+        "    // A `if (r < 1) { r = 1; }` FLOOR LIVED HERE from v3.2.0 until",
+        "    // 2026-08-02 and was the whole reason a tribe's army was creatures it",
+        "    // could never have built. A Warbears costs 1970 science to BUILD",
+        "    // (ADVANCE_NATURE_LORE) and, with the floor, 0 science to SUMMON: every",
+        "    // tribe had rung-1 summoning from turn one and the summon path skipped",
+        "    // the tech tree entirely.",
+        "    //",
+        "    // The floor was justified as 'a tribe that starts holding its sphere",
+        "    // root never fires the GrantAdvance that would raise it off 0'. That",
+        "    // premise is FALSE in this scenario -- nothing anywhere grants a",
+        "    // *_MAGIC or *_LORE advance and there is no starting-advance mechanism,",
+        "    // so no tribe ever starts holding its root. It guarded a case that does",
+        "    // not exist and cost a whole tech gate. Do not restore it; if a",
+        "    // starting-advance mechanism is ever added, seed MomSphereRung[] there",
+        "    // rather than flooring here (gate_mana_upkeep.py assertion 12).",
+        "    roll = Random(100);",
+        "",
+    ]
+    for sphere, index in sorted(_SPHERE_PLAYER.items(), key=lambda kv: kv[1]):
+        pool = pools[sphere]
+        lines.append(f"    // {sphere.upper()} (player {index})")
+        lines.append(f"    if (MomSphere[p] == {index}) {{")
+        if sphere == "chaos":
+            # THE WILDROLL -- Chaos, and only Chaos, may draw from ANY sphere.
+            #
+            # This is the x-factor that makes Chaos itself rather than "Death
+            # with better numbers": it can call a demon or an angel and does not
+            # get to choose. It is the one mechanic where a sphere reaches
+            # outside its own roster, which is exactly why no other sphere gets
+            # it, and it pairs with Chaos already paying the most (92%) and
+            # earning the fastest (140%) -- high variance on every axis is one
+            # identity rather than three unrelated bonuses.
+            #
+            # A SEPARATE Random() rather than a slice of `roll`: carving the wild
+            # case out of the low band would silently rob whichever creature owns
+            # that band, so Chaos's own ladder would quietly change shape as a
+            # side effect. Two independent draws keep the normal distribution
+            # exactly what every other sphere's is.
+            #
+            # Draws are restricted to rung <= r, so the wild roll widens WHAT
+            # answers, never how far up the ladder Chaos can reach.
+            wild_by_rung: dict[int, list[str]] = {}
+            for rung in range(1, 6):
+                union: list[str] = []
+                for other in sorted(_SPHERE_PLAYER):
+                    if other == "chaos":
+                        continue
+                    for lo in range(1, rung + 1):
+                        union.extend(pools[other][lo] if lo < len(pools[other]) else [])
+                if union:
+                    wild_by_rung[rung] = sorted(set(union))
+            if wild_by_rung:
+                lines.append(f"        wild = Random(100);")
+                lines.append(f"        if (wild < {_WILDROLL_PCT}) {{")
+                for rung in sorted(wild_by_rung, reverse=True):
+                    units = wild_by_rung[rung]
+                    lines.append(f"            if (r == {rung}) {{")
+                    lines.append(f"                wild = Random({len(units)});")
+                    for k, unit in enumerate(units):
+                        lines.append(
+                            f"                if (wild < {k + 1}) {{ return UnitDB({unit}); }}")
+                    lines.append("            }")
+                lines.append("        }")
+        # Walk rungs high -> low. At rung r the top populated rung wins the widest
+        # band; each lower populated rung keeps an equal share of the remainder.
+        for cur in range(len(pool) - 1, 0, -1):
+            populated = [(rung, pool[rung]) for rung in range(1, cur + 1) if pool[rung]]
+            if not populated:
+                continue
+            lines.append(f"        if (r == {cur}) {{")
+            n = len(populated)
+            # Top rung takes half the band when there is anything below it to
+            # share with; the rest split the remainder evenly. Derived from n, so
+            # no magic constant survives a change to the ladder.
+            top_share = 100 if n == 1 else 50
+            rest = 100 - top_share
+            lower = populated[:-1]
+            floor_share = rest // len(lower) if lower else 0
+            cursor = 0
+            bands: list[tuple[int, list[str]]] = []
+            for rung, units in lower:
+                cursor += floor_share
+                bands.append((cursor, units))
+            bands.append((100, populated[-1][1]))
+            prev = 0
+            for hi, units in bands:
+                pick = units[0] if len(units) == 1 else None
+                if pick is not None:
+                    lines.append(
+                        f"            if (roll < {hi}) {{ return UnitDB({pick}); }}")
+                else:
+                    # Even split inside the band across this rung's creatures.
+                    step = max(1, (hi - prev) // len(units))
+                    inner = prev
+                    for k, unit in enumerate(units):
+                        inner = hi if k == len(units) - 1 else inner + step
+                        lines.append(
+                            f"            if (roll < {inner}) {{ return UnitDB({unit}); }}")
+                prev = hi
+            lines.append("        }")
+        lines.append("    }")
+        lines.append("")
+    lines += [
+        "    return 0;",
+        "}",
+        "",
+    ]
+
+    # ------------------------------------------------------------------
+    # Creature -> rung, the rate table for mana upkeep.
+    #
+    # Upkeep is scaled by the rung the CREATURE belongs to, not by the caster's
+    # current rung, so a master summoner who happens to roll a Guardian Spirit
+    # pays the Guardian Spirit's keep. Emitted from the same `pools` structure
+    # the roll is built from, so the two cannot disagree about which rung owns a
+    # creature -- recomputing it in SLIC or hand-typing it would reintroduce
+    # exactly the drift this generator exists to prevent.
+    #
+    # FLAT and returns an int, for the same reason MomSummonRoll does: the
+    # handler calls both at depth 1 and neither may call a user function.
+    # Returns 0 for anything not summonable, which the ledger reads as
+    # "do not charge" -- the correct answer for a milestone gift or a built unit.
+    unit_rung: dict[str, int] = {}
+    for pool in pools.values():
+        for rung, units in enumerate(pool):
+            for unit in units:
+                # Lowest rung wins: a creature reachable at rung 2 is charged at
+                # rung 2 even if it also appears in the rung-5 pool.
+                if rung and (unit not in unit_rung or rung < unit_rung[unit]):
+                    unit_rung[unit] = rung
+    lines += [
+        "// Rung that owns each summonable creature -- the mana-upkeep rate table.",
+        "// GENERATED alongside the roll above from the same pools, so the rate a",
+        "// creature is charged can never drift from the rung it was rolled at.",
+        "int_f MomSummonRungOf(int_t unitType)",
+        "{",
+    ]
+    for unit in sorted(unit_rung):
+        lines.append(
+            f"    if (unitType == UnitDB({unit})) {{ return {unit_rung[unit]}; }}")
+    lines += [
+        "    return 0;",
+        "}",
+        "",
+    ]
+    _write_rel(_SUMMON_SLC_REL, "\n".join(lines))
+    return sum(len(u) for pool in pools.values() for u in pool)
+
+
+# ---------------------------------------------------------------------------
+# Summon Selection Pages (player-choice menu)
+# ---------------------------------------------------------------------------
+
+def _emit_summon_selection_pages() -> int:
+    """Generate per-sphere, per-rung summon selection alertbox pages.
+
+    Each sphere gets a page PER RUNG showing only creatures available at that
+    rung or lower. The MagicMenu navigates to the page matching the player's
+    current rung — so they never see creatures they can't summon.
+
+    Button order: Close declared FIRST (renders rightmost), creature buttons
+    declared in forward order (1 renders leftmost, 2 next, etc.).
+
+    Returns total creature buttons emitted.
+    """
+    pools = _summon_pool_by_rung()
+    lines: list[str] = []
+    total_buttons = 0
+
+    for sphere in _SPHERE_PLAYER:
+        sphere_pools = pools[sphere]
+        # Build cumulative roster: at rung N, you can summon everything from rungs 0..N
+        all_creatures: list[tuple[str, int]] = []
+        for rung_idx, rung_units in enumerate(sphere_pools):
+            for uid in rung_units:
+                display_rung = max(1, rung_idx)
+                all_creatures.append((uid, display_rung))
+
+        if not all_creatures:
+            continue
+
+        # Find the max rung that has creatures
+        max_rung = max(r for _, r in all_creatures)
+
+        # Generate one page per rung level (cumulative: shows all at or below that rung)
+        for rung_level in range(1, max_rung + 1):
+            available = [(uid, r) for uid, r in all_creatures if r <= rung_level]
+            if not available:
+                continue
+
+            # Page only the first 4 (engine 5-button limit minus Close)
+            page_creatures = available[:4]
+            seg_name = f"MomSummonPick_{sphere}_{rung_level}"
+            sphere_title = sphere.upper()
+
+            # Build page text
+            page_text_parts = [f"{sphere_title} Summons (rung {rung_level})"]
+            for btn_idx, (uid, r) in enumerate(page_creatures):
+                display_name = humanize_ident(uid, "UNIT_")
+                page_text_parts.append(f"{btn_idx+1}. {display_name} (~{45+30*r} mana)")
+            page_text = "\\n".join(page_text_parts)
+
+            str_id = f"MOM_SUMMON_PAGE_{sphere.upper()}_{rung_level}"
+
+            # Alertbox — Close FIRST (renders rightmost)
+            lines.append(f"alertbox '{seg_name}' {{")
+            lines.append(f"    Show();")
+            lines.append(f"    Text(ID_{str_id});")
+            lines.append(f"")
+            lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
+            lines.append(f"        Kill();")
+            lines.append(f"    }}")
+
+            # Creature buttons declared in FORWARD order (last declared = leftmost)
+            # We want [1] leftmost, so declare [N] first, [1] last.
+            for btn_idx in range(len(page_creatures) - 1, -1, -1):
+                uid, r = page_creatures[btn_idx]
+                btn_label_id = f"MOM_SPELL_BTN_{btn_idx+1}"
+                lines.append(f"    Button(ID_{btn_label_id}) {{")
+                lines.append(f"        if (MomSummonPrep[player[0]] > 0) {{")
+                lines.append(f"            Message(player[0], 'MomSummonBusy');")
+                lines.append(f"        }} elseif (MomMagicCur[player[0]] >= ((45 + 30 * {r}) * MomSummonCivPct[player[0]]) / 100) {{")
+                lines.append(f"            MomSummonChoice[player[0]] = UnitDB({uid});")
+                lines.append(f"        }} else {{")
+                lines.append(f"            Message(player[0], 'MomSummonNoMana');")
+                lines.append(f"        }}")
+                lines.append(f"        Kill();")
+                lines.append(f"    }}")
+                total_buttons += 1
+
+            lines.append(f"}}")
+            lines.append(f"")
+
+    # Write the summon selection pages into mom_summon.slc (append)
+    summon_path = SCENARIO / _SUMMON_SLC_REL
+    if summon_path.exists():
+        with open(summon_path, "a", encoding="latin-1", newline="") as fh:
+            fh.write("\n\n// --- SUMMON SELECTION PAGES (player picks creature) ---\n")
+            fh.write("\n".join(lines))
+            fh.write("\n")
+
+    return total_buttons
+
+
+# ---------------------------------------------------------------------------
+# Paged Spellbook emitter
+# ---------------------------------------------------------------------------
+
+_SPELLBOOK_SPHERES = ["life", "nature", "sorcery", "death", "chaos"]
+_SPELLBOOK_CAST_SLC_REL = "default/gamedata/mom_spellbook_cast.slc"
+_SPELLBOOK_SPHERE_SLC_REL = {
+    s: f"default/gamedata/mom_spellbook_{s}.slc" for s in _SPELLBOOK_SPHERES
+}
+
+_RARITY_ORDER = ["common", "uncommon", "rare", "very rare"]
+
+
+def _load_implementable_spells() -> dict[str, list[dict]]:
+    """Load, filter, and cost-rescale spells from spells.csv.
+
+    Returns dict keyed by sphere name, each value a list of spell row dicts with
+    `_shipped_cost`, `_research_cost_int`, and `_rarity` fields added. Spells are
+    sorted alphabetically by name within each rarity within each sphere, then
+    concatenated in rarity order (common → very rare). This is the CANONICAL
+    ordering that both page emission and cast-chain emission must use so spell IDs
+    match.
+    """
+    rescale_cfg = MOD_POLICY["spellbook"]["cost_rescale"]
+    rescale_factor = rescale_cfg["rescale_factor"]
+    min_cost = rescale_cfg["min_cost"]
+    max_cost = rescale_cfg["max_cost"]
+    rarity_factors = rescale_cfg.get("rarity_factors", {})
+
+    spells_path = MOMJR / "spells.csv"
+    with open(spells_path, newline="", encoding="utf-8-sig") as fh:
+        all_spells = list(csv.DictReader(fh))
+
+    by_sphere: dict[str, list[dict]] = {s: [] for s in _SPELLBOOK_SPHERES}
+    for row in all_spells:
+        sphere = row["sphere"].strip().lower()
+        if sphere not in by_sphere:
+            continue
+        effect_kind = row["effect_kind"].strip()
+        overland_cost = int(row["overland_cost"].strip() or "0")
+        if effect_kind == "flavour" or overland_cost <= 0:
+            continue
+        rarity = row.get("rarity", "").lower().strip()
+        factor = rarity_factors.get(rarity, rescale_factor)
+        shipped_cost = max(min_cost, min(max_cost, int(overland_cost * factor)))
+        row["_shipped_cost"] = shipped_cost
+        row["_research_cost_int"] = int(row["research_cost"].strip() or "0")
+        row["_rarity"] = rarity
+        by_sphere[sphere].append(row)
+
+    # Sort: by rarity tier order, then alphabetically within each rarity
+    rarity_rank = {r: i for i, r in enumerate(_RARITY_ORDER)}
+    for sphere in _SPELLBOOK_SPHERES:
+        by_sphere[sphere].sort(key=lambda x: (
+            rarity_rank.get(x["_rarity"], 99),
+            x["name"].strip().lower()
+        ))
+
+    return by_sphere
+
+
+def _emit_spellbook_pages() -> tuple[int, int]:
+    """Emit per-sphere spellbook SLIC files: two-tier navigation.
+
+    Tier 1: Hub alertbox per sphere with rarity filter buttons (Common/Uncommon/Rare/Very Rare/Close).
+    Tier 2: Paged alertboxes per (sphere, rarity) with single-char buttons (1/2/3)
+             and body-text legend showing spell names + costs.
+
+    Research gating: each rarity tier requires the corresponding sphere ladder
+    advance (mod_policy.json spellbook.rarity_advance_tier). If the player lacks
+    the advance, the hub button shows a "not yet researched" message instead of
+    navigating to the spellbook page.
+
+    Enforces max_pages_per_rarity cap (default 3) so no rarity has excessive pages.
+
+    Returns (total_pages, total_spells) across all 5 spheres.
+    """
+    # Load config
+    spells_per_page = MOD_POLICY["spellbook"].get("spells_per_page", 3)
+    max_pages = MOD_POLICY["spellbook"].get("max_pages_per_rarity", 3)
+    rarity_advance_tier = MOD_POLICY["spellbook"].get("rarity_advance_tier", {})
+
+    # Use shared spell loader (canonical ordering for ID assignment)
+    by_sphere = _load_implementable_spells()
+
+    RARITY_ORDER = _RARITY_ORDER
+    RARITY_LABELS = {"common": "Common", "uncommon": "Uncommon", "rare": "Rare", "very rare": "Very Rare"}
+    RARITY_KEYS = {"common": "COMMON", "uncommon": "UNCOMMON", "rare": "RARE", "very rare": "VERY_RARE"}
+
+    spell_string_entries: list[str] = []
+    total_pages = 0
+
+    sphere_identity = MOD_POLICY.get("sphere_identity", {})
+
+    def _rarity_min_rung(rarity: str) -> int:
+        """Return the minimum MomSphereRung[] value required for a rarity tier."""
+        return int(rarity_advance_tier.get(rarity, 1))
+
+    # Pre-assign spell IDs to ALL implementable spells in canonical order.
+    # The cast if-chain covers all of them; pages only show a subset (capped by
+    # max_pages_per_rarity), but IDs must be consistent between the two.
+    all_spell_ids: dict[str, int] = {}  # spell ident -> global spell ID
+    global_id = 0
+    for sphere in _SPELLBOOK_SPHERES:
+        for row in by_sphere[sphere]:
+            ident = row.get("ident", row["name"].strip())
+            all_spell_ids[id(row)] = global_id
+            global_id += 1
+    total_spells_all = global_id
+
+    for sphere in _SPELLBOOK_SPHERES:
+        spells = by_sphere[sphere]
+        if not spells:
+            continue
+
+        sphere_title = sphere_identity.get(sphere, {}).get("title", sphere.capitalize())
+
+        # Sub-group by rarity, sort alphabetically within each
+        by_rarity: dict[str, list[dict]] = {r: [] for r in RARITY_ORDER}
+        for row in spells:
+            r = row["_rarity"]
+            if r in by_rarity:
+                by_rarity[r].append(row)
+        for r in RARITY_ORDER:
+            by_rarity[r].sort(key=lambda x: x["name"].strip().lower())
+
+        # Per-sphere SLIC file
+        slic_lines = [
+            f"// mom_spellbook_{sphere}.slc -- GENERATED by tools/ctp2_generator.py. DO NOT HAND-EDIT.",
+            "//",
+            f"// Two-tier spellbook for {sphere.upper()} sphere.",
+            f"// Tier 1: Hub with rarity filter (Common/Uncommon/Rare/Very Rare/Close).",
+            f"// Tier 2: Paged spells per rarity, {spells_per_page} per page, single-char buttons + body legend.",
+            f"// Research-gated: each rarity requires a sphere ladder advance.",
+            "",
+        ]
+
+        # --- Tier 1: Hub alertbox ---
+        hub_name = f"MomSpellHub_{sphere}"
+        slic_lines.append(f"// ===== {sphere.upper()} SPELLBOOK HUB =====")
+        slic_lines.append(f"alertbox '{hub_name}' {{")
+        slic_lines.append(f"    Show();")
+        slic_lines.append(f"    Text(ID_MOM_SPELLHUB_{sphere.upper()});")
+        slic_lines.append(f"")
+        # Arm 0: Close
+        slic_lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
+        slic_lines.append(f"        Kill();")
+        slic_lines.append(f"    }}")
+        # Arms 1-4: rarity filters with research gating
+        for rarity in RARITY_ORDER:
+            rarity_key = RARITY_KEYS[rarity]
+            if by_rarity[rarity]:
+                first_page_name = f"MomSpell_{sphere}_{rarity_key}_1"
+                min_rung = _rarity_min_rung(rarity)
+                slic_lines.append(f"    // {RARITY_LABELS[rarity]} ({len(by_rarity[rarity])} spells) -- requires rung >= {min_rung}")
+                slic_lines.append(f"    Button(ID_MOM_SPELLHUB_BTN_{rarity_key}) {{")
+                slic_lines.append(f"        Kill();")
+                slic_lines.append(f"        if (MomSphereRung[player[0]] >= {min_rung}) {{")
+                slic_lines.append(f"            Message(player[0], '{first_page_name}');")
+                slic_lines.append(f"        }} else {{")
+                slic_lines.append(f"            Message(player[0], 'MomSpellLocked');")
+                slic_lines.append(f"        }}")
+                slic_lines.append(f"    }}")
+        slic_lines.append(f"}}")
+        slic_lines.append(f"")
+
+        # --- Tier 2: Paged alertboxes per rarity ---
+        for rarity in RARITY_ORDER:
+            rarity_spells = by_rarity[rarity]
+            if not rarity_spells:
+                continue
+            rarity_key = RARITY_KEYS[rarity]
+            rarity_label = RARITY_LABELS[rarity]
+
+            # Paginate respecting 5-arm ceiling:
+            # Close always takes 1 arm. Prev/Next each take 1 arm when present.
+            # First page: Close + spells + Next(if more) = spells + 2 max
+            # Middle page: Close + Prev + spells + Next = spells + 3 -> max 2 spells
+            # Last page (not first): Close + Prev + spells = spells + 2 max
+            # So: first/last pages get 3 spells, middle pages get 2 spells.
+            # With max_pages=3: layout is [3, 2, remaining] for 3 pages.
+            pages: list[list[dict]] = []
+            remaining = list(rarity_spells)
+            page_idx = 0
+            while remaining and len(pages) < max_pages:
+                is_first_page = page_idx == 0
+                is_potentially_last = len(remaining) <= spells_per_page
+                # Middle page (has prev AND will have next) gets 2 spells
+                if not is_first_page and not is_potentially_last:
+                    n = spells_per_page - 1  # 2 spells on middle pages
+                else:
+                    n = spells_per_page  # 3 spells on first/last
+                pages.append(remaining[:n])
+                remaining = remaining[n:]
+                page_idx += 1
+            num_pages = len(pages)
+            total_pages += num_pages
+
+            slic_lines.append(f"// ----- {sphere.upper()} / {rarity_label}: {len(rarity_spells)} spells, {num_pages} page(s) -----")
+            slic_lines.append(f"")
+
+            for page_idx, page_spells in enumerate(pages):
+                page_num = page_idx + 1
+                is_first = page_idx == 0
+                is_last = page_idx == num_pages - 1
+                has_prev = not is_first
+                has_next = not is_last
+
+                alertbox_name = f"MomSpell_{sphere}_{rarity_key}_{page_num}"
+                title_key = f"MOM_SPELL_PAGE_{sphere.upper()}_{rarity_key}_{page_num}"
+
+                slic_lines.append(f"// Page {page_num} of {num_pages}")
+                slic_lines.append(f"alertbox '{alertbox_name}' {{")
+                slic_lines.append(f"    Show();")
+                slic_lines.append(f"    Text(ID_{title_key});")
+                slic_lines.append(f"")
+
+                # BUTTON ORDER: spell buttons first (leftmost on screen), then
+                # navigation (Prev/Next), then Close (rightmost). CTP2 renders
+                # buttons in REVERSE declaration order, so declare the rightmost
+                # button FIRST and the leftmost LAST.
+
+                # Arm: Close (rightmost on screen → declared first)
+                slic_lines.append(f"    // [X] Close")
+                slic_lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
+                slic_lines.append(f"        Kill();")
+                slic_lines.append(f"        Message(player[0], '{hub_name}');")
+                slic_lines.append(f"    }}")
+
+                # Next button (second from right → declared second)
+                if has_next:
+                    next_name = f"MomSpell_{sphere}_{rarity_key}_{page_num + 1}"
+                    slic_lines.append(f"    // [>] Next")
+                    slic_lines.append(f"    Button(ID_MOM_SPELL_NEXT) {{")
+                    slic_lines.append(f"        Kill();")
+                    slic_lines.append(f"        Message(player[0], '{next_name}');")
+                    slic_lines.append(f"    }}")
+
+                # Prev button (third from right)
+                if has_prev:
+                    prev_name = f"MomSpell_{sphere}_{rarity_key}_{page_num - 1}"
+                    slic_lines.append(f"    // [<] Prev")
+                    slic_lines.append(f"    Button(ID_MOM_SPELL_PREV) {{")
+                    slic_lines.append(f"        Kill();")
+                    slic_lines.append(f"        Message(player[0], '{prev_name}');")
+                    slic_lines.append(f"    }}")
+
+                # Spell buttons (leftmost on screen → declared last)
+                # Emit in FORWARD order so [1] is declared last = renders leftmost.
+                # Each button navigates to a CONFIRMATION page (shows description,
+                # Cast/Back). No direct MomCastSpell from the list page.
+                for slot_idx, spell_row in enumerate(page_spells):
+                    display_num = slot_idx + 1
+                    spell_name = spell_row["name"].strip()
+                    shipped_cost = spell_row["_shipped_cost"]
+                    btn_key = f"MOM_SPELL_BTN_{display_num}"
+                    spell_id = all_spell_ids[id(spell_row)]
+                    confirm_seg = f"MomSpellConfirm_{spell_id}"
+
+                    slic_lines.append(f"    // [{display_num}] {spell_name} ({shipped_cost} mana)")
+                    slic_lines.append(f"    Button(ID_{btn_key}) {{")
+                    slic_lines.append(f"        Kill();")
+                    slic_lines.append(f"        Message(player[0], '{confirm_seg}');")
+                    slic_lines.append(f"    }}")
+
+                    # String entry for cast.slc reference
+                    str_key = f"MOM_SPELL_{spell_id}"
+                    label = f"{spell_name} ({shipped_cost})"
+                    label = label.encode("latin-1", errors="replace").decode("latin-1")
+                    spell_string_entries.append(f'{str_key}\t\t"{label}"')
+
+                slic_lines.append(f"}}")
+                slic_lines.append(f"")
+
+        # --- CONFIRMATION ALERTBOXES for each spell in this sphere ---
+        # Each shows a description + Cast/Back buttons.
+        for spell_row in by_sphere[sphere]:
+            spell_id = all_spell_ids[id(spell_row)]
+            spell_name = spell_row["name"].strip()
+            effect_kind = spell_row["effect_kind"].strip()
+            shipped_cost = spell_row["_shipped_cost"]
+            confirm_seg = f"MomSpellConfirm_{spell_id}"
+            desc_str_id = f"MOM_SPELL_DESC_{spell_id}"
+            # Find which page this spell is on (for the Back button)
+            back_seg = f"MomSpellHub_{sphere}"  # fallback: return to hub
+
+            # Build description from the CSV's wiki-sourced description column.
+            # Truncate to ~120 chars for the alertbox (it has limited height).
+            raw_desc = spell_row.get("description", "").strip()
+            # Extract just the Effects portion if present
+            if "Effects " in raw_desc:
+                effects_part = raw_desc.split("Effects ", 1)[1][:120]
+            elif "effects " in raw_desc:
+                effects_part = raw_desc.split("effects ", 1)[1][:120]
+            else:
+                effects_part = raw_desc[:120]
+            # Clean for SLIC string (no quotes, no newlines)
+            effects_part = effects_part.replace('"', "'").replace("\n", " ").replace("\r", "")
+            desc = f"{spell_name}\\n{effects_part}\\nCost: {shipped_cost} mana"
+
+            spell_string_entries.append(f'{desc_str_id}\t\t"{desc}"')
+
+            slic_lines.append(f"// Confirmation for {spell_name}")
+            slic_lines.append(f"alertbox '{confirm_seg}' {{")
+            slic_lines.append(f"    Show();")
+            slic_lines.append(f"    Text(ID_{desc_str_id});")
+            # Close/Back = declared first → renders rightmost
+            slic_lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
+            slic_lines.append(f"        Kill();")
+            slic_lines.append(f"        Message(player[0], '{back_seg}');")
+            slic_lines.append(f"    }}")
+            # Cast = declared last → renders leftmost
+            slic_lines.append(f"    Button(ID_MOM_SPELL_BTN_1) {{")
+            slic_lines.append(f"        if (MomMagicCur[player[0]] >= {shipped_cost}) {{")
+            slic_lines.append(f"            MomCastSpell(player[0], {spell_id});")
+            slic_lines.append(f"        }} else {{")
+            slic_lines.append(f"            Message(player[0], 'MomNotEnoughMana');")
+            slic_lines.append(f"        }}")
+            slic_lines.append(f"        Kill();")
+            slic_lines.append(f"    }}")
+            slic_lines.append(f"}}")
+            slic_lines.append(f"")
+
+        # Write per-sphere SLIC file
+        _write_rel(_SPELLBOOK_SPHERE_SLC_REL[sphere], "\n".join(slic_lines))
+
+    # --- Write string entries to scen_str.txt ---
+    scen_str_rel = "english/gamedata/scen_str.txt"
+    scen_str_path = SCENARIO / scen_str_rel
+
+    str_block_lines = [
+        "",
+        "# Paged spellbook button labels -- GENERATED by tools/ctp2_generator.py",
+        "# Single-char buttons with body-text legend. Research-gated per rarity tier.",
+        'MOM_SPELL_CLOSE\t\t"X"',
+        'MOM_SPELL_PREV\t\t"<"',
+        'MOM_SPELL_NEXT\t\t">"',
+        'MOM_SPELL_BTN_1\t\t"1"',
+        'MOM_SPELL_BTN_2\t\t"2"',
+        'MOM_SPELL_BTN_3\t\t"3"',
+        'MOM_SPELL_BTN_4\t\t"4"',
+        'MOM_MSG_SPELL_CAST\t\t"Your spell takes effect."',
+        'MOM_MSG_NOT_ENOUGH_MANA\t\t"Not enough mana to cast this spell."',
+        'MOM_MSG_SPELL_LOCKED\t\t"You have not yet researched this school of magic."',
+    ]
+
+    # Hub text strings: "Life Spellbook"
+    for sphere in _SPELLBOOK_SPHERES:
+        sphere_title = sphere_identity.get(sphere, {}).get("title", sphere.capitalize())
+        key = f"MOM_SPELLHUB_{sphere.upper()}"
+        str_block_lines.append(f'{key}\t\t"{sphere_title} Spellbook"')
+
+    # Rarity filter button labels
+    for rarity in RARITY_ORDER:
+        rarity_key = RARITY_KEYS[rarity]
+        rarity_label = RARITY_LABELS[rarity]
+        str_block_lines.append(f'MOM_SPELLHUB_BTN_{rarity_key}\t\t"{rarity_label}"')
+
+    # Per-page body-text strings: the legend "Title\n1. Spell (cost)\n2. Spell (cost)..."
+    for sphere in _SPELLBOOK_SPHERES:
+        sphere_title = sphere_identity.get(sphere, {}).get("title", sphere.capitalize())
+        for rarity in RARITY_ORDER:
+            rarity_key = RARITY_KEYS[rarity]
+            rarity_label = RARITY_LABELS[rarity]
+            rarity_spells = [r for r in by_sphere[sphere] if r["_rarity"] == rarity]
+            if not rarity_spells:
+                continue
+            rarity_spells.sort(key=lambda x: x["name"].strip().lower())
+            # Same pagination logic as the SLIC emitter
+            pages_for_str: list[list[dict]] = []
+            remaining_str = list(rarity_spells)
+            pg_i = 0
+            while remaining_str and len(pages_for_str) < max_pages:
+                is_first_pg = pg_i == 0
+                is_pot_last = len(remaining_str) <= spells_per_page
+                n = spells_per_page if (is_first_pg or is_pot_last) else (spells_per_page - 1)
+                pages_for_str.append(remaining_str[:n])
+                remaining_str = remaining_str[n:]
+                pg_i += 1
+            num_pages = len(pages_for_str)
+            for pg_idx, pg_spells in enumerate(pages_for_str):
+                pg_num = pg_idx + 1
+                key = f"MOM_SPELL_PAGE_{sphere.upper()}_{rarity_key}_{pg_num}"
+                legend_parts = [f"{sphere_title} - {rarity_label} ({pg_num}/{num_pages})"]
+                for slot_idx, sp in enumerate(pg_spells):
+                    sp_name = sp["name"].strip()
+                    sp_cost = sp["_shipped_cost"]
+                    legend_parts.append(f"{slot_idx + 1}. {sp_name} ({sp_cost})")
+                val = "\\n".join(legend_parts)
+                str_block_lines.append(f'{key}\t\t"{val}"')
+
+    # Sphere greeting strings
+    for sphere in _SPELLBOOK_SPHERES:
+        greeting = sphere_identity.get(sphere, {}).get("greeting", "")
+        if greeting:
+            key = f"MOM_SPHERE_GREETING_{sphere.upper()}"
+            str_block_lines.append(f'{key}\t\t"{greeting}"')
+
+    # Emit string entries for ALL spells (some may be off-page due to page cap
+    # but the cast if-chain still needs their ID→label mapping).
+    emitted_spell_ids: set[int] = set()
+    for entry in spell_string_entries:
+        # extract the ID from 'MOM_SPELL_N\t\t"..."'
+        key_part = entry.split("\t")[0]
+        try:
+            emitted_spell_ids.add(int(key_part.replace("MOM_SPELL_", "")))
+        except ValueError:
+            pass
+    for sphere in _SPELLBOOK_SPHERES:
+        for row in by_sphere[sphere]:
+            sid = all_spell_ids[id(row)]
+            if sid not in emitted_spell_ids:
+                spell_name = row["name"].strip()
+                shipped_cost = row["_shipped_cost"]
+                label = f"{spell_name} ({shipped_cost})"
+                label = label.encode("latin-1", errors="replace").decode("latin-1")
+                spell_string_entries.append(f'MOM_SPELL_{sid}\t\t"{label}"')
+
+    str_block_lines.extend(spell_string_entries)
+
+    # Summon selection page text strings (per-rung)
+    _sum_pools = _summon_pool_by_rung()
+    for _s_sphere in _SPHERE_PLAYER:
+        _s_all: list[tuple[str, int]] = []
+        for _ri, _ru in enumerate(_sum_pools.get(_s_sphere, [])):
+            for _uid in _ru:
+                _s_all.append((_uid, max(1, _ri)))
+        if not _s_all:
+            continue
+        _max_r = max(r for _, r in _s_all)
+        for _rl in range(1, _max_r + 1):
+            _avail = [(_uid, _r) for _uid, _r in _s_all if _r <= _rl][:4]
+            _parts = [f"{_s_sphere.upper()} Summons (rung {_rl})"]
+            for _bi, (_uid, _rung) in enumerate(_avail):
+                _dn = humanize_ident(_uid, "UNIT_")
+                _parts.append(f"{_bi+1}. {_dn} (~{45+30*_rung} mana)")
+            _val = "\\n".join(_parts)
+            _key = f"MOM_SUMMON_PAGE_{_s_sphere.upper()}_{_rl}"
+            str_block_lines.append(f'{_key}\t\t"{_val}"')
+
+    str_block_lines.append("")
+
+    # Read existing content and append (preserving LF)
+    existing = ""
+    if scen_str_path.exists():
+        with open(scen_str_path, "r", encoding="latin-1", newline="") as fh:
+            existing = fh.read()
+
+    # Remove any previous generated spellbook block (idempotent)
+    marker = "# Paged spellbook button labels -- GENERATED by tools/ctp2_generator.py"
+    if marker in existing:
+        idx = existing.index(marker)
+        # Find the preceding newline
+        while idx > 0 and existing[idx - 1] == "\n":
+            idx -= 1
+        existing = existing[:idx]
+
+    new_content = existing.rstrip("\n") + "\n" + "\n".join(str_block_lines)
+    with open(scen_str_path, "w", encoding="latin-1", newline="") as fh:
+        fh.write(new_content)
+
+    # Remove legacy combined file if it exists
+    legacy_path = SCENARIO / "default/gamedata/mom_spellbook.slc"
+    if legacy_path.exists():
+        legacy_path.unlink()
+
+    return total_pages, total_spells_all
+
+
+def _emit_spell_effects() -> int:
+    """Emit mom_spellbook_cast.slc: the MomCastSpell if-chain covering all implementable spells.
+
+    Reads spells.csv with the SAME filter+sort as _emit_spellbook_pages (effect_kind
+    != flavour, overland_cost > 0, sphere in life/nature/sorcery/death/chaos, sorted
+    by research_cost ascending within each sphere). Spell IDs are sequential starting
+    at 0, matching the alertbox page numbering.
+
+    Effect implementation by kind:
+      summon: GetCityByIndex(p,0,tmpCity) + CreateUnit at tmpCity.location if unit exists in Units.txt, else Message stub
+      instant_damage/unit_enchant/city_enchant/global_enchant/dispel: Message stub
+    All branches deduct shipped_cost from MomMagicCur[p].
+
+    Returns the number of spells emitted.
+    """
+    import re as _re
+
+    # --- Use shared spell loader (same ordering as _emit_spellbook_pages) ---
+    by_sphere = _load_implementable_spells()
+
+    # --- Build flat ordered spell list (same order as page IDs) ---
+    ordered_spells: list[dict] = []
+    for sphere in _SPELLBOOK_SPHERES:
+        ordered_spells.extend(by_sphere[sphere])
+
+    if not ordered_spells:
+        return 0
+
+    # --- Read live Units.txt to build valid unit set ---
+    units_path = SCENARIO / "default" / "gamedata" / "Units.txt"
+    units_text = ""
+    if units_path.exists():
+        with open(units_path, "r", encoding="latin-1") as fh:
+            units_text = fh.read()
+    live_units = set(_re.findall(r"^(UNIT_\w+)\s*\{", units_text, _re.M))
+
+    # --- Build spell-name to unit-ident fuzzy matcher ---
+    def _spell_name_to_unit(spell_name: str) -> str:
+        """Try to match a spell name to a UNIT_ ident in the live Units.txt.
+
+        Matching rules (in priority order):
+          1. Exact: UNIT_<SANITIZED_NAME> exists
+          2. Singular: strip trailing 's' from name, check UNIT_<SANITIZED>
+          3. Known aliases (hardcoded for MoM's irregular naming)
+        Returns empty string if no match found.
+        """
+        # Known irregular mappings between spell names and unit idents
+        aliases = {
+            "War Bears": "UNIT_WARBEARS",
+            "Cockatrices": "UNIT_COCKATRICE",
+            "Unicorns": "UNIT_UNICORN",
+            "Hell Hounds": "UNIT_HELL_HOUNDS",
+            "Gargoyles": "UNIT_GARGOYLE",
+            "Death Knights": "UNIT_DEATH_KNIGHT",
+            "Wraiths": "UNIT_WRAITH",
+            "Skeletons": "UNIT_SKELETONS",
+            "Ghouls": "UNIT_ZOMBIES",  # closest match in unit DB
+            "Arch Angel": "UNIT_ARCHANGEL",
+            "Angel": "UNIT_ARCHANGEL",  # no separate UNIT_ANGEL in DB
+            "Sky Drake": "UNIT_STORM_DRAKE",
+            "Shadow Demons": "UNIT_DEMON",
+            "Sprites": "UNIT_GUARDIAN_SPIRIT",  # nature sprites -> closest
+            "Chimeras": "UNIT_WYVERN",  # closest flying creature
+            "Doom Bat": "UNIT_GARGOYLE",  # closest chaos flyer
+            "Fire Giant": "UNIT_WAR_TROLL",  # closest giant in DB
+            "Stone Giant": "UNIT_STORM_GIANT",
+            "Giant Spiders": "UNIT_COCKATRICE",  # nature creature
+            "Nagas": "UNIT_MERFOLK",  # water creature
+            "Gorgons": "UNIT_HYDRA",  # nature beast
+            "Night Stalker": "UNIT_WRAITH",  # death creature
+            "Demon Lord": "UNIT_DEMON",
+            "Chaos Spawn": "UNIT_INFERNAL_DEVICE",
+            "Great Drake": "UNIT_GREAT_WYRM",
+            "Djinn": "UNIT_AIR_ELEMENTAL",
+            "Floating Island": "UNIT_AIRSHIP",
+            "Incarnation": "UNIT_ARCHANGEL",
+            "Lycanthropy": "UNIT_MINION",
+            "Colossus": "UNIT_WAR_MAMMOTH",
+            "Basilisk": "UNIT_SALAMANDER",
+        }
+
+        # Check alias first
+        if spell_name in aliases:
+            candidate = aliases[spell_name]
+            if candidate in live_units:
+                return candidate
+
+        # Try exact sanitized match
+        ident = f"UNIT_{sanitize(spell_name)}"
+        if ident in live_units:
+            return ident
+
+        # Try singular (strip trailing S)
+        if spell_name.endswith("s") or spell_name.endswith("S"):
+            singular = spell_name[:-1]
+            ident_s = f"UNIT_{sanitize(singular)}"
+            if ident_s in live_units:
+                return ident_s
+
+        return ""
+
+    # --- SPELL BINDINGS: signature spells tied to specific units ---
+    spell_name_to_idx: dict[str, int] = {}
+    for i, row in enumerate(ordered_spells):
+        spell_name_to_idx[row["name"].strip()] = i
+
+    SPELL_BINDINGS: dict[int, dict] = {}
+    _binding_defs = [
+        ("Death Wish",        "UNIT_DEATH_KNIGHT",  1, "kill_strongest", {}),
+        ("Black Wind",        "UNIT_WRAITH",        1, "kill_weakest",   {}),
+        ("Cruel Unminding",   "UNIT_LICH",          1, "mana_drain",     {"drain": 30}),
+        ("Fire Storm",        "UNIT_EFREET",        2, "spawn",          {"spawn_unit": "UNIT_HELL_HOUNDS"}),
+        ("Call the Void",     "UNIT_GREAT_WYRM",    2, "kill_two",       {}),
+        ("Earthquake",        "UNIT_BEHEMOTH",      1, "spawn",          {"spawn_unit": "UNIT_WAR_TROLL"}),
+        ("Ice Storm",         "UNIT_STORM_GIANT",   2, "spawn",          {"spawn_unit": "UNIT_WARBEARS"}),
+        ("Stasis",            "UNIT_STORM_DRAKE",   2, "spawn",          {"spawn_unit": "UNIT_PHANTOM_WARRIORS"}),
+        ("Spell Binding",     "UNIT_WARLOCK",       2, "mana_drain",     {"drain": 50}),
+        ("Great Unsummoning", "UNIT_AIR_ELEMENTAL", 2, "kill_strongest", {}),
+    ]
+    for spell_name_b, unit_b, range_b, effect_b, cfg_b in _binding_defs:
+        if spell_name_b in spell_name_to_idx:
+            SPELL_BINDINGS[spell_name_to_idx[spell_name_b]] = {
+                "unit": unit_b, "range": range_b, "effect": effect_b, **cfg_b,
+            }
+
+    # --- MAGIC RESISTANCE SYSTEM (5-sphere graduated affinities) ---
+    # NO TOTAL BLOCKS. Every spell has a chance to land. Resistance is a %
+    # chance to survive, checked via Random(100) < threshold.
+    # Tiers: elite opposing 80%, strong aura 60%, moderate aura 40%,
+    #         chaos entropy 25%, hero self-save 35%, lamp +15% (additive).
+    # Highest applicable tier wins (no multiplicative stacking). Lamp adds on top.
+    # Maximum possible resistance: 80 + 15 = 95%. Never 100%.
+    HERO_UNITS = [
+        "UNIT_ARIEL", "UNIT_SERENA", "UNIT_FREYA", "UNIT_ALORRA",
+        "UNIT_JAFAR", "UNIT_RJAK", "UNIT_MALLEUS", "UNIT_TAURON", "UNIT_WARRAX",
+    ]
+    CHAOS_UNITS = [
+        "UNIT_HELL_HOUNDS", "UNIT_MINOTAUR", "UNIT_GARGOYLE", "UNIT_SALAMANDER",
+        "UNIT_INFERNAL_DEVICE", "UNIT_HYDRA", "UNIT_EFREET", "UNIT_TAURON", "UNIT_WARRAX",
+    ]
+    # Innately magic-resistant units: 50% base resist to ALL spells (dwarven anti-magic)
+    MAGIC_RESISTANT_UNITS = ["UNIT_DWARF_RUNESMITH", "UNIT_IRON_GOLEM"]
+    SPHERE_RESISTANCE = {
+        "death": {
+            "elite": [
+                "UNIT_ZOMBIES", "UNIT_SKELETONS", "UNIT_WRAITH", "UNIT_MINION",
+                "UNIT_DEATH_KNIGHT", "UNIT_LICH", "UNIT_UNDEAD_DRAGON", "UNIT_DRACOLICH",
+                "UNIT_PALADINS", "UNIT_ARCHANGEL", "UNIT_ARCH_MAGE",
+            ],
+            "aura_strong": ["UNIT_PALADINS", "UNIT_ARCHANGEL"],
+            "aura_moderate": ["UNIT_GUARDIAN_SPIRIT", "UNIT_UNICORN", "UNIT_ARIEL", "UNIT_SERENA"],
+        },
+        "chaos": {
+            "elite": ["UNIT_STORM_DRAKE", "UNIT_AIR_ELEMENTAL", "UNIT_WARLOCK"],
+            "aura_strong": ["UNIT_STORM_DRAKE", "UNIT_WARLOCK"],
+            "aura_moderate": ["UNIT_MAGE", "UNIT_JAFAR", "UNIT_STORM_GIANT"],
+        },
+        "nature": {
+            "elite": ["UNIT_EFREET", "UNIT_HYDRA", "UNIT_INFERNAL_DEVICE"],
+            "aura_strong": ["UNIT_EFREET", "UNIT_HYDRA"],
+            "aura_moderate": ["UNIT_HELL_HOUNDS", "UNIT_TAURON", "UNIT_WARRAX"],
+        },
+        "sorcery": {
+            "elite": ["UNIT_BEHEMOTH", "UNIT_GREAT_WYRM", "UNIT_WAR_MAMMOTH"],
+            "aura_strong": ["UNIT_BEHEMOTH", "UNIT_GREAT_WYRM"],
+            "aura_moderate": ["UNIT_WARBEARS", "UNIT_FREYA", "UNIT_ALORRA"],
+        },
+        "life": {
+            "elite": ["UNIT_LICH", "UNIT_DEATH_KNIGHT", "UNIT_DRACOLICH"],
+            "aura_strong": ["UNIT_LICH", "UNIT_DRACOLICH"],
+            "aura_moderate": ["UNIT_WRAITH", "UNIT_RJAK", "UNIT_MALLEUS"],
+        },
+    }
+
+    def _emit_resistance_check(ll: list[str], indent: str, spell_sphere: str) -> None:
+        """Emit graduated resistance check. NO total blocks — always a Random roll.
+
+        Resolution: find highest applicable tier, add lamp bonus, roll once.
+        Tiers: elite=80, aura_strong=60, aura_moderate=40, chaos=25, hero=35, lamp=+15.
+        """
+        res = SPHERE_RESISTANCE.get(spell_sphere, {})
+        elite_set = res.get("elite", [])
+        aura_strong_set = res.get("aura_strong", [])
+        aura_moderate_set = res.get("aura_moderate", [])
+
+        ll.append(f"{indent}resisted = 0;")
+        ll.append(f"{indent}bestAtk = 0;")  # reuse as threshold variable
+        # Tier 1: elite opposing (80%)
+        if elite_set:
+            ll.append(f"{indent}// Elite opposing affinity (80%)")
+            for u in elite_set:
+                ll.append(f"{indent}if (killUnit.type == UnitDB({u})) {{ bestAtk = 80; }}")
+        # Tier 2: strong aura (60%) — co-located protector
+        if aura_strong_set:
+            ll.append(f"{indent}// Strong aura: opposing elite on same tile (60%)")
+            ll.append(f"{indent}if (bestAtk < 60) {{")
+            ll.append(f"{indent}    auraCount = GetUnitsAtLocation(tgtLoc);")
+            ll.append(f"{indent}    for (ai = 0; ai < auraCount; ai = ai + 1) {{")
+            ll.append(f"{indent}        GetUnitFromCell(tgtLoc, ai, auraUnit);")
+            ll.append(f"{indent}        if (auraUnit.owner == killUnit.owner) {{")
+            for u in aura_strong_set:
+                ll.append(f"{indent}            if (auraUnit.type == UnitDB({u})) {{ bestAtk = 60; }}")
+            ll.append(f"{indent}        }}")
+            ll.append(f"{indent}    }}")
+            ll.append(f"{indent}}}")
+        # Tier 3: moderate aura (40%)
+        if aura_moderate_set:
+            ll.append(f"{indent}// Moderate aura: opposing common on tile (40%)")
+            ll.append(f"{indent}if (bestAtk < 40) {{")
+            ll.append(f"{indent}    auraCount = GetUnitsAtLocation(tgtLoc);")
+            ll.append(f"{indent}    for (ai = 0; ai < auraCount; ai = ai + 1) {{")
+            ll.append(f"{indent}        GetUnitFromCell(tgtLoc, ai, auraUnit);")
+            ll.append(f"{indent}        if (auraUnit.owner == killUnit.owner) {{")
+            for u in aura_moderate_set:
+                ll.append(f"{indent}            if (auraUnit.type == UnitDB({u})) {{ bestAtk = 40; }}")
+            ll.append(f"{indent}        }}")
+            ll.append(f"{indent}    }}")
+            ll.append(f"{indent}}}")
+        # Tier 4: magic-resistant units (50% — dwarven anti-magic)
+        ll.append(f"{indent}// Magic-resistant units (50%)")
+        ll.append(f"{indent}if (bestAtk < 50) {{")
+        for u in MAGIC_RESISTANT_UNITS:
+            ll.append(f"{indent}    if (killUnit.type == UnitDB({u})) {{ bestAtk = 50; }}")
+        ll.append(f"{indent}}}")
+        # Tier 5: hero self-save (35%)
+        ll.append(f"{indent}// Hero self-save (35%)")
+        ll.append(f"{indent}if (bestAtk < 35) {{")
+        for u in HERO_UNITS:
+            ll.append(f"{indent}    if (killUnit.type == UnitDB({u})) {{ bestAtk = 35; }}")
+        ll.append(f"{indent}}}")
+        # Tier 5: chaos entropy (25%)
+        ll.append(f"{indent}// Chaos entropy (25%)")
+        ll.append(f"{indent}if (bestAtk < 25) {{")
+        for u in CHAOS_UNITS:
+            ll.append(f"{indent}    if (killUnit.type == UnitDB({u})) {{ bestAtk = 25; }}")
+        ll.append(f"{indent}}}")
+        # Lamp bonus: +15 additive (cap at 95)
+        ll.append(f"{indent}// Lamp artifact: +15% additive")
+        ll.append(f"{indent}if (bestAtk > 0 && MomHasLamp[killUnit.owner] == 1) {{")
+        ll.append(f"{indent}    bestAtk = bestAtk + 15;")
+        ll.append(f"{indent}}}")
+        ll.append(f"{indent}if (bestAtk > 95) {{ bestAtk = 95; }}")
+        # Single roll against the resolved threshold
+        ll.append(f"{indent}// Roll against threshold (0 = no protection, spell always lands)")
+        ll.append(f"{indent}if (bestAtk > 0) {{")
+        ll.append(f"{indent}    roll = Random(100);")
+        ll.append(f"{indent}    if (roll < bestAtk) {{ resisted = 1; }}")
+        ll.append(f"{indent}}}")
+
+    # --- Generate the MomCastSpell function ---
+    lines: list[str] = [
+        "// mom_spellbook_cast.slc -- GENERATED by tools/ctp2_generator.py. DO NOT HAND-EDIT.",
+        "//",
+        "// MomCastSpell: flat if-chain covering all implementable spells.",
+        "// Spell IDs match the paged alertbox arms (sequential, same order).",
+        "// Must load BEFORE per-sphere page files (page Button arms call MomCastSpell).",
+        "//",
+        "// PROXIMITY-GATED CASTING + UNIT-SPELL BINDINGS (2026-08-07):",
+        "// Range tiers: Any=0, WAR_MAGE=1, ARCH_MAGE=2.",
+        "// Signature spells require a specific unit within range of target.",
+        "",
+        "// ---------------------------------------------------------------------------",
+        "// MomCastSpell: generated per-spell effect bodies with proximity targeting",
+        "// and unit-spell bindings. DO NOT HAND-EDIT.",
+        "// ---------------------------------------------------------------------------",
+        "int_f MomCastSpell(int_t p, int_t spellId)",
+        "{",
+        "    city_t tmpCity;",
+        "    unit_t scanUnit;",
+        "    unit_t killUnit;",
+        "    unit_t bestKill;",
+        "    location_t mageLoc;",
+        "    location_t tgtLoc;",
+        "    int_t mageRange;",
+        "    int_t uIdx;",
+        "    int_t uType;",
+        "    int_t numUnits;",
+        "    int_t tgtFound;",
+        "    int_t tgtOwner;",
+        "    int_t bestDist;",
+        "    int_t curDist;",
+        "    int_t ci;",
+        "    int_t pi;",
+        "    int_t boundFound;",
+        "    int_t cellCount;",
+        "    int_t ki;",
+        "    int_t bestAtk;",
+        "    int_t killCount;",
+        "    int_t resisted;",
+        "    int_t roll;",
+        "    int_t ai;",
+        "    int_t auraCount;",
+        "    unit_t auraUnit;",
+        "",
+        "    // --- TARGETING PREAMBLE: find the player's best mage and resolve range ---",
+        "    mageRange = 0;",
+        "    numUnits = player[0].units;",
+        "    for (uIdx = 0; uIdx < numUnits; uIdx = uIdx + 1) {",
+        "        GetUnitByIndex(p, uIdx, scanUnit);",
+        "        uType = scanUnit.type;",
+        "        if (uType == UnitDB(UNIT_ARCH_MAGE)) {",
+        "            if (mageRange < 2) {",
+        "                mageRange = 2;",
+        "                mageLoc = scanUnit.location;",
+        "            }",
+        "        } elseif (uType == UnitDB(UNIT_WAR_MAGE)) {",
+        "            if (mageRange < 1) {",
+        "                mageRange = 1;",
+        "                mageLoc = scanUnit.location;",
+        "            }",
+        "        }",
+        "    }",
+        "",
+        "    // --- ENEMY CITY TARGET: find nearest enemy city within mageRange ---",
+        "    tgtFound = 0;",
+        "    tgtOwner = 0;",
+        "    bestDist = 999999;",
+        "    if (mageRange > 0) {",
+        "        for (pi = 1; pi < 31; pi = pi + 1) {",
+        "            if (pi != p && IsPlayerAlive(pi)) {",
+        "                player[2] = pi;",
+        "                if (player[2].cities > 0) {",
+        "                    for (ci = 0; ci < player[2].cities; ci = ci + 1) {",
+        "                        GetCityByIndex(player[2], ci, tmpCity);",
+        "                        if (CityIsValid(tmpCity)) {",
+        "                            curDist = Distance(mageLoc, tmpCity.location);",
+        "                            if (curDist <= mageRange && curDist < bestDist) {",
+        "                                bestDist = curDist;",
+        "                                tgtLoc = tmpCity.location;",
+        "                                tgtOwner = pi;",
+        "                                tgtFound = 1;",
+        "                            }",
+        "                        }",
+        "                    }",
+        "                }",
+        "            }",
+        "        }",
+        "    }",
+        "",
+        "    // Generated from spells.csv -- DO NOT HAND-EDIT",
+    ]
+
+    for idx, spell_row in enumerate(ordered_spells):
+        spell_name = spell_row["name"].strip()
+        effect_kind = spell_row["effect_kind"].strip()
+        shipped_cost = spell_row["_shipped_cost"]
+        sphere = spell_row["sphere"].strip().lower()
+
+        # if/elseif
+        keyword = "if" if idx == 0 else "} elseif"
+        lines.append(f"    {keyword} (spellId == {idx}) {{")
+        lines.append(f"        // {spell_name} ({effect_kind}) - cost {shipped_cost}")
+
+        # --- BOUND SIGNATURE SPELL ---
+        if idx in SPELL_BINDINGS:
+            binding = SPELL_BINDINGS[idx]
+            b_unit = binding["unit"]
+            b_range = binding["range"]
+            b_effect = binding["effect"]
+            lines.append(f"        // BOUND to {b_unit} (range {b_range})")
+            lines.append(f"        boundFound = 0;")
+            lines.append(f"        if (tgtFound == 1) {{")
+            lines.append(f"            for (uIdx = 0; uIdx < numUnits; uIdx = uIdx + 1) {{")
+            lines.append(f"                GetUnitByIndex(p, uIdx, scanUnit);")
+            lines.append(f"                if (scanUnit.type == UnitDB({b_unit})) {{")
+            lines.append(f"                    if (Distance(scanUnit.location, tgtLoc) <= {b_range}) {{")
+            lines.append(f"                        boundFound = 1;")
+            lines.append(f"                    }}")
+            lines.append(f"                }}")
+            lines.append(f"            }}")
+            lines.append(f"        }}")
+            lines.append(f"        if (boundFound == 1) {{")
+            lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            # Emit effect body
+            if b_effect == "kill_strongest":
+                lines.append(f"            cellCount = GetUnitsAtLocation(tgtLoc);")
+                lines.append(f"            for (ki = 0; ki < cellCount; ki = ki + 1) {{")
+                lines.append(f"                GetUnitFromCell(tgtLoc, ki, killUnit);")
+                lines.append(f"                if (killUnit.owner != p) {{")
+                # Resistance check before kill
+                _emit_resistance_check(lines, "                    ", sphere)
+                lines.append(f"                    if (resisted == 0) {{")
+                lines.append(f"                        KillUnit(killUnit);")
+                lines.append(f"                    }} else {{")
+                lines.append(f"                        Message(p, 'MomSpellResisted');")
+                lines.append(f"                    }}")
+                lines.append(f"                    ki = cellCount;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+            elif b_effect == "kill_weakest":
+                lines.append(f"            cellCount = GetUnitsAtLocation(tgtLoc);")
+                lines.append(f"            bestAtk = 0;")
+                lines.append(f"            for (ki = 0; ki < cellCount; ki = ki + 1) {{")
+                lines.append(f"                GetUnitFromCell(tgtLoc, ki, killUnit);")
+                lines.append(f"                if (killUnit.owner != p) {{")
+                lines.append(f"                    bestKill = killUnit;")
+                lines.append(f"                    bestAtk = 1;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+                lines.append(f"            if (bestAtk == 1) {{")
+                lines.append(f"                killUnit = bestKill;")
+                _emit_resistance_check(lines, "                ", sphere)
+                lines.append(f"                if (resisted == 0) {{")
+                lines.append(f"                    KillUnit(bestKill);")
+                lines.append(f"                }} else {{")
+                lines.append(f"                    Message(p, 'MomSpellResisted');")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+            elif b_effect == "kill_two":
+                # First kill with resistance
+                lines.append(f"            cellCount = GetUnitsAtLocation(tgtLoc);")
+                lines.append(f"            killCount = 0;")
+                lines.append(f"            for (ki = 0; ki < cellCount; ki = ki + 1) {{")
+                lines.append(f"                GetUnitFromCell(tgtLoc, ki, killUnit);")
+                lines.append(f"                if (killUnit.owner != p && killCount == 0) {{")
+                _emit_resistance_check(lines, "                    ", sphere)
+                lines.append(f"                    if (resisted == 0) {{")
+                lines.append(f"                        KillUnit(killUnit);")
+                lines.append(f"                    }}")
+                lines.append(f"                    killCount = 1;")
+                lines.append(f"                    ki = cellCount;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+                # Second kill with resistance
+                lines.append(f"            cellCount = GetUnitsAtLocation(tgtLoc);")
+                lines.append(f"            for (ki = 0; ki < cellCount; ki = ki + 1) {{")
+                lines.append(f"                GetUnitFromCell(tgtLoc, ki, killUnit);")
+                lines.append(f"                if (killUnit.owner != p && killCount == 1) {{")
+                _emit_resistance_check(lines, "                    ", sphere)
+                lines.append(f"                    if (resisted == 0) {{")
+                lines.append(f"                        KillUnit(killUnit);")
+                lines.append(f"                    }}")
+                lines.append(f"                    killCount = 2;")
+                lines.append(f"                    ki = cellCount;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+            elif b_effect == "spawn":
+                spawn_u = binding["spawn_unit"]
+                lines.append(f"            CreateUnit(p, UnitDB({spawn_u}), tgtLoc, 0);")
+            elif b_effect == "mana_drain":
+                drain_amt = binding["drain"]
+                lines.append(f"            if (tgtOwner >= 1 && tgtOwner <= 5) {{")
+                lines.append(f"                MomMagicCur[tgtOwner] = MomMagicCur[tgtOwner] - {drain_amt};")
+                lines.append(f"                if (MomMagicCur[tgtOwner] < 0) {{")
+                lines.append(f"                    MomMagicCur[tgtOwner] = 0;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+            lines.append(f"            Message(p, 'MomSpellCast');")
+            lines.append(f"        }} elseif (tgtFound == 1) {{")
+            lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"            Message(p, 'MomNoRequiredUnit');")
+            lines.append(f"        }} else {{")
+            lines.append(f"            Message(p, 'MomNoTargetInRange');")
+            lines.append(f"        }}")
+
+        elif effect_kind == "summon":
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            unit_ident = _spell_name_to_unit(spell_name)
+            if unit_ident:
+                lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
+                lines.append(f"        CreateUnit(p, UnitDB({unit_ident}), tmpCity.location, 0);")
+                lines.append(f"        Message(p, 'MomSpellCast');")
+            else:
+                lines.append(f"        // TODO: no matching unit for '{spell_name}'")
+                lines.append(f"        Message(p, 'MomSpellCast');")
+
+        elif effect_kind == "instant_damage":
+            # UTILITY SPELLS: non-offensive instants. Some have REAL effects,
+            # others are honest stubs (CTP2 can't implement the original effect).
+            _UTILITY_REAL_EFFECTS = {
+                "Wall of Stone":   'CreateBuilding(tmpCity, BuildingDB(IMPROVE_CITY_WALLS));',
+                "Transmute":       'AddGold(p, 150);',
+                "Enchant Road":    'AddGold(p, 100);',
+                "Change Terrain":  'Terraform(tmpCity.location, 4);',  # to grassland
+                "Raise Volcano":   'Terraform(tmpCity.location, 5);',  # to desert/volcanic
+                "Corruption":      'Terraform(tmpCity.location, 17);', # to dead terrain
+            }
+            _UTILITY_STUBS = {
+                "Earth Lore", "Nature's Cures", "Move Fortress", "Plane Shift",
+                "Resurrection", "Raise Dead", "Word of Recall", "Healing",
+                "Mass Healing", "Recall Hero", "Summoning Circle", "Spell of Return",
+                "Create Artifact", "Enchant Item", "Spell of Mastery",
+                "Disenchant Area", "Disenchant True", "Chaos Channels",
+                "Animate Dead", "Holy Word", "Stasis",
+            }
+            if spell_name in _UTILITY_REAL_EFFECTS:
+                lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+                lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
+                lines.append(f"        {_UTILITY_REAL_EFFECTS[spell_name]}")
+                lines.append(f"        Message(p, 'MomSpellCast');")
+            elif spell_name in _UTILITY_STUBS:
+                lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+                lines.append(f"        Message(p, 'MomSpellCast');")
+            else:
+                lines.append(f"        if (tgtFound == 1) {{")
+                lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+                lines.append(f"            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);")
+                lines.append(f"            Message(p, 'MomSpellCast');")
+                lines.append(f"        }} else {{")
+                lines.append(f"            Message(p, 'MomNoTargetInRange');")
+                lines.append(f"        }}")
+
+        elif effect_kind == "city_enchant":
+            # City enchants: build a thematic building in the player's capital.
+            _CITY_ENCHANT_BUILDINGS = {
+                "Heavenly Light":    "IMPROVE_TEMPLE",
+                "Dark Rituals":      "IMPROVE_BARRACKS",
+                "Nature's Eye":      "IMPROVE_GRANARY",
+                "Altar of Battle":   "IMPROVE_COLOSSEUM",
+                "Gaia's Blessing":   "IMPROVE_FANTASTIC_STABLE",
+                "Stream of Life":    "IMPROVE_AQUEDUCT",
+                "Wall of Darkness":  "IMPROVE_CITY_WALLS",
+                "Cloud of Shadow":   "IMPROVE_CITY_WALLS",
+                "Flying Fortress":   "IMPROVE_COASTAL_FORTRESS",
+                "Spell Ward":        "IMPROVE_CITY_WALLS",
+                "Earth Gate":        "IMPROVE_HARBOR",
+                "Astral Gate":       "IMPROVE_HARBOR",
+            }
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
+            if spell_name in _CITY_ENCHANT_BUILDINGS:
+                bld = _CITY_ENCHANT_BUILDINGS[spell_name]
+                lines.append(f"        if (!CityHasBuilding(tmpCity, \"{bld}\")) {{")
+                lines.append(f"            CreateBuilding(tmpCity, BuildingDB({bld}));")
+                lines.append(f"        }}")
+            elif spell_name == "Prosperity":
+                lines.append(f"        AddGold(p, 200);")
+            elif spell_name == "Inspirations":
+                lines.append(f"        AddGold(p, 150);")
+            elif spell_name == "Consecration":
+                lines.append(f"        AddGold(p, 250);")
+            lines.append(f"        Message(p, 'MomSpellCast');")
+
+        elif effect_kind == "unit_enchant":
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"        Message(p, 'MomSpellCast');")
+
+        elif effect_kind == "global_enchant":
+            _GLOBAL_SPAWN = {
+                "Crusade":        "UNIT_PALADINS",
+                "Chaos Surge":    "UNIT_HELL_HOUNDS",
+                "Zombie Mastery": "UNIT_ZOMBIES",
+                "Doom Mastery":   "UNIT_GARGOYLE",
+            }
+            _GLOBAL_GOLD = {"Just Cause": 100, "Herb Mastery": 100}
+            _GLOBAL_DRAIN = {
+                "Armageddon": 30, "Great Wasting": 30, "Meteor Storm": 20,
+                "Eternal Night": 20, "Evil Omens": 15, "Suppress Magic": 25,
+                "Nature's Wrath": 20, "Tranquility": 15, "Life Force": 20,
+            }
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            if spell_name in _GLOBAL_SPAWN:
+                u = _GLOBAL_SPAWN[spell_name]
+                lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
+                lines.append(f"        CreateUnit(p, UnitDB({u}), tmpCity.location, 0);")
+            elif spell_name in _GLOBAL_GOLD:
+                lines.append(f"        AddGold(p, {_GLOBAL_GOLD[spell_name]});")
+            elif spell_name in _GLOBAL_DRAIN:
+                drain = _GLOBAL_DRAIN[spell_name]
+                lines.append(f"        for (pi = 1; pi < 6; pi = pi + 1) {{")
+                lines.append(f"            if (pi != p) {{")
+                lines.append(f"                MomMagicCur[pi] = MomMagicCur[pi] - {drain};")
+                lines.append(f"                if (MomMagicCur[pi] < 0) {{ MomMagicCur[pi] = 0; }}")
+                lines.append(f"            }}")
+                lines.append(f"        }}")
+            lines.append(f"        Message(p, 'MomSpellCast');")
+
+        elif effect_kind == "dispel":
+            # Dispel: drain mana from target player (proxy for removing enchantments)
+            _DISPEL_DRAIN = {"Disjunction True": 50, "Dispel Evil": 20, "Dispel Magic True": 10}
+            drain_amt = _DISPEL_DRAIN.get(spell_name, 15)
+            lines.append(f"        if (tgtFound == 1) {{")
+            lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"            if (tgtOwner >= 1 && tgtOwner <= 5) {{")
+            lines.append(f"                MomMagicCur[tgtOwner] = MomMagicCur[tgtOwner] - {drain_amt};")
+            lines.append(f"                if (MomMagicCur[tgtOwner] < 0) {{ MomMagicCur[tgtOwner] = 0; }}")
+            lines.append(f"            }}")
+            lines.append(f"            Message(p, 'MomSpellCast');")
+            lines.append(f"        }} else {{")
+            lines.append(f"            Message(p, 'MomNoTargetInRange');")
+            lines.append(f"        }}")
+
+        else:
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"        Message(p, 'MomSpellCast');")
+
+    # Close final elseif
+    lines.append("    }")
+    lines.append("    return 1;")
+    lines.append("}")
+    lines.append("")
+
+    # --- Messagebox segments referenced by MomCastSpell and page Button arms ---
+    lines.append("// Message segments for spell cast feedback")
+    lines.append("messagebox 'MomSpellCast' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_SPELL_CAST);")
+    lines.append("}")
+    lines.append("")
+    lines.append("messagebox 'MomNotEnoughMana' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_NOT_ENOUGH_MANA);")
+    lines.append("}")
+    lines.append("")
+    lines.append("messagebox 'MomSpellLocked' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_SPELL_LOCKED);")
+    lines.append("}")
+    lines.append("")
+    lines.append("// Out-of-range feedback when no mage is close enough to an enemy city")
+    lines.append("messagebox 'MomNoTargetInRange' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_NO_TARGET_IN_RANGE);")
+    lines.append("}")
+    lines.append("")
+    lines.append("// Feedback when the signature unit is not in range for a bound spell")
+    lines.append("messagebox 'MomNoRequiredUnit' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_NO_REQUIRED_UNIT);")
+    lines.append("}")
+    lines.append("")
+    lines.append("// Feedback when a target unit resists or is immune to a kill spell")
+    lines.append("messagebox 'MomSpellResisted' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_SPELL_RESISTED);")
+    lines.append("}")
+    lines.append("")
+
+    # --- Write to mom_spellbook_cast.slc (standalone file) ---
+    _write_rel(_SPELLBOOK_CAST_SLC_REL, "\n".join(lines))
+
+    # --- Patch unit GL GAMEPLAY sections with spell portfolio info ---
+    gl_path = SCENARIO / "english" / "gamedata" / "Great_Library.txt"
+    if gl_path.exists():
+        gl_text = gl_path.read_text(encoding="latin-1")
+        _portfolio_notes = {
+            "UNIT_DEATH_KNIGHT": "Signature Spell: Death Wish (kills an enemy unit at an adjacent city).",
+            "UNIT_WRAITH": "Signature Spell: Black Wind (kills an enemy unit at an adjacent city).",
+            "UNIT_LICH": "Signature Spell: Cruel Unminding (drains 30 mana from an adjacent enemy wizard).",
+            "UNIT_EFREET": "Signature Spell: Fire Storm (deploys Hell Hounds at an enemy city within 2 tiles).",
+            "UNIT_GREAT_WYRM": "Signature Spell: Call the Void (kills 2 enemy units at a city within 2 tiles).",
+            "UNIT_BEHEMOTH": "Signature Spell: Earthquake (deploys a War Troll at an adjacent enemy city).",
+            "UNIT_STORM_GIANT": "Signature Spell: Ice Storm (deploys War Bears at an enemy city within 2 tiles).",
+            "UNIT_STORM_DRAKE": "Signature Spell: Stasis (deploys Phantom Warriors at a city within 2 tiles).",
+            "UNIT_WARLOCK": "Signature Spell: Spell Binding (drains 50 mana from an enemy wizard within 2 tiles).",
+            "UNIT_AIR_ELEMENTAL": "Signature Spell: Great Unsummoning (kills an enemy unit at a city within 2 tiles).",
+            "UNIT_WAR_MAGE": "Tactical Caster: enables city-targeted spells at range 1 (adjacent tile).",
+            "UNIT_ARCH_MAGE": "Strategic Caster: enables city-targeted spells at range 2 (artillery reach).",
+        }
+        patched = 0
+        for unit_id, note in _portfolio_notes.items():
+            section_tag = f"[{unit_id}_GAMEPLAY]"
+            end_tag = "[END]"
+            if section_tag in gl_text:
+                # Find the section and inject the note before [END]
+                start = gl_text.index(section_tag)
+                end_pos = gl_text.index(end_tag, start)
+                existing_content = gl_text[start + len(section_tag):end_pos]
+                if note not in existing_content:
+                    # Insert the note on a new line before [END]
+                    insert_point = end_pos
+                    gl_text = gl_text[:insert_point] + "\n" + note + "\n" + gl_text[insert_point:]
+                    patched += 1
+        if patched > 0:
+            with open(gl_path, "w", encoding="latin-1", newline="") as fh:
+                fh.write(gl_text)
+            print(f"  + patched {patched} unit GL GAMEPLAY section(s) with spell portfolio info")
+
+    return len(ordered_spells)
+
+
+def _print_spell_cost_distribution():
+    """Print a cost distribution summary by rarity for Phase 4b verification."""
+    by_sphere = _load_implementable_spells()
+
+    # Group by rarity, compute costs
+    by_rarity: dict[str, list[int]] = {}
+    for sphere in _SPELLBOOK_SPHERES:
+        for row in by_sphere[sphere]:
+            rarity = row.get("_rarity", "unknown")
+            by_rarity.setdefault(rarity, []).append(row["_shipped_cost"])
+
+    print("    --- Spell Cost Distribution (Phase 4 economy retune) ---")
+    print(f"    {'Rarity':<12} {'Count':>5} {'Min':>5} {'Avg':>5} {'Max':>5}  Target Range")
+    targets = {"common": "10-30", "uncommon": "30-60", "rare": "60-120", "very rare": "120-180"}
+    for rarity in ["common", "uncommon", "rare", "very rare"]:
+        costs = by_rarity.get(rarity, [])
+        if not costs:
+            continue
+        avg = sum(costs) // len(costs)
+        target = targets.get(rarity, "?")
+        print(f"    {rarity:<12} {len(costs):>5} {min(costs):>5} {avg:>5} {max(costs):>5}  ({target})")
+
+    # Pool sustainability check
+    pool = 200
+    gen_rate = 20  # mid-game mana/turn
+    common_avg = sum(by_rarity.get("common", [10])) // max(1, len(by_rarity.get("common", [10])))
+    rare_avg = sum(by_rarity.get("rare", [75])) // max(1, len(by_rarity.get("rare", [75])))
+    vrare_avg = sum(by_rarity.get("very rare", [150])) // max(1, len(by_rarity.get("very rare", [150])))
+    print(f"    Pool sustainability (pool={pool}, gen={gen_rate}/turn):")
+    print(f"      Common avg {common_avg}: castable every {max(1, common_avg // gen_rate)} turn(s)")
+    print(f"      Rare avg {rare_avg}: save {max(1, rare_avg // gen_rate)} turns")
+    print(f"      Very Rare avg {vrare_avg}: save {max(1, vrare_avg // gen_rate)} turns ({vrare_avg*100//pool}% of pool)")
+
+
+_ADVANCE_MASK ={r["id"] for r in _policy_csv_rows("advance_mask.csv")}
+_ADVANCE_REANCHOR = _policy_csv_rows("advance_reanchor.csv")
+
+_AGE_NAMES = ["", "AGE_ONE", "AGE_TWO", "AGE_THREE", "AGE_FOUR", "AGE_FIVE",
+              "AGE_SIX", "AGE_SEVEN", "AGE_EIGHT", "AGE_NINE", "AGE_TEN"]
+_AGE_NUMBER = {name: n for n, name in enumerate(_AGE_NAMES) if name}
+
+# Renaissance cap: no MUNDANE advance may sit past AGE_FOUR. Ages 5+ are
+# purely magical, which is what makes "Masters of Magic tech split across
+# ages" true rather than a claim.
+_MUNDANE_MAX_AGE = 4
+# Ladder rung -> age. The spine of the layout: a rung's age is AUTHORITATIVE
+# and is never max()'d against a prerequisite, because the prerequisite chain
+# under a sphere root is pre-magic foundation and gets pulled DOWN to fit
+# (see _relayout_advance_ages' upper-bound propagation).
+_SPHERE_NAMES = ["life", "nature", "death", "chaos", "sorcery"]
+_RUNG_AGE = {"MAGIC": 2, "LORE": 3, "ADEPT": 4,
+             "MAGE": 5, "WIZARD": 6, "MASTER": 7}
+
+
+def _ladder_rung_age(ident: str) -> "int | None":
+    """Return the fixed age of a sphere-ladder rung, or None if not a rung."""
+    # NOTE: iterate the SPHERES, not _SPHERE_TIERS -- the tier list would build
+    # ADVANCE_LORE_MAGIC and silently match nothing, dropping every rung into
+    # the depth-banding path and shifting all five ladders two ages late.
+    for sphere in _SPHERE_NAMES:
+        for rung, age in _RUNG_AGE.items():
+            if ident == f"ADVANCE_{sphere.upper()}_{rung}":
+                return age
+    # Sorcery's root and lore rung are irregularly named in the authored tree.
+    return {"ADVANCE_SORCERY": 2, "ADVANCE_SORCEROUS_LORE": 3}.get(ident)
+
+
+def _momjr_advance_idents() -> set[str]:
+    """ADVANCE_* idents authored by MoM (as opposed to inherited from base)."""
+    idents = set()
+    with open(MOMJR / "advances.csv", newline="", encoding="utf-8-sig") as fh:
+        for row in csv.DictReader(fh):
+            name = (row.get("name") or "").split(";", 1)[0].strip()
+            if (not name or name.startswith("x") or "Extra Advance" in name
+                    or name.lower() == "blah"):
+                continue
+            idents.add(f"ADVANCE_{sanitize(name)}")
+    return idents
+
+
+def _apply_advance_mask(adv_file: "P.AdvanceFile") -> int:
+    """Delete every masked advance block and every reference to one.
+
+    Require: all advance INGESTION passes have run, so the tree is final.
+    Guarantee: no ADVANCE_* named in advance_mask.csv survives in Advance.txt,
+    either as a block or inside another block's Prerequisites. Idempotent --
+    a second run finds nothing to remove.
+    Why: the mask is the Renaissance tech cap. It carries base CTP2's
+    industrial/modern tail (AGE_FIVE..TEN plus 11 advances mis-banded into
+    AGE_THREE) and the 30 '*_WAW' duplicate-ladder advances that no MoM
+    content ever references. Measured 2026-07-26: 112 removed, 143 kept, and
+    ZERO kept advances carry a deleted prerequisite -- the cut is clean.
+    """
+    blocks = _scan_advance_blocks(adv_file._text)
+    removed = 0
+    for ident in sorted(_ADVANCE_MASK & set(blocks)):
+        text = adv_file._text
+        # Swallow the trailing blank line so deletions do not accumulate gaps.
+        adv_file._text = re.sub(
+            r"^" + re.escape(ident) + r"\s*\{.*?^\}\n*", "",
+            text, count=1, flags=re.S | re.M)
+        if adv_file._text != text:
+            removed += 1
+        adv_file.blocks.pop(ident, None)
+    if _ADVANCE_MASK:
+        # Strip dangling prerequisite lines pointing at anything just removed.
+        adv_file._text = "\n".join(
+            line for line in adv_file._text.splitlines()
+            if not (line.strip().startswith("Prerequisites ")
+                    and line.split()[-1] in _ADVANCE_MASK)
+        ) + "\n"
+    return removed
+
+
+def _relayout_advance_ages(adv_file: "P.AdvanceFile") -> tuple[int, dict[str, int]]:
+    """Re-band every surviving advance so content lands in the intended age.
+
+    Require: _apply_advance_mask has run, so the graph holds only kept advances.
+    Guarantee: (a) every sphere-ladder rung sits on its fixed age, MAGIC=2
+    through MASTER=7; (b) no MUNDANE advance exceeds AGE_FOUR, where mundane
+    means "does not transitively require a sphere rung" -- NOT "inherited from
+    base CTP2", which was the original and wrong test;
+    (c) no advance is in an earlier age than one of its own prerequisites.
+    Idempotent -- the layout is a pure function of the graph.
+
+    Method (derived, never hand-typed, so a rename cannot desync it):
+      1. topologically order the kept advances by prerequisite;
+      2. seed an upper bound of the rung age on each rung, 10 elsewhere, and
+         propagate it BACKWARD along prerequisite edges -- a prerequisite can
+         never be bounded later than the thing it enables;
+      3. walk forward: rungs take their fixed age; MoM support advances take
+         max(depth band, deepest prerequisite + 1) so long magical chains
+         actually climb; base advances keep their authored CTP2 age clamped to
+         the Renaissance cap. Everything is finally clamped by its upper bound
+         and floored by its prerequisites.
+    Step 2 is what makes step 3 consistent: without it, the five *_MAGIC roots
+    inherit a deep support chain and drag all 30 rungs into one age -- the
+    exact 'all magic crammed into a single band' defect this pass exists to fix.
+    """
+    blocks = _scan_advance_blocks(adv_file._text)
+    prereqs = {
+        ident: [p for p in re.findall(r'^\s*Prerequisites\s+(ADVANCE_[A-Z0-9_]+)\s*$',
+                                      body, re.M)
+                if p != ident and p in blocks]
+        for ident, body in blocks.items()
+    }
+    current = {
+        ident: _AGE_NUMBER.get(_unit_block_value(body, "Age", "AGE_ONE"), 1)
+        for ident, body in blocks.items()
+    }
+    momjr = _momjr_advance_idents()
+
+    order: list[str] = []
+    seen: set[str] = set()
+
+    def _visit(ident: str, stack: tuple[str, ...] = ()) -> None:
+        if ident in seen or ident in stack:
+            return          # a prerequisite cycle is not ours to fix; skip it
+        for parent in prereqs[ident]:
+            _visit(parent, stack + (ident,))
+        seen.add(ident)
+        order.append(ident)
+
+    for ident in sorted(blocks):
+        _visit(ident)
+
+    depth: dict[str, int] = {}
+    for ident in order:
+        depth[ident] = (0 if not prereqs[ident]
+                        else 1 + max(depth.get(p, 0) for p in prereqs[ident]))
+
+    bound = {i: (_ladder_rung_age(i) or len(_AGE_NAMES) - 1) for i in blocks}
+    for ident in reversed(order):
+        for parent in prereqs[ident]:
+            bound[parent] = min(bound[parent], bound[ident])
+
+    # MAGICAL closure: a rung, or anything that transitively needs one. This --
+    # not `ident in momjr` -- is what the Renaissance cap must key on. MoM
+    # authored essentially the WHOLE tree, so `momjr` is true for almost every
+    # ident and the `else` branch below was dead: the cap applied to nothing,
+    # and four mundane advances (Ecognomics, Sanitation, Sea Lore, Greater
+    # Fauna Lore) drifted to AGE_FIVE on pure depth banding. `order` is
+    # topological, so one forward pass settles it.
+    # The closure is also what keeps the cap CONSISTENT with guarantee (c): a
+    # mundane advance's prerequisites are mundane by construction (a magical
+    # prerequisite would have made it magical), so clamping to AGE_FOUR can
+    # never place it below a parent.
+    magical: dict[str, bool] = {}
+    for ident in order:
+        magical[ident] = (_ladder_rung_age(ident) is not None
+                          or any(magical.get(p, False) for p in prereqs[ident]))
+
+    ages: dict[str, int] = {}
+    for ident in order:
+        rung = _ladder_rung_age(ident)
+        if rung is not None:
+            ages[ident] = rung
+            continue
+        parent_ages = [ages[p] for p in prereqs[ident] if p in ages]
+        if ident in momjr:
+            want = max(1 + depth[ident] // 2,
+                       (max(parent_ages) + 1) if parent_ages else 1)
+        else:
+            want = min(_MUNDANE_MAX_AGE, current[ident])
+        age = min(bound[ident], want)
+        if parent_ages:
+            age = max(age, max(parent_ages))
+        if not magical[ident]:
+            age = min(age, _MUNDANE_MAX_AGE)
+        ages[ident] = max(1, min(len(_AGE_NAMES) - 1, age))
+
+    changed = 0
+    for ident, age in ages.items():
+        body = blocks[ident]
+        new_body = _set_raw_block_value(body, "Age", _AGE_NAMES[age])
+        if new_body != body:
+            adv_file._text = adv_file._text.replace(body, new_body, 1)
+            blocks[ident] = new_body
+            changed += 1
+    return changed, ages
+
+
+def _apply_advance_reanchor(reg) -> tuple[int, int]:
+    """Re-point or delete every block orphaned by the tech cap.
+
+    Require: _apply_advance_mask has run and tileimp.txt/govern.txt have been
+    rebuilt, so this sees final blocks.
+    Guarantee: no dimension file cites a masked ADVANCE_*. Idempotent -- each
+    row only fires while the stale advance is still present.
+    Why: mom-db-error-class -- a dangling advance reference surfaces in-game as
+    'not found in Advance database' and takes the scenario down at load.
+    """
+    by_file: dict[str, list[dict[str, str]]] = {}
+    for row in _ADVANCE_REANCHOR:
+        by_file.setdefault(row["file"], []).append(row)
+    # An orphan is any advance absent from the LIVE tree -- a superset of the
+    # mask, because base CTP2 files also cite advances MoM never imported.
+    _live = set(re.findall(r"^(ADVANCE_[A-Z0-9_]+)\s*\{",
+                           _read_rel("default/gamedata/Advance.txt"), re.M))
+    rewritten = deleted = 0
+    for name, rows in by_file.items():
+        rel = f"default/gamedata/{name}"
+        # Units.txt and Wonder.txt are REGISTRY-BACKED: reg.save_all() runs
+        # after this pass and rewrites them from the cached parse, so a raw
+        # _write_rel here is silently clobbered. Mutate the cached ._text when
+        # the file is loaded; fall back to raw I/O for the rest (tileimp.txt,
+        # terrain.txt, govern.txt are not registry-written).
+        cached = reg._parsed.get(rel)
+        text = getattr(cached, "_text", "") if cached is not None else _read_rel(rel)
+        if not text:
+            continue
+        before = text
+        for row in rows:
+            ident, target = row["block"], row["new_advance"]
+            pattern = re.compile(r"^(" + re.escape(ident) + r"\s*\{)(.*?)(^\}\n*)",
+                                 re.S | re.M)
+            match = pattern.search(text)
+            if not match:
+                continue
+            if target == "DELETE_BLOCK":
+                text = text[:match.start()] + text[match.end():]
+                deleted += 1
+                continue
+            body = match.group(2)
+            if target == "CLEAR_FIELD":
+                new_body = re.sub(r"^\s*ObsoleteAdvance\s+ADVANCE_[A-Z0-9_]+\s*$\n?",
+                                  "", body, flags=re.M)
+            else:
+                # Re-point every masked advance this block still cites,
+                # whatever field carries it (EnableAdvance, AddAdvance,
+                # RemoveAdvance, ObsoleteAdvance).
+                new_body = re.sub(
+                    r"\b(ADVANCE_[A-Z0-9_]+)\b",
+                    lambda m: target if m.group(1) not in _live else m.group(1),
+                    body)
+            if new_body != body:
+                text = f"{text[:match.start()]}{match.group(1)}{new_body}{match.group(3)}{text[match.end():]}"
+                rewritten += 1
+        if text != before:
+            if cached is not None:
+                cached.set_text(text) if hasattr(cached, "set_text") else \
+                    setattr(cached, "_text", text)
+            else:
+                _write_rel(rel, text)
+    return rewritten, deleted
+
+
+def _apply_sphere_gating(reg) -> tuple[int, list[str]]:
+    """Rewrite EnableAdvance on every sphere'd block to its ladder rung.
+
+    Require: the unit mask, the unit/improvement cost retunes, and the
+    improvement->buildings merge have all already run, so this reads final
+    costs and cannot resurrect a masked unit.
+    Guarantee: every block named by sphere_gate_targets() that EXISTS in a DB
+    file gates on its sphere rung. Idempotent -- a second run changes nothing.
+    Note: a target with no matching block is not an error; units.csv carries
+    masked placeholder rows and improvements.csv rows split across
+    buildings.txt and Wonder.txt.
+    """
+    targets = sphere_gate_targets()
+
+    # THE LORE RUNG IS DEMOTED TO THE SPHERE ROOT -- BUILD GATE ONLY (2026-08-02).
+    #
+    # A tribe now begins play holding its sphere root (mom_magic.slc
+    # MomSphereRootGrant), which opens rung-1 SUMMONING at turn one. Leaving the
+    # same creature's BUILD gate on the lore advance is the asymmetry the
+    # operator reported: a Warbears cost 1970 science to build and nothing but
+    # mana to summon, so the summon path bypassed the tech tree outright.
+    # Pointing both at the root makes the choice an honest trade -- 75 mana plus
+    # preparation against 350 shields -- instead of a bypass. The creature is
+    # still production-gated by its shield cost.
+    #
+    # It also closes a gap measured across the AI build lists: before this, NO
+    # tribe had a single racial unit buildable under 455 science, so every early
+    # army was neutral Spearmen and Swordsmen and the only sphere-flavoured units
+    # on the map were summoned ones. Same lesson as the cost-derived-tier
+    # regression recorded in _sphere_gate_targets, from the other direction.
+    #
+    # IT LIVES HERE, NOT IN sphere_gate_targets(), AND THAT PLACEMENT IS THE
+    # WHOLE POINT. This function is the only consumer that WRITES a build gate.
+    # The other two read the same map as the ladder and each breaks if the lore
+    # rung moves under them:
+    #   * _emit_mom_gating_slc  -- collapsing lore to the root DELETES the lore
+    #     advance from mod_CanPlayerHaveAdvance, letting a Death tribe research
+    #     ADVANCE_LIFE_LORE, and emits a duplicate dead branch in
+    #     MomSphereRungTick.
+    #   * _summon_pool_by_rung  -- reads the rung back off this map, so demoting
+    #     it moves every rung-1 creature into the root's pool, which the emitted
+    #     roll never reads; the entire lowest tier silently stops being
+    #     summonable.
+    # Both were observed: the first from putting this in _sphere_rung_advance,
+    # the second from putting it in sphere_gate_targets one attempt later.
+    _lore_to_root = {
+        _sphere_rung_advance(s, "lore"): _sphere_ladder_idents(s)[0]
+        for s in _SPHERE_PLAYER
+    }
+    targets = {k: _lore_to_root.get(v, v) for k, v in targets.items()}
+
+    # Registry-backed files, rewritten through ._text so reg.save_all() emits
+    # them. buildings.txt is deliberately NOT here: it has no PARSER_MAP entry
+    # (it is produced wholesale by _merge_mom_improvements_into_buildings and
+    # written straight to disk), so it takes the read/modify/write path below.
+    reg_files = [
+        "default/gamedata/Units.txt",
+        "default/gamedata/Units_historic.txt",
+        "default/gamedata/Units_release.txt",
+        "default/gamedata/Wonder.txt",
+    ]
+    direct_files = ["default/gamedata/buildings.txt"]
+    changed, touched = 0, set()
+    for rel in reg_files + direct_files:
+        is_direct = rel in direct_files
+        if is_direct:
+            db, text = None, _read_rel(rel)
+        else:
+            db = reg.load(rel)
+            text = getattr(db, "_text", None)
+        if not text:
+            continue
+        before = text
+        for ident in sorted(targets):
+            advance = targets[ident]
+            block = re.compile(r"^(" + re.escape(ident) + r"\s*\{)(.*?)(^\})",
+                               re.S | re.M)
+
+            def _rewrite(m: "re.Match[str]") -> str:
+                nonlocal changed
+                body = m.group(2)
+                new_body = _set_raw_block_value(body, "EnableAdvance", advance)
+                if new_body != body:
+                    changed += 1
+                    touched.add(ident)
+                return f"{m.group(1)}{new_body}{m.group(3)}"
+
+            text = block.sub(_rewrite, text)
+        if is_direct:
+            if text != before:
+                _write_rel(rel, text)
+        else:
+            db._text = text
+    return changed, sorted(touched)
+
+
 def _retune_mom_improvement_costs(advance_ages: dict[str, str]) -> int:
     """Rewrite MoM improvement costs into base CTP2 age bands from raw MOMJR costs.
 
@@ -1682,6 +5037,80 @@ def _scaled_mom_advance_cost(weight: int, age: str, prereq_count: int,
     return max(low, scaled)
 
 
+def csv_advance_prereq_edges() -> dict[str, list[str]]:
+    """Return ADVANCE_* -> [prereq ADVANCE_*] exactly as advances.csv declares.
+
+    Single source for the generator pass and the gate, so the two cannot drift.
+    Resolution is through the `unit` lane of advance_code_map.csv -- that is the
+    lane the advance importer has always used, not the `prereq` lane.
+    """
+    edges: dict[str, list[str]] = {}
+    with open(str(MOMJR / "advances.csv"), newline='', encoding='utf-8') as f:
+        for row in csv.DictReader(f):
+            name = (row.get('name') or '').split(';')[0].strip()
+            if (not name or name.startswith('x') or 'Extra Advance' in name
+                    or name.lower() == 'blah'):
+                continue
+            wanted = []
+            for code_col in ('prereq1', 'prereq2'):
+                code = (row.get(code_col) or '').strip()
+                if code and code not in _NO_ADVANCE:
+                    adv_id = MOM_UNIT_ADVANCE.get(code)
+                    if adv_id and adv_id not in wanted:
+                        wanted.append(adv_id)
+            if wanted:
+                edges[f"ADVANCE_{sanitize(name)}"] = wanted
+    return edges
+
+
+def _reconcile_advance_prereqs(adv_file: "P.AdvanceFile") -> int:
+    """Add every advances.csv prereq edge missing from a pre-existing block.
+
+    Require: the advances.csv registration loop has run.
+    Guarantee: for each CSV row, every declared prereq appears as a
+    `Prerequisites` line in that advance's block.
+    Maintain: edges the base tree declares but the CSV does not are left alone --
+    `nil` in the CSV means "unspecified", not "assert none", so a rewrite would
+    silently flatten the stock tech tree.
+
+    Why it exists: RawBlockTextFile.add_advance (ctp2_parser.py:523) is
+    APPEND-ONLY. Any ident already present in the seeded Advance.txt discards its
+    whole CSV-derived block, prereqs included -- so the control plane silently
+    loses to whatever the seed happened to contain. Measured fallout today is one
+    edge (ADVANCE_WRITING <- ADVANCE_ALPHABET), but the hole is a class, not a
+    case, and the gate below is what keeps it closed.
+
+    Ordering: must run BEFORE _retune_mom_advance_costs, which prices an advance
+    partly by its prerequisite count.
+    """
+    blocks = _scan_advance_blocks(adv_file._text)
+    changed = 0
+    for ident, wanted in csv_advance_prereq_edges().items():
+        block_text = blocks.get(ident)
+        if block_text is None:
+            continue
+        have = set(re.findall(r'^\s*Prerequisites\s+(ADVANCE_[A-Z0-9_]+)\s*$',
+                              block_text, re.MULTILINE))
+        missing = [p for p in wanted if p not in have]
+        if not missing:
+            continue
+        lines = block_text.splitlines(keepends=True)
+        insert_at = 1  # immediately after the `IDENT {` opener
+        for offset, line in enumerate(lines[1:], start=1):
+            if re.match(r'^\s*Prerequisites\s+ADVANCE_', line):
+                insert_at = offset + 1
+        indent = "   "
+        new_block = ''.join(
+            lines[:insert_at]
+            + [f"{indent}Prerequisites {p}\n" for p in missing]
+            + lines[insert_at:]
+        )
+        adv_file._text = adv_file._text.replace(block_text, new_block, 1)
+        blocks[ident] = new_block
+        changed += 1
+    return changed
+
+
 def _retune_mom_advance_costs(adv_file: "P.AdvanceFile") -> int:
     """Rewrite MoM-imported advance costs into AE-scaled research bands."""
     ae_bands = _load_ae_advance_cost_bands()
@@ -1736,6 +5165,62 @@ def _retune_mom_advance_costs(adv_file: "P.AdvanceFile") -> int:
             adv_file._text = adv_file._text.replace(block_text, new_block, 1)
             advance_blocks[ident] = new_block
             changed += 1
+    return changed
+
+
+def _apply_magic_cost_share(adv_file: "P.AdvanceFile") -> int:
+    """Reprice sphere ladder advances as a fraction of the era's tech budget.
+
+    Magic is the cheat code, not a second grind. Each ladder rung's cost is set to
+    magic_ratio × era_midpoint, making it visibly cheaper than a same-era tech.
+    Called AFTER _retune_mom_advance_costs so it overrides the generic banding.
+
+    Returns the number of advances repriced.
+    """
+    share_cfg = MOD_POLICY.get("advance_cost_scaling", {}).get("magic_cost_share")
+    if not share_cfg:
+        return 0
+    magic_ratio = float(share_cfg["magic_ratio"])
+    ae_bands = _load_ae_advance_cost_bands()
+    if not ae_bands:
+        return 0
+
+    # Collect all sphere ladder idents
+    ladder_idents: set[str] = set()
+    for sphere in ["life", "nature", "sorcery", "death", "chaos"]:
+        ladder_idents.update(_sphere_ladder_idents(sphere))
+
+    advance_blocks = _scan_advance_blocks(adv_file._text)
+    changed = 0
+    round_to = int(MOD_POLICY.get("advance_cost_scaling", {}).get("round_to", 5))
+
+    for ident in sorted(ladder_idents):
+        block_text = advance_blocks.get(ident)
+        if not block_text:
+            continue
+        age_match = re.search(r'^\s*Age\s+(AGE_[A-Z0-9_]+)\s*$', block_text, re.MULTILINE)
+        cost_match = re.search(r'^\s*Cost\s+(\d+)\s*$', block_text, re.MULTILINE)
+        if not age_match or not cost_match:
+            continue
+        low, high = ae_bands.get(age_match.group(1), (0, 0))
+        if low == 0 and high == 0:
+            continue
+        era_midpoint = (low + high) // 2
+        new_cost = int(round((era_midpoint * magic_ratio) / round_to) * round_to)
+        new_cost = max(low // 2, new_cost)  # floor at half the era minimum
+        current_cost = int(cost_match.group(1))
+        if new_cost == current_cost:
+            continue
+        new_block = re.sub(
+            r'^(\s*Cost\s+)\d+(\s*)$',
+            rf'\g<1>{new_cost}\g<2>',
+            block_text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        adv_file._text = adv_file._text.replace(block_text, new_block, 1)
+        advance_blocks[ident] = new_block
+        changed += 1
     return changed
 
 
@@ -1897,7 +5382,7 @@ def _write_mom_unit_build_lists(units_file: P.UnitsFile) -> dict[str, int]:
     for ident, block_text in blocks.items():
         if ident == "UNIT_CITY":
             continue
-        if re.search(r'^\s*(NoIndex|GLHidden)\s*$', block_text, re.MULTILINE):
+        if re.search(r'^\s*(NoIndex|GLHidden|CantBuild)\s*$', block_text, re.MULTILINE):
             continue
         visible_units.append((ident, block_text))
 
@@ -2445,6 +5930,18 @@ def _ensure_runtime_wonder_gl_surfaces(
                 added_strings += 1
             gl_strings.entries[ident] = display_name
 
+        # Eleven messages in info_str.txt interpolate the name TWICE --
+        # `{wonder[0].name#ARTICLE}{wonder[0].name}` -- and #ARTICLE resolves
+        # `<IDENT>_ARTICLE` from here. A missing key falls back to the name, so
+        # the message reads `Bardic CollegeBardic College`. Wonders are the only
+        # database the engine uses this modifier for.
+        article_key = f"{ident}_ARTICLE"
+        article = _wonder_article(display_name)
+        if gl_strings.entries.get(article_key) != article:
+            if article_key not in gl_strings.entries:
+                added_strings += 1
+            gl_strings.entries[article_key] = article
+
         description_text = str(spec.get("gl_description") or "").strip() or gl_strings.entries.get(
             description_key,
             f"{display_name} is a {MOD_DISPLAY_NAME} world wonder.",
@@ -2709,6 +6206,7 @@ def main():
     reg.load("english/gamedata/Great_Library.txt")
 
     mom_advance_idents: set[str] = set(MOM_UNIT_ADVANCE.values())
+    disabled_advance_idents: set[str] = set()
 
     # Generate stub advances for base-unit EnableAdvance refs not in advances.csv
     adv_file = reg.load("default/gamedata/Advance.txt")
@@ -2733,14 +6231,34 @@ def main():
                     adv_id = MOM_UNIT_ADVANCE.get(code)
                     if adv_id:
                         prereqs.append(adv_id)
+            if _advance_row_is_disabled(row):
+                disabled_advance_idents.add(ident)
             is_new = ident not in reg.load("default/gamedata/Advance.txt").blocks
             P.ModAdvance(ident, name, "1000", cat, _AGE_MAP.get(str(epoch), 'AGE_ONE'),
                          prereqs=prereqs).register(reg)
             if is_new:
                 print(f"  + advance: {name}")
+
+    # Close every advance whose civ2 row says `no`. Must run AFTER registration
+    # (the block has to exist) and BEFORE the cost retune, which discounts
+    # self-prereqs when counting real research dependencies.
+    adv_file = reg.load("default/gamedata/Advance.txt")
+    closed_disabled = 0
+    for ident in sorted(disabled_advance_idents & set(adv_file.blocks)):
+        if adv_file.ensure_self_prerequisite(ident):
+            closed_disabled += 1
+    if closed_disabled:
+        print(f"  + closed {closed_disabled} advance(s) disabled by a civ2 `no` prerequisite")
+    # Before the cost retune, which prices an advance partly by its prereq count.
+    reconciled_prereqs = _reconcile_advance_prereqs(adv_file)
+    if reconciled_prereqs:
+        print(f"  + restored control-plane prereqs on {reconciled_prereqs} pre-existing advance(s)")
     retuned_advance_costs = _retune_mom_advance_costs(adv_file)
     if retuned_advance_costs:
         print(f"  + rescaled {retuned_advance_costs} MoM advance cost(s) into AE age bands")
+    magic_share_repriced = _apply_magic_cost_share(adv_file)
+    if magic_share_repriced:
+        print(f"  + magic-share: repriced {magic_share_repriced} sphere ladder advance(s) at {MOD_POLICY['advance_cost_scaling']['magic_cost_share']['magic_ratio']:.0%} of era midpoint")
     advance_ages = _advance_age_map_from_text(adv_file._text)
 
     # Backfill display names for pre-existing advances that still show raw ADVANCE_* IDs
@@ -2911,6 +6429,8 @@ def main():
         written_runtime_wonder_art,
     ) = _ensure_runtime_wonder_gl_surfaces(gl_str, gl_library, waw_library, wonder_specs)
     retuned_wonder_costs = _retune_mom_wonder_costs(advance_ages)
+    # After the cost/metadata passes, so it owns the tail of a settled block.
+    _apply_wonder_effects()
     retuned_improvement_costs = _retune_mom_improvement_costs(advance_ages)
     if retuned_improvement_costs:
         print(f"  + rescaled {retuned_improvement_costs} improvement cost(s) into base CTP2 age bands")
@@ -2990,7 +6510,6 @@ def main():
 
     hidden_advances = 0
     goody_excluded_advances = 0
-    unresearchable_foreign = 0
     for ident in sorted(adv_file.blocks):
         if ident in momjr_visible_idents:
             continue
@@ -2998,14 +6517,10 @@ def main():
             hidden_advances += 1
         if adv_file.ensure_flags(ident, ["GoodyHutExcluded"]):
             goody_excluded_advances += 1
-        if adv_file.ensure_self_prerequisite(ident):
-            unresearchable_foreign += 1
     if hidden_advances:
         print(f"  + hid {hidden_advances} foreign advance(s) from Great Library index")
     if goody_excluded_advances:
         print(f"  + excluded {goody_excluded_advances} foreign advance(s) from goody-hut rewards")
-    if unresearchable_foreign:
-        print(f"  + made {unresearchable_foreign} foreign advance(s) unresearchable (self-prereq)")
 
     # Sphere-home exclusivity (mod_policy "sphere_home_exclusivity"): each
     # magic sphere's research ladder additionally requires an unresearchable
@@ -3046,11 +6561,55 @@ def main():
         print(f"  + sphere-home exclusivity: {homes_created} HOME advance(s) created, "
               f"{wired} ladder prereq(s) wired")
 
+    else:
+        # Policy OFF (mod_policy.json carries no sphere_home_exclusivity key),
+        # so the ADVANCE_HOME_* advances are never created -- but an earlier
+        # run left mom_sphere_home.slc on disk AND #include'd from
+        # scenario.slc, citing five advances that do not exist. That is the
+        # mom-db-error-class crash surface exactly. Sever it; the per-tribe
+        # wall is mod_CanPlayerHaveAdvance in mom_gating.slc, not this.
+        _home_path = SCENARIO / "default/gamedata/mom_sphere_home.slc"
+        _scen_slc = _read_rel("default/gamedata/scenario.slc")
+        if '#include "mom_sphere_home.slc"' in _scen_slc:
+            _write_rel("default/gamedata/scenario.slc",
+                       "".join(l for l in _scen_slc.splitlines(keepends=True)
+                               if 'mom_sphere_home.slc' not in l))
+            print("  + scenario.slc: severed stale mom_sphere_home.slc include")
+        if _home_path.exists():
+            _home_path.unlink()
+            print("  + removed stale mom_sphere_home.slc (policy off)")
+
+    # --- Tech cap + age re-layout ---------------------------------------
+    # ORDERING: after ALL advance ingestion and ladder wiring, and BEFORE the
+    # tileimp.txt/govern.txt rebuilds (~:3939-4006). The mask must precede
+    # govern's rebuild so the existing _government_ids_enabled_by_live_advances
+    # self-heal drops the 7 modern governments off the live Advance.txt.
+    masked = _apply_advance_mask(adv_file)
+    if masked:
+        print(f"  + tech cap: removed {masked} modern/junk advance(s)")
+    aged, _age_hist = _relayout_advance_ages(adv_file)
+    if aged:
+        print(f"  + age re-layout: {aged} advance(s) re-aged; histogram {_age_hist}")
+        # Ages changed -> research costs must be re-banded, and advance_ages
+        # (which feeds the improvement cost bands) refreshed off the NEW tree.
+        _retune_mom_advance_costs(adv_file)
+        _apply_magic_cost_share(adv_file)
+        advance_ages = _advance_age_map_from_text(adv_file._text)
+
         # SLIC start-of-game grants: player index -> sphere is the scenario
         # contract (players.csv order: 1 Life, 2 Nature, 3 Sorcery, 4 Death,
         # 5 Chaos). GrantAdvance(player, AdvanceDB(...)) is engine-verified
         # (slicfunc.cpp Slic_GrantAdvance). BeginTurn + per-player latch is
         # the base-verified one-shot idiom (scenario.slc MomSlicAliveLatch).
+    # POLICY GUARD. This block was nested under `if aged:` above -- an age
+    # re-layout is not a sphere-home policy, so it wrote mom_sphere_home.slc
+    # (citing five ADVANCE_HOME_* that only exist when the policy is ON) on
+    # every run that re-aged anything. With the policy OFF that is five
+    # dangling advance refs, i.e. mom-db-error-class, and the sever pass at
+    # :4252 runs EARLIER in the same run so it could not undo it. The system
+    # only looked self-healing because a second generator run severed what the
+    # first had just added.
+    if MOD_POLICY.get("sphere_home_exclusivity"):
         _HOME_SLC = "\n".join([
             "// GENERATOR-OWNED (sphere_home_exclusivity): per-tribe sphere HOME grants.",
             "// Regenerated by ctp2_generator.py -- edit mod_policy.json, not this file.",
@@ -3083,6 +6642,8 @@ def main():
 
     # --- Units from units.csv ---
     adv_db = reg.load("default/gamedata/Advance.txt")
+    _unit_disabled_advances = self_prereq_advances(
+        getattr(adv_db, "_text", "") or _read_rel("default/gamedata/Advance.txt"))
     mom_unit_idents: set[str] = set()
     mom_unit_display_names: dict[str, str] = {}  # ident -> display name for gl_str backfill
 
@@ -3107,18 +6668,47 @@ def main():
             fp_raw     = _parse_int_stat(row['firepower'])
             cost_raw   = int(row['cost'].strip() or '1')
             prereq     = row['prereq'].strip()
-            # Scale to CTP2 internal units (per-mod policy: unit_stat_scaling)
+            # Scale to CTP2 internal units (per-mod policy: unit_stat_scaling).
+            # RANK-CAST, not a linear multiply -- see _stat_cast().
             _scal = MOD_POLICY["unit_stat_scaling"]
-            attack     = attack_raw * int(_scal["attack_mult"])
-            defense    = max(int(_scal["defense_min"]), def_raw * int(_scal["defense_mult"]))
+            # `ident` routes summonable creatures onto summon_stat_curve: a
+            # summon is a wall, so its attack is capped near the era average
+            # while its defense and HP carry the difference.
+            attack     = _stat_cast(attack_raw, "attack",  ident)
+            defense    = _stat_cast(def_raw,    "defense", ident)
+
+            # VESSELS BYPASS THE STAT CURVE. _stat_cast rank-casts every unit
+            # onto the shipped CTP2 min/median/max, and its floor is 10 -- so a
+            # csv row of `0a,1d` came out Attack 10 / Defense 10. That floor is
+            # right for a creature and wrong for an artifact: the spec is that a
+            # sole artifact CANNOT BE DEFENDED and is picked up by whoever holds
+            # the field. Zero defense plus the Civilian flag is what makes CTP2's
+            # own capture behaviour deliver that, instead of the lamp fighting
+            # back and dying.
+            if ident in set(MOD_POLICY.get("unit_roles", {}).get("vessels", [])):
+                attack = 0
+                defense = 0
             shield_cost = cost_raw * int(_scal["shield_cost_mult"])
             shield_hunger = max(int(_scal["shield_hunger_min"]),
                                 cost_raw // int(_scal["shield_hunger_div"]))
+            # A vessel is not maintained. Its cost is the Bane it inflicts every
+            # turn (4 mana for the Lamp), which is the whole point of the boon /
+            # bane pairing -- charging production upkeep on top would tax the
+            # same decision twice, in a currency the artifact has nothing to do
+            # with.
+            if ident in set(MOD_POLICY.get("unit_roles", {}).get("vessels", [])):
+                shield_hunger = 0
             _default_advance = _scal["default_advance"]
 
             # Advance prereq — heroes (nil/no) default to earliest advance so
             # EnableAdvance is always present (required in 97% of reference blocks).
-            if prereq in _NO_ADVANCE:
+            if prereq == _DISABLED_SLOT:
+                # civ2 `no` — never available. Same sentinel split as the
+                # improvement lane above; no unit ships this way today, but the
+                # rule must hold in both lanes or the next `no` row leaks.
+                advance = never_buildable_gate(_unit_disabled_advances,
+                                               _default_advance)
+            elif prereq in _NO_ADVANCE:
                 advance = _default_advance
             else:
                 advance = MOM_UNIT_ADVANCE.get(prereq, _default_advance)
@@ -3134,6 +6724,14 @@ def main():
                 # Per-mod policy: these units must be able to build cities
                 if name in set(MOD_POLICY["settler_category_units"]):
                     category = 'UNIT_CATEGORY_SETTLER'
+                elif ident in set(MOD_POLICY.get("unit_roles", {}).get("vessels", [])):
+                    # A VESSEL IS NOT A COMBATANT. Left on the default ATTACK
+                    # template it shipped as a warrior with the wheels taken off:
+                    # Attack 10, CanAttack Land/Mountain, CanPillage, CanPirate,
+                    # ExertsMartialLaw, CanReform and a shield upkeep -- on a lamp.
+                    # Setting MaxMovePoints 0 in the CSV stopped it MOVING and
+                    # nothing else.
+                    category = 'UNIT_CATEGORY_GENERIC'
                 else:
                     category = 'UNIT_CATEGORY_ATTACK'
 
@@ -3145,8 +6743,8 @@ def main():
                 ident=ident, name=name, category=category,
                 attack=attack, defense=defense,
                 sprite=sprite, desc=f"{name}: a {MOD_DISPLAY_NAME} unit.",
-                advance=advance, move=move, hp=int(_scal["hp"]),
-                firepower=max(int(_scal["firepower_min"]), fp_raw), armor=1, zbrange=0,
+                advance=advance, move=move, hp=_stat_cast(hp_raw, "hp", ident),
+                firepower=_stat_cast(fp_raw, "firepower", ident), armor=1, zbrange=0,
                 shield_cost=shield_cost, shield_hunger=shield_hunger,
                 gold_hunger=0, sound_set=sound_set,
                 domain=domain, size=size,
@@ -3349,6 +6947,20 @@ def main():
             hidden_count += 1
     if hidden_count:
         print(f"  + hid {hidden_count} base CTP2 unit(s) from Great Library index")
+
+    # HERO SCARCITY: mark named heroes as CantBuild (summon-only, no city production).
+    # Heroes come through the spellbook's summon spells, not the build queue.
+    _HERO_UNITS = [
+        "UNIT_ARIEL", "UNIT_SERENA", "UNIT_FREYA", "UNIT_ALORRA",
+        "UNIT_JAFAR", "UNIT_RJAK", "UNIT_MALLEUS", "UNIT_TAURON", "UNIT_WARRAX",
+    ]
+    hero_cantbuild_count = 0
+    for hero_id in _HERO_UNITS:
+        if hero_id in uni._unit_ids:
+            if uni.ensure_flags(hero_id, ["CantBuild"]):
+                hero_cantbuild_count += 1
+    if hero_cantbuild_count:
+        print(f"  + marked {hero_cantbuild_count} hero unit(s) as CantBuild (summon-only)")
 
     # Closed-gate GL hygiene: an advance is CLOSED when it can never be
     # researched — it self-prereqs (unreachable-gate idiom kept closed by the
@@ -3712,8 +7324,6 @@ def main():
             f" {removed_wonder_stat_lines} stale advance-stat line(s) removed)"
         )
     live_wonder_ids = set(_load_raw_block_file("default/gamedata/Wonder.txt").blocks)
-    _write_empty_wonder_build_lists()
-    print("  + wrote scenario-level empty WonderBuildLists.txt override")
     _sanitize_omitted_building_refs()
     removed_goal_wonder_refs = _write_sanitized_goals_wonder_refs(live_wonder_ids)
     print(
@@ -4214,9 +7824,27 @@ def main():
     # their own ingestion. Re-run the improvement rescale HERE, once the blocks
     # actually exist, so raw Civ2 costs land in the base CTP2 age band that
     # matches the advance which gates each block.
+    #
+    # ORDERING: tileimp.txt is rebuilt above and evicted from the registry
+    # cache, so the orphan re-anchor MUST run here, after that rebuild --
+    # anywhere earlier and it is silently clobbered.
+    _ra_files, _ra_blocks = _apply_advance_reanchor(reg)
+    if _ra_blocks:
+        print(f"  + advance re-anchor: {_ra_files} block(s) re-pointed, {_ra_blocks} deleted")
+
     retuned_improvement_costs = _retune_mom_improvement_costs(advance_ages)
     if retuned_improvement_costs:
         print(f"  + rescaled {retuned_improvement_costs} improvement cost(s) into base CTP2 age bands")
+
+    # Faction gating. Placement is the whole risk here (see: generator pass
+    # ordering ate the cost rescale) -- it must land AFTER the unit mask, both
+    # cost retunes and the improvement->buildings merge above so it reads final
+    # state, and BEFORE gl_descriptions.apply_descriptions() below, which
+    # quotes the prereq in derived GAMEPLAY prose.
+    sphere_gated, sphere_idents = _apply_sphere_gating(reg)
+    if sphere_gated:
+        print(f"  + sphere-gated {len(sphere_idents)} block(s) onto their ladder rung "
+              f"({sphere_gated} EnableAdvance rewrite(s))")
 
     # Icon-DB backfill: the runtime Icon database is uniticon.txt (civapp.cpp
     # g_theIconDB->Parse(g_uniticondb_filename) — one DB for unit AND building
@@ -4285,6 +7913,24 @@ def main():
     if _capped_adv:
         print(f"  + capped Prerequisites to {K_MAX_PREREQUISITES} on {_capped_adv} advance(s)")
 
+    # Great Library descriptions. Runs LAST, deliberately: GAMEPLAY prose is
+    # derived from the live DB blocks, so it has to see the final costs. The
+    # improvement rescale above is the cautionary tale -- an earlier pass here
+    # would quote production costs that a later pass then rewrote
+    # (see: generator pass ordering ate the cost rescale).
+    _gl_desc_report = gl_descriptions.apply_descriptions(
+        _gl_desc_text, gl_library, gl_str, MOMJR,
+    )
+
+    # Same reason, same anchor: the STATISTICS lines were stamped at advance
+    # registration, before the cost retune, so they have to be re-derived here
+    # from the final Advance.txt rather than trusted.
+    _stats_fixed = reconcile_advance_statistics(
+        gl_library, _adv._text, _read_rel("default/gamedata/age.txt"))
+    if _stats_fixed:
+        print(f"  + reconciled {_stats_fixed} Great Library _STATISTICS section(s) "
+              f"against the final advance DB")
+
     reg.save_all()
     final_gl_scrubbed = 0
     final_gl_scrubbed += _scrub_hidden_tileimp_gl_file(
@@ -4305,6 +7951,11 @@ def main():
     )
     if final_gl_scrubbed:
         print(f"  + final GL scrub removed {final_gl_scrubbed} hidden tile-improvement surface(s)")
+    # Must run after the GL scrubs: an icon record may only cite a section that
+    # survived them, or the panel silently falls back to base-tree prose.
+    advance_icons = _write_advance_icon_file()
+    if advance_icons:
+        print(f"  + advanceicon.txt rekeyed {advance_icons} advance(s) onto our GL sections")
     final_order_scrubbed = 0
     final_order_scrubbed += _scrub_hidden_order_gl_file(
         "english/gamedata/Great_Library.txt",
@@ -4328,24 +7979,77 @@ def main():
     if final_concept_scrubbed:
         print(f"  + final GL scrub removed {final_concept_scrubbed} hidden/out-of-genre concept surface(s)")
 
+    dead_adv_scrubbed = _scrub_dead_advance_surfaces()
+    if dead_adv_scrubbed:
+        print(f"  + final GL scrub removed {dead_adv_scrubbed} dead-advance surface(s)")
+
+    dead_imp_scrubbed = _scrub_dead_tileimp_surfaces()
+    if dead_imp_scrubbed:
+        print(f"  + re-anchored {dead_imp_scrubbed} dead-tileimp surface(s)")
+
+    # ORDERING: dead last. Every ident is filtered against the live Advance.txt /
+    # Units.txt / buildings.txt / Wonder.txt, so this must run after the mask,
+    # the re-layout, the prereq rewrite and the improvement merge have all
+    # settled -- otherwise the wall cites blocks that no longer exist.
+    gated_idents = _emit_mom_gating_slc()
+    print(f"  + mom_gating.slc: {gated_idents} ident(s) walled across 5 tribes")
+
+    # Same ordering contract as the wall above: it reads the FINAL Units.txt and
+    # the settled prereq rewrite, so it must not run before either.
+    summon_units = _emit_mom_summon_slc()
+    print(f"  + mom_summon.slc: {summon_units} summonable creature(s) across 5 ladders")
+
+    summon_pages = _emit_summon_selection_pages()
+    print(f"  + summon selection: {summon_pages} creature button(s) across 5 sphere menus")
+
+    spellbook_pages, spellbook_spells = _emit_spellbook_pages()
+    print(f"  + mom_spellbook_*.slc: {spellbook_pages} pages across 5 sphere files ({spellbook_spells} spells)")
+
+    spellbook_effects = _emit_spell_effects()
+    print(f"  + mom_spellbook_cast.slc: MomCastSpell if-chain covers {spellbook_effects} spell(s)")
+
+    # Phase 4b: Cost distribution summary by rarity
+    _print_spell_cost_distribution()
+
+    _apply_mana_policy_constants()
+    print(f"  + mom_magic.slc: mana constants patched from mod_policy.json mana_economy")
+
     if _ensure_diffdb_start_government():
         print(f"  + DiffDB.txt: guaranteed {START_GUARANTEED_ADVANCES} across all start-tech blocks")
+
+    cal = _write_calendar()
+    print(f"  + calendar: END_OF_GAME_YEAR {cal['end_year']} "
+          f"(tier {cal['reference_tier']} reference, "
+          f"{MOD_POLICY['calendar']['turns_target']} turns target)")
+    print("    game length in turns by difficulty tier 0-5: " + ", ".join(
+        str(cal[f"end_turn_tier_{t}"]) for t in range(6)))
 
     retired_x = _retire_x_sentinels()
     if retired_x:
         print(f"  + retired {retired_x} AE 'X' sentinel improvement/wonder(s) (obsolete from turn 1)")
 
+    # MUST run AFTER _retire_x_sentinels(). The AI wonder lists exclude any
+    # wonder that is obsolete the moment it unlocks, and that mark is the
+    # ObsoleteAdvance this stamper writes. Built earlier -- as it was, ~674
+    # lines up -- the X sentinels still look live and get offered to the AI.
+    wonder_list_entries = _write_wonder_build_lists()
+    print("  + wrote scenario-level WonderBuildLists.txt override"
+          f" ({wonder_list_entries} AI wonder list entries)")
+
     _generate_civilisation_tribes()
     _generate_civstr_tribes()
     # The workbook mirrors the ACTIVE csv dir: legacy MoM path when running the
     # default control plane, <csv_dir>/mod_inventory.xlsx for any other mod.
-    _default_csv_dir = Path(__file__).parent / "momjr_csv"
-    if MOMJR.resolve() == _default_csv_dir.resolve():
-        workbook_path, workbook_sheet_count = export_workbook(MOD_WORKBOOK_PATH)
+    if export_workbook is not None:
+        _default_csv_dir = Path(__file__).parent / "momjr_csv"
+        if MOMJR.resolve() == _default_csv_dir.resolve():
+            workbook_path, workbook_sheet_count = export_workbook(MOD_WORKBOOK_PATH)
+        else:
+            workbook_path, workbook_sheet_count = export_workbook(
+                MOMJR / "mod_inventory.xlsx", csv_root=MOMJR)
+        print(f"  + refreshed workbook {workbook_path} ({workbook_sheet_count} sheet(s))")
     else:
-        workbook_path, workbook_sheet_count = export_workbook(
-            MOMJR / "mod_inventory.xlsx", csv_root=MOMJR)
-    print(f"  + refreshed workbook {workbook_path} ({workbook_sheet_count} sheet(s))")
+        print("  ~ skipped workbook export (openpyxl not installed)")
     
     # CRITICAL: Ensure scenario newsprite.txt contains all base sprites PLUS any custom sprites used in Units.txt
     base_newsprite = str(CTP2_DATA / "default" / "gamedata" / "newsprite.txt")

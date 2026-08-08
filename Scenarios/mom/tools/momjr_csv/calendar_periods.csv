@@ -1,0 +1,48 @@
+# SHAPE of the game calendar, per difficulty tier. One row per TIME_SCALE
+# PERIOD. Read by ctp2_generator._write_calendar(), which rewrites the six
+# TIME_SCALE blocks in default/gamedata/DiffDB.txt and derives
+# END_OF_GAME_YEAR in default/gamedata/Const.txt from it.
+#
+# tier             difficulty block index 0-5, in DiffDB file order
+#                  (0 Beginner .. 5 Impossible). Every tier needs >=1 row and
+#                  a row with start_turn 0.
+# start_turn       first turn this period governs. Must ascend within a tier.
+# years_per_turn   calendar years each turn advances during this period.
+#
+# The engine ends the game at Const END_OF_GAME_YEAR, so a tier that burns
+# through the calendar faster gets a SHORTER game in turns. That coupling is
+# real and intended (harder = tighter), but it is easy to change by accident:
+# after editing, the generator prints the resulting end turn for every tier so
+# the drift is visible instead of silent.
+#
+# Overall PACE is not here -- it is mod_policy.json calendar.turns_target,
+# which sets how long the reference tier's game runs and back-solves the year.
+#
+# Tuned 2026-08: target game lengths by difficulty tier:
+#   Beginner=800, Easy=940, Medium=1080, Hard=1220, VHard=1360, Impossible=1500
+# Solved by distributing turn chunks across descending year rates per tier.
+tier,start_turn,years_per_turn
+0,0,9
+0,108,7
+0,307,6
+0,507,5
+1,0,8
+1,207,6
+1,442,5
+1,677,3
+2,0,7
+2,245,5
+2,515,4
+2,785,3
+3,0,6
+3,418,4
+3,724,3
+3,1029,2
+4,0,5
+4,430,4
+4,770,3
+4,1110,2
+5,0,5
+5,302,4
+5,676,3
+5,1051,2

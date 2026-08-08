@@ -60,19 +60,27 @@ void_f MomCastFlameStrike(int_t p)
     location_t homeLoc;
     location_t bestLoc;
 
-    if (p >= 1) {
+    if (p >= 1 && p <= 5) {
         if (MomMagicCur[p] < 50) {
             if (IsHumanPlayer(p)) {
                 Message(g.player, 'MomMsgNoMana');
             }
         } else {
-            // inlined MomSphereSummonUnit: seating is player N == civ N
+            // Sphere, NOT seat. This block used to read `p == 1` with a comment
+            // asserting "seating is player N == civ N" -- false, because the New
+            // Game EMPIRE selector decides the civ. A Chaos player at seat 1 was
+            // handed Life's Guardian Spirit here.
+            //
+            // MomSphere[] is an ARRAY, so this is a bare read and adds no call
+            // depth -- which is why the predicates resolve into an array rather
+            // than staying as functions. Calling MomPlayerIsChaos(p) from this
+            // body would rebuild the 2-level chain that kills the process.
             summon = 0;
-            if (p == 1) { summon = UnitDB(UNIT_GUARDIAN_SPIRIT); }
-            if (p == 2) { summon = UnitDB(UNIT_WARBEARS); }
-            if (p == 3) { summon = UnitDB(UNIT_MAGE); }
-            if (p == 4) { summon = UnitDB(UNIT_ZOMBIES); }
-            if (p == 5) { summon = UnitDB(UNIT_HELL_HOUNDS); }
+            if (MomSphere[p] == 1) { summon = UnitDB(UNIT_GUARDIAN_SPIRIT); }
+            if (MomSphere[p] == 2) { summon = UnitDB(UNIT_WARBEARS); }
+            if (MomSphere[p] == 3) { summon = UnitDB(UNIT_MAGE); }
+            if (MomSphere[p] == 4) { summon = UnitDB(UNIT_ZOMBIES); }
+            if (MomSphere[p] == 5) { summon = UnitDB(UNIT_HELL_HOUNDS); }
 
             // inlined MomCastAtNearestEnemy(p, summon, 50, 0)
             found = 0;
@@ -139,11 +147,12 @@ void_f MomCastDemonStrike(int_t p)
     location_t homeLoc;
     location_t bestLoc;
 
-    if (p >= 1) {
-        // Inlined (p == 5) rather than MomPlayerIsChaos(p): this runs from a
-        // Button body, and a nested user call on that path is the measured
-        // 0xC0000005 documented in MomSpellShowBook below.
-        if (p != 5) {
+    if (p >= 1 && p <= 5) {
+        // Inlined MomSphere[p] read rather than a MomPlayerIsChaos(p) call:
+        // this runs from a Button body, and a nested user call on that path is
+        // the measured 0xC0000005 documented in MomSpellShowBook below. An
+        // array subscript is not a call, so it is safe here.
+        if (MomSphere[p] != 5) {
             if (IsHumanPlayer(p)) {
                 Message(g.player, 'MomMsgNotChaos');
             }
@@ -200,10 +209,18 @@ void_f MomCastDemonStrike(int_t p)
     }
 }
 
+// ---------------------------------------------------------------------------
+// FLAT SPELL DISPATCHER -- SUPERSEDED by generated mom_spellbook_cast.slc
+//
+// The comprehensive 135-spell MomCastSpell is now generated per-run from
+// spells.csv. It lives in mom_spellbook_cast.slc (loaded before per-sphere
+// page files in scenario.slc). The legacy 2-spell prototype is removed.
+// ---------------------------------------------------------------------------
+
 // Show the spellbook popup for player p (pool status + cast buttons).
 void_f MomSpellShowBook(int_t p)
 {
-    if (p >= 1) {
+    if (p >= 1 && p <= 5) {
         MomSpellCurDisp = MomMagicCur[p];
         MomSpellMaxDisp = MomMagicMax[p];
         // NESTED USER-FUNCTION CALLS CRASH ON THE TRIGGER PATH (measured
@@ -214,10 +231,11 @@ void_f MomSpellShowBook(int_t p)
         // One level of user call from a trigger body is fine; a SECOND level is
         // not. No SLIC error dialog -- the process dies. An explicit `== 1`
         // comparison does NOT help; the crash is the nested call itself, not the
-        // truthiness form. MomPlayerIsChaos is just `p == 5` (mom_func.slc:49),
-        // so inline the comparison here rather than call it. Any other helper
-        // reached from a trigger or Button body needs the same treatment.
-        if (p == 5) {
+        // truthiness form. MomPlayerIsChaos is now just a read of MomSphere[p]
+        // (mom_func.slc), so inline that read here rather than call it -- an
+        // array subscript costs no call depth. Any other helper reached from a
+        // trigger or Button body needs the same treatment.
+        if (MomSphere[p] == 5) {
             Message(g.player, 'MomMsgSpellbookChaos');
         } else {
             Message(g.player, 'MomMsgSpellbook');
@@ -243,7 +261,7 @@ HandleEvent(BeginTurn) 'MomSpellMenuTick' post {
     // the queue -> 0xC0000005. The threshold logic below is correctly latched
     // (MomSpellPromptArmed re-arms only after the pool drops back under 60%),
     // which is why it is safe to keep.
-    if (p >= 1 && IsHumanPlayer(p) && MomMagicMax[p] > 0) {
+    if (p >= 1 && p <= 5 && IsHumanPlayer(p) && MomMagicMax[p] > 0) {
         threshold = (MomMagicMax[p] * 3) / 5;
         if (MomMagicCur[p] < threshold) {
             MomSpellPromptArmed[p] = 1;
@@ -291,13 +309,13 @@ HandleEvent(BeginTurn) 'MomSpellAICast' post {
     int_t p;
 
     p = player[0];
-    if (p >= 1 && IsHumanPlayer(p) == 0 && MomMagicMax[p] > 0) {
+    if (p >= 1 && p <= 5 && IsHumanPlayer(p) == 0 && MomMagicMax[p] > 0) {
         if (MomMagicCur[p] * 4 >= MomMagicMax[p] * 3) {
             // Inlined chaos test -- see MomSpellShowBook for the nested-call crash.
-            if (p == 5 && MomMagicCur[p] >= 100) {
-                MomCastDemonStrike(p);
+            if (MomSphere[p] == 5 && MomMagicCur[p] >= 100) {
+                MomCastSpell(p, 2);
             } else {
-                MomCastFlameStrike(p);
+                MomCastSpell(p, 1);
             }
         }
     }
@@ -308,31 +326,85 @@ HandleEvent(BeginTurn) 'MomSpellAICast' post {
 // DEFINED segment; names must not collide with handlers or string keys).
 // ---------------------------------------------------------------------------
 
+// THE ARMS WERE LABELLED WITH STOCK CTP2 STRINGS UNTIL 2026-08-03, and that is
+// the whole reason this layer read as unfinished. ID_BUTTON_RESEARCH cast Flame
+// Strike and ID_BUTTON_GOAL cast Demon Strike, so a fully working spellbook
+// rendered its arms as "Research" and "Goal" -- no player could know either was
+// a spell. MOM_MSG_BTN_FLAME and MOM_MSG_BTN_DEMON were already authored in
+// scen_str.txt and simply never bound. The code was done; the wiring to the
+// words was the only thing missing.
+// REPLACED by generated spellbook (mom_spellbook.slc)
+// The hub's Workings arm (mom_msg.slc) still reaches these segments by name.
+// They now redirect into the paged spellbook's page 1 for the caster's sphere,
+// rather than offering two hand-wired spells.
 alertbox 'MomMsgSpellbook' {
     Show();
     Text(ID_MOM_MSG_SPELLBOOK);
-    Button(ID_BUTTON_RESEARCH) {
-        MomCastFlameStrike(g.player);
-        Kill();
-    }
     Button(ID_BUTTON_CLOSE) {
         Kill();
+    }
+    Button(ID_MOM_MSG_BTN_BACK) {
+        Kill();
+        Message(g.player, 'MagicMenu');
+    }
+    // REPLACED by generated spellbook (mom_spellbook.slc)
+    // Old hand-wired Flame Strike arm:
+    // Button(ID_MOM_MSG_BTN_FLAME) {
+    //     MomCastSpell(g.player, 1);
+    //     Kill();
+    // }
+    // Old Store Power arm:
+    // Button(ID_MOM_MSG_BTN_STORE) {
+    //     Kill();
+    // }
+    // Navigate to sphere page 1 via the generated spellbook pages.
+    // Sphere detection: Message() resolves segment names at runtime, so naming
+    // a segment declared in mom_spellbook.slc (loaded after this file) is safe.
+    Button(ID_MOM_SPELL_NEXT) {
+        Kill();
+        if (MomSphere[g.player] == 1) {
+            Message(g.player, 'MomSpellHub_life');
+        } elseif (MomSphere[g.player] == 2) {
+            Message(g.player, 'MomSpellHub_nature');
+        } elseif (MomSphere[g.player] == 3) {
+            Message(g.player, 'MomSpellHub_sorcery');
+        } elseif (MomSphere[g.player] == 4) {
+            Message(g.player, 'MomSpellHub_death');
+        } elseif (MomSphere[g.player] == 5) {
+            Message(g.player, 'MomSpellHub_chaos');
+        }
     }
 }
 
 alertbox 'MomMsgSpellbookChaos' {
     Show();
     Text(ID_MOM_MSG_SPELLBOOK);
-    Button(ID_BUTTON_GOAL) {
-        MomCastDemonStrike(g.player);
-        Kill();
-    }
-    Button(ID_BUTTON_RESEARCH) {
-        MomCastFlameStrike(g.player);
-        Kill();
-    }
     Button(ID_BUTTON_CLOSE) {
         Kill();
+    }
+    Button(ID_MOM_MSG_BTN_BACK) {
+        Kill();
+        Message(g.player, 'MagicMenu');
+    }
+    // REPLACED by generated spellbook (mom_spellbook.slc)
+    // Old hand-wired Demon Strike arm:
+    // Button(ID_MOM_MSG_BTN_DEMON) {
+    //     MomCastSpell(g.player, 2);
+    //     Kill();
+    // }
+    // Old hand-wired Flame Strike arm:
+    // Button(ID_MOM_MSG_BTN_FLAME) {
+    //     MomCastSpell(g.player, 1);
+    //     Kill();
+    // }
+    // Old Store Power arm:
+    // Button(ID_MOM_MSG_BTN_STORE) {
+    //     Kill();
+    // }
+    // Navigate directly to Chaos page 1.
+    Button(ID_MOM_SPELL_NEXT) {
+        Kill();
+        Message(g.player, 'MomSpellPage_chaos_1');
     }
 }
 

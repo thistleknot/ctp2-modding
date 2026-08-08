@@ -75,41 +75,182 @@ HandleEvent(GrantAdvance) 'MomSphereBlessingMessages' post {
 
 HandleEvent(BeginTurn) 'MomSummonOrderTick' post {
     int_t p;
+    int_t summonPick;
+    int_t summonRung;
     city_t tmpCity;
 
     p = player[0];
-    // COST 75 (added 2026-07-26). The order is placed at click time and PAID here,
+    // The order is placed at click time and PAID here,
     // at spawn time, so the pool is only debited when a creature actually appears.
     // Re-checking the balance is not redundant with the button-body check: the
     // only thing that can move the pool between the two is MomMagicPoolTick's
     // accrual, which is monotonically upward, so a click that was affordable stays
     // affordable -- but a future spender on the same turn must not be able to push
     // this negative. The check is a plain comparison at call depth 0.
-    if (p >= 1 && MomSummonChoice[p] != 0 && player[0].cities > 0
-        && MomMagicCur[p] >= 75) {
+    // COMMIT. An order only starts a preparation when nothing is already
+    // preparing -- one at a time, so this is a plan and not a queue.
+    // PRICE SCALES WITH RUNG: 45 + 30*rung -> 75 / 105 / 135 / 165 / 195.
+    //
+    // It was a FLAT 75 for everything, which priced a 150-shield Phantom
+    // Warriors and a 4000-shield Storm Drake identically -- a 27x swing in what
+    // the same coin bought. Upkeep already scaled (rung * MomUpkeepRate) since
+    // v3.5.0, so acquisition was the missing half of that system, and the gap
+    // pushed play the wrong way: summoning was poor value at rung 1 and absurd
+    // value at rung 5.
+    //
+    // THEN SCALED PER CIV: * MomSummonCivPct / 100, Life 64 / Nature 68 /
+    // Sorcery 54 / Death 54 / Chaos 92. Two dials, deliberately separable --
+    // RUNG is what the player can know before clicking (it is their own ladder
+    // position), and CIV is a fixed property of the tribe. Which creature the
+    // roll returns stays unknown; that is the spin, and it is not the price.
+    //
+    // THE POOL IS A FIXED 200 FOR EVERY CIV and that is the anchor the whole
+    // economy is measured against. It used to vary (Life 200 / Nature 220 /
+    // Sorcery 260 / Death 240 / Chaos 300) AND correlate with the generation
+    // multiplier, so Chaos got 140% income and a 50% bigger bank -- two
+    // advantages stacking multiplicatively. Worse, the SMALLEST cap silently
+    // dictated the price ceiling for everyone. Fixing the pool decouples the
+    // dials and gives a constant to express every other number against.
+    //
+    // The percentages are DERIVED, not chosen: each sphere's own roster cost at
+    // equal rung (Chaos creatures are 1.39x the all-sphere mean, Death 0.81x),
+    // rescaled so the dearest civ's rung-5 creature costs 179 -- 90% of the
+    // fixed pool. Cheapest summon in the game is 40, dearest 179, and every civ
+    // can afford its own best creature.
+    //
+    // THE GATE USES THE LADDER RUNG, THE DEBIT USES THE ROLLED RUNG. The roll
+    // can return any creature at or below the caster's rung, so requiring
+    // 45+30*MomSphereRung up front means whatever comes back is affordable and
+    // a click can never be consumed by a summon that cannot be paid for. You
+    // then pay for what you actually got, not for what you might have got.
+    if (p >= 1 && p <= 5 && MomSummonChoice[p] != 0 && MomSummonPrep[p] == 0
+        && player[0].cities > 0
+        && MomMagicCur[p] >= ((45 + 30 * MomSphereRung[p]) * MomSummonCivPct[p]) / 100) {
         GetCityByIndex(player[0], 0, tmpCity);
-        if (CityIsValid(tmpCity)) {
-            MomMagicCur[p] = MomMagicCur[p] - 75;
+        // PLAYER CHOICE: if MomSummonChoice > 1, it IS the UnitDB index the
+        // player selected from the summon menu. If == 1, legacy random roll.
+        if (MomSummonChoice[p] > 1) {
+            summonPick = MomSummonChoice[p];
+        } else {
+            summonPick = MomSummonRoll(p);
+        }
+        MomSummonChoice[p] = 0;
+        summonRung = MomSummonRungOf(summonPick);
+        // Floor BEFORE the debit so price and countdown read the same rung. A
+        // creature reporting rung 0 is charged and timed as rung 1 rather than
+        // being handed over at the curve's intercept on a zero-turn wait.
+        if (summonRung < 1) { summonRung = 1; }
+        if (CityIsValid(tmpCity) && summonPick != 0) {
+            // Mana is committed the moment preparation STARTS, not on arrival.
+            // Paying at arrival would let the pool be spent elsewhere while the
+            // creature was notionally on its way, and there is no cancel, so the
+            // commitment has to bite immediately or it is not a commitment.
+            MomMagicCur[p] = MomMagicCur[p] - (((45 + 30 * summonRung) * MomSummonCivPct[p]) / 100);
+
+            // The countdown IS the creature's rung: 1 turn for a rung-1 Warbears
+            // (unchanged from the old instant-next-turn behaviour) up to 5 for a
+            // rung-5 Great Wyrm. summonRung was floored to >= 1 above, before
+            // the debit, so the price and the wait always describe the same
+            // creature.
+            MomSummonPendRung[p] = summonRung;
+            MomSummonPending[p] = summonPick;
+            MomSummonPrep[p] = MomSummonPendRung[p];
             if (IsHumanPlayer(p)) {
                 MomMagicCurDisp = MomMagicCur[p];
                 MomMagicMaxDisp = MomMagicMax[p];
-                MomMagicGenDisp = MomMagicPerTurn[p];
+                // SET HERE, not left to mom_magic.slc. That file is #included at
+                // 56 and this one at 55, so MomMagicPoolTick refreshes
+                // MomPrepDisp AFTER this handler has already raised the "you
+                // begin the summoning" popup -- which would have announced the
+                // PREVIOUS turn's value, reading "will take shape in 0 turns"
+                // on every single commit.
+                MomPrepDisp = MomSummonPrep[p];
+                // MomMagicGenDisp is NOT refreshed here: MomMagicPerTurn[] holds NET
+                // income since upkeep landed, so copying it into the gross
+                // 'Income' scalar would print net twice and make the panel's
+                // Income/Upkeep/Net lines fail to add up. MomRecalcMagicPerTurn
+                // is the sole writer of all three.
             }
-            if (p == 1) {
-                CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tmpCity.location, 1);
-                Message(p, 'MomSummonGuard');
-            } elseif (p == 2) {
-                CreateUnit(p, UnitDB(UNIT_WARBEARS), tmpCity.location, 1);
-                Message(p, 'MomSummonBear');
-            } elseif (p == 3) {
-                CreateUnit(p, UnitDB(UNIT_MAGE), tmpCity.location, 1);
-                Message(p, 'MomSummonMage');
-            } elseif (p == 4) {
-                CreateUnit(p, UnitDB(UNIT_ZOMBIES), tmpCity.location, 1);
-                Message(p, 'MomSummonZombie');
-            } elseif (p == 5) {
-                CreateUnit(p, UnitDB(UNIT_HELL_HOUNDS), tmpCity.location, 1);
-                Message(p, 'MomSummonHound');
+            // OCCLUSION-SAFE PLACEMENT. These used to CreateUnit on
+            // tmpCity.location, so every summon landed on the capital tile --
+            // CTP2 draws exactly ONE unit per tile and
+            // CellUnitList::GetTopVisibleUnitOfMoveType orders own units by
+            // MaxMovePoints, so a fast summon permanently hides the garrison
+            // ("can't find the unit on the map"). MomSpawnSphereUnit
+            // (mom_func.slc) already carries the free-land-neighbour search;
+            // calling it here is ONE level from the handler body, the same
+            // depth mom_city_effects.slc already uses, so it is clear of the
+            // 2-level 0xC0000005 chain.
+            // The creature is no longer a per-sphere CONSTANT. MomSummonRoll
+            // (mom_summon.slc, GENERATED) weights a roll over every rung the
+            // caster has unlocked, so researching up the ladder changes what 75
+            // mana buys. It used to be Warbears forever for Nature -- the
+            // cheapest of its 13 units -- which left 12 creatures unreachable.
+            //
+            // BOTH calls sit at depth 1 from this handler body, which is the
+            // whole reason the roll RETURNS an index instead of spawning: a
+            // 2-level user-function chain from a HandleEvent is a 0xC0000005
+            // (slic-two-crash-classes). Do NOT fold these into one helper.
+            // The third argument is the creature's own rung, which is what it
+            // will be charged in mana upkeep every turn it stays alive
+            // (mom_magic.slc). MomSummonRungOf is GENERATED from the same pools
+            // as the roll.
+            //
+            // RESOLVED INTO A LOCAL FIRST, deliberately. Writing this as
+            // MomSpawnSphereUnit(p, summonPick, MomSummonRungOf(summonPick))
+            // puts a user-function call in an argument position of another user
+            // function call, which is the ambiguous form of the 2-level chain
+            // that is a 0xC0000005. Two sequential statements are unambiguously
+            // two depth-1 calls.
+            //
+            // THE SPAWN NO LONGER HAPPENS HERE. It moved to the arrival branch
+            // below, which is the whole point of preparation: this block only
+            // takes the payment and starts the clock. The per-sphere arrival
+            // Message moved with it, so the popup announces a creature that has
+            // actually appeared rather than one that is merely on its way.
+            if (IsHumanPlayer(p)) {
+                Message(p, 'MomSummonBegun');
+            }
+        }
+    }
+
+    // ARRIVAL. Runs on every later turn until the countdown expires. `elseif` is
+    // load-bearing: a commit and an arrival must never happen in the same tick,
+    // or a rung-1 creature would be committed and spawned in one turn and the
+    // preparation would be invisible for exactly the tier most people summon.
+    elseif (p >= 1 && p <= 5 && MomSummonPrep[p] > 0) {
+        MomSummonPrep[p] = MomSummonPrep[p] - 1;
+        if (MomSummonPrep[p] == 0) {
+            // OCCLUSION-SAFE PLACEMENT, and the rung carried from commit time so
+            // the creature is ledgered for upkeep at the tier it was rolled at
+            // -- re-rolling MomSummonRungOf here would work but would re-derive
+            // state that is already known, and a mismatch would bill the wrong
+            // rate for the rest of the creature's life.
+            MomSpawnSphereUnit(p, MomSummonPending[p], MomSummonPendRung[p]);
+            // CLEARED ON ARRIVAL. Without this the pending creature would spawn
+            // again on every subsequent turn -- an infinite free army, and the
+            // single worst failure this state machine can have.
+            MomSummonPending[p] = 0;
+            MomSummonPendRung[p] = 0;
+            // HUMAN-GUARDED, newly required. These Messages used to be reachable
+            // only from an order the human's button had placed; the AI spawned
+            // directly in mom_ai_magic.slc and never came through here. Routing
+            // the AI through this same arrival branch puts five messagebox calls
+            // on the AI path for the first time, and a messagebox aimed at an AI
+            // player is how the message-queue overflow AV was hit.
+            if (IsHumanPlayer(p)) {
+                // Sphere, NOT seat -- an array read, so no call depth added.
+                if (MomSphere[p] == 1) {
+                    Message(p, 'MomSummonGuard');
+                } elseif (MomSphere[p] == 2) {
+                    Message(p, 'MomSummonBear');
+                } elseif (MomSphere[p] == 3) {
+                    Message(p, 'MomSummonMage');
+                } elseif (MomSphere[p] == 4) {
+                    Message(p, 'MomSummonZombie');
+                } elseif (MomSphere[p] == 5) {
+                    Message(p, 'MomSummonHound');
+                }
             }
         }
     }
@@ -120,7 +261,7 @@ HandleEvent(BeginTurn) 'MomSummonOrderTick' post {
     // consumed the click. Putting this clear inside the gate (as it was before the
     // cost check existed, when the gate could not fail for a player with a city)
     // would have made an unaffordable order a permanent standing order.
-    if (p >= 1 && MomSummonChoice[p] != 0) {
+    if (p >= 1 && p <= 5 && MomSummonChoice[p] != 0) {
         MomSummonChoice[p] = 0;
     }
 }
@@ -136,10 +277,6 @@ HandleEvent(BeginTurn) 'MomSummonOrderTick' post {
 // (24 base messageboxes omit it) and is deliberately omitted here.
 // ---------------------------------------------------------------------------
 
-messagebox 'MomMsgSlicAlive' {
-	Show();
-	Text(ID_MOM_MSG_SLIC_ALIVE);
-}
 
 messagebox 'MomBlessLife' {
 	Show();
@@ -172,6 +309,34 @@ messagebox 'MomBlessChaos' {
 // segment is reachable from another sphere's branch. Message(p, 'Key') needs
 // 'Key' to be a DEFINED SEGMENT (see the block comment above) -- adding the
 // scen_str.txt keys alone would have displayed nothing.
+// Declared HERE rather than in mom_magic.slc, which is what raises it: segments
+// share ONE flat namespace but still need declaring before use, and mom_msg.slc
+// is #included before mom_magic.slc. Message(p, 'Key') needs 'Key' to be a
+// defined segment -- adding the scen_str.txt key alone displays nothing.
+messagebox 'MomUpkeepDisband' {
+	Show();
+	Text(ID_MOM_MSG_UPKEEP_DISBAND);
+}
+
+// Preparation segments (2026-08-01). 'MomSummonBegun' fires when the mana is
+// committed and the clock starts; the per-sphere arrival popups now fire when
+// the creature actually appears, which is a different turn for anything above
+// rung 1. 'MomSummonBusy' answers a click made while a preparation is running.
+messagebox 'MomSummonBegun' {
+	Show();
+	Text(ID_MOM_MSG_SUMMON_BEGUN);
+}
+
+messagebox 'MomSummonBusy' {
+	Show();
+	Text(ID_MOM_MSG_SUMMON_BUSY);
+}
+
+messagebox 'MomSummonNoMagic' {
+	Show();
+	Text(ID_MOM_MSG_SUMMON_NOMAGIC);
+}
+
 messagebox 'MomSummonGuard' {
 	Show();
 	Text(ID_MOM_MSG_SUMMON_GUARD);
@@ -248,6 +413,15 @@ alertbox 'MagicMenu' {
 	Show();
 	Text(ID_MOM_MSG_MAGIC_MENU);
 
+	// CLOSE IS DECLARED FIRST, and that ordering is load-bearing. MEASURED
+	// 2026-08-03: an alertbox renders at most FIVE arms, drops the overflow
+	// from the TAIL of the declaration list in silence, and paints what
+	// survives in REVERSE order. Declaring Close last is how a sixth arm
+	// silently deletes the player's only way out.
+	Button(ID_BUTTON_CLOSE) {
+		Kill();
+	}
+
 	// SUMMON: place a summon ORDER. The body only writes a global; the spawn
 	// happens next BeginTurn in MomSummonOrderTick, which resolves the creature
 	// from the caster's own sphere. The body stays assignment-only -- a button
@@ -268,13 +442,69 @@ alertbox 'MagicMenu' {
 	// rather than a button that appears to do nothing and then produces nothing
 	// next turn. Both branches are comparisons and builtins (Message is a builtin),
 	// so the body is still at call depth 0 -- the Class 1 budget is untouched.
+	// PREPARATION CHECK FIRST, before affordability. A tribe already preparing a
+	// creature cannot start a second one -- one at a time is what makes this a
+	// plan rather than a queue -- and it must be told so at the moment it clicks,
+	// not left with a button that appears to work and then silently does nothing
+	// (the same reasoning that put the cost check here rather than only at
+	// resolve time). Still comparisons and Message(), both builtins, so the body
+	// remains at call depth 0 and the Class 1 budget is untouched.
 	Button(ID_MOM_MSG_BTN_SUMMON) {
-		if (MomMagicCur[g.player] >= 75) {
-			MomSummonChoice[g.player] = 1;
+		// NO MAGIC LEARNED comes FIRST, ahead of both other refusals. With the
+		// rung floor gone (2026-08-02) a tribe that has not researched its
+		// sphere's MAGIC advance genuinely cannot summon -- MomSummonRoll
+		// returns 0 for rung 0 -- and without this branch the arm would take
+		// the click, place an order, and resolve into nothing. Silence is the
+		// one outcome a button must never produce.
+		if (MomSphereRung[g.player] < 1) {
+			Message(g.player, 'MomSummonNoMagic');
+			Kill();
+		} elseif (MomSummonPrep[g.player] > 0) {
+			Message(g.player, 'MomSummonBusy');
+			Kill();
+		// SAME PRICE EXPRESSION AS THE COMMIT, deliberately. The click must
+		// demand exactly what the commit will demand -- 45 + 30*ladder rung --
+		// or the button accepts an order the commit then refuses, which reads
+		// to the player as the arm doing nothing. That divergence class already
+		// bit this mod once on the upkeep rate and is what gate 27 watches for.
+		} elseif (MomMagicCur[g.player] >= ((45 + 30 * MomSphereRung[g.player]) * MomSummonCivPct[g.player]) / 100) {
+			// Navigate to sphere-specific creature selection page (rung-gated)
+			Kill();
+			if (MomSphere[g.player] == 1) {
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_life_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_life_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_life_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_life_2'); }
+				else { Message(g.player, 'MomSummonPick_life_1'); }
+			} elseif (MomSphere[g.player] == 2) {
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_nature_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_nature_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_nature_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_nature_2'); }
+				else { Message(g.player, 'MomSummonPick_nature_1'); }
+			} elseif (MomSphere[g.player] == 3) {
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_sorcery_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_sorcery_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_sorcery_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_sorcery_2'); }
+				else { Message(g.player, 'MomSummonPick_sorcery_1'); }
+			} elseif (MomSphere[g.player] == 4) {
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_death_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_death_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_death_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_death_2'); }
+				else { Message(g.player, 'MomSummonPick_death_1'); }
+			} elseif (MomSphere[g.player] == 5) {
+				if (MomSphereRung[g.player] >= 5) { Message(g.player, 'MomSummonPick_chaos_5'); }
+				elseif (MomSphereRung[g.player] >= 4) { Message(g.player, 'MomSummonPick_chaos_4'); }
+				elseif (MomSphereRung[g.player] >= 3) { Message(g.player, 'MomSummonPick_chaos_3'); }
+				elseif (MomSphereRung[g.player] >= 2) { Message(g.player, 'MomSummonPick_chaos_2'); }
+				else { Message(g.player, 'MomSummonPick_chaos_1'); }
+			}
 		} else {
 			Message(g.player, 'MomSummonNoMana');
+			Kill();
 		}
-		Kill();
 	}
 
 	// The "Goal" arm (AddGold 500) was REMOVED 2026-07-26 with the same reasoning
@@ -284,7 +514,62 @@ alertbox 'MagicMenu' {
 	// magic menu. The boundary is still exercised in play by the summon path's
 	// CreateUnit, so nothing is lost as evidence.
 
-	Button(ID_BUTTON_CLOSE) {
+	// WORKINGS -- the NavArm into the spellbook spoke.
+	//
+	// Kill() FIRST, then Message(). Boxes STACK rather than replace, and a
+	// stacked pair freezes the turn loop; the base-verified navigation pattern
+	// is tut2_msg.slc's TMTurn0B, which does exactly this and whose statements
+	// after Kill() demonstrably still run.
+	//
+	// The Chaos branch is inline rather than delegated to MomSpellShowBook,
+	// which lives in mom_spells.slc (include 65) -- FIVE INCLUDES AFTER this
+	// file. Calling it from here would reference a symbol whose declaring file
+	// has not loaded, the same hard error that bit MomSphereRung. Segment names
+	// are resolved by the engine when Message() runs, not at include time, so
+	// naming a later-defined segment is safe where calling a later-defined
+	// FUNCTION is not.
+	Button(ID_MOM_MSG_BTN_WORKINGS) {
 		Kill();
+		if (MomSphere[g.player] == 5) {
+			Message(g.player, 'MomSpellHub_chaos');
+		} elseif (MomSphere[g.player] == 4) {
+			Message(g.player, 'MomSpellHub_death');
+		} elseif (MomSphere[g.player] == 3) {
+			Message(g.player, 'MomSpellHub_sorcery');
+		} elseif (MomSphere[g.player] == 2) {
+			Message(g.player, 'MomSpellHub_nature');
+		} else {
+			Message(g.player, 'MomSpellHub_life');
+		}
 	}
+
+	// ARTIFACTS. Fourth of a maximum five arms -- one spare left.
+	//
+	// The spec asks for this arm to be an :Affordance:, shown only while you
+	// hold a vessel. IT CANNOT BE, at this level: `j` reaches this segment as
+	// SlicObject("MagicMenu") from keypress.cpp, so the hub's NAME is fixed in
+	// the exe and SLIC cannot substitute a variant with a different arm set the
+	// way the Chaos spellbook does. The arm is therefore always present and the
+	// gate moves one level in -- an empty-handed player gets told so, rather
+	// than being shown a spoke listing nothing. specs/magic-ui-architecture.md
+	// records this deviation and why.
+	//
+	// MomHasLamp is read as an ARRAY here, not through a predicate call: this is
+	// a Button body, and a user call from one is the documented 0xC0000005.
+	Button(ID_MOM_MSG_BTN_ARTIFACTS) {
+		Kill();
+		if (MomHasLamp[g.player] == 1) {
+			Message(g.player, 'MomMsgArtifacts');
+		} else {
+			Message(g.player, 'MomMsgNoArtifact');
+		}
+	}
+
+}
+
+// Shown when the Artifacts arm is pressed empty-handed. This is the affordance
+// gate the hub's static arm list cannot express (see the arm body above).
+alertbox 'MomMsgNoArtifact' {
+	Text(ID_MOM_MSG_NO_ARTIFACT);
+	Button(ID_BUTTON_CLOSE) { Kill(); }
 }

@@ -1,3 +1,843 @@
+## 2026-08-02 — A portrait primary is a one-line config fix. I said "your desktop" twice.
+
+**Operator:** *"wtf, you have solved this issue more than once before. Portrait,
+set to 1280x1024."* Correct, and the correction was already sitting in my own
+notes — I had written it on 2026-07-26 and then walked straight past it.
+
+**What is actually true, measured 2026-08-02 by enumerating `EnumDisplaySettingsW`
+on the primary:**
+
+```
+\.\DISPLAY4 primary=True 1080x1920 orient=1  (19 modes)
+    1280x1024: no          <- what the profile asked for
+    1024x1280: LEGAL       <- the SAME mode, portrait orientation
+    1024x768:  no
+    768x1024:  LEGAL, but fails "boot asserts failed: new_game_check"
+```
+
+So a portrait primary never required rotating a monitor or reassigning the
+primary display. **It required two numbers swapped in `userprofile.txt`:**
+
+```
+ctp2_program/ctp/userprofile.txt
+ScreenResWidth=1024
+ScreenResHeight=1280
+```
+
+Preflight now reads `1024x1280: LEGAL on the primary display` and a full run
+completes with no `UIWALK_ALLOW_ILLEGAL_RES` override at all.
+
+**Which profile, because this is genuinely confusing:**
+`preflight_display()` reads `EXE_DIR/userprofile.txt` through
+`profile_screen_res()`, and **`EXE_DIR` is the fixed constant
+`INSTALL/ctp2_program/ctp`** — NOT the directory of the exe actually launched,
+which was `H:\Games\civctp2\ctp2_code\ctp` carrying its own different profile
+(1024x768, WindowedMode=No). The install profile is the one the gate reads.
+
+**The process failure, which is the part worth keeping.** The memory file for
+this exact condition ends with *"read this memory BEFORE debugging"* and contains
+a block headed **CORRECTED 2026-07-26** stating that `1024x1280` is legal and
+boots. I read the top of that file, acted on the superseded text below it, and
+told the operator it was their desktop to change — twice.
+
+**A memory with a CORRECTED section is a trap if you read it top-down.** The
+correction is the live claim and the text under it is provenance. Put the fix at
+the TOP, in the description, where it cannot be missed — which is how that file
+now reads.
+
+And the smaller lesson: `UIWALK_ALLOW_ILLEGAL_RES=1` produced working runs, which
+made the wrong model *comfortable*. A workaround that works is the thing most
+likely to stop you finding the fix.
+
+## 2026-08-01 — The cheap spend was starving the dear one, and magic was unreachable
+
+**CLOSED — a warring AI could never summon, ever.** Not rarely, not slowly:
+structurally. MoM's AI has two spends against ONE pool — a war-chest working at
+**50** and a summon at **75**. At war the pool crosses 50 before it crosses 75, so
+the cheap branch fired first every single time and the pool never reached 75.
+Measured at turn 12: Sorcery on **26 mana, 0 creatures, prep 0** — it had spent
+everything on gold.
+
+**Neither branch was wrong.** Both are individually correct and nothing dangles,
+which is exactly why no gate saw it: *the defect lived entirely in the
+interaction.* Reference integrity and per-branch review both step over that.
+
+**The law, and it is not specific to this mod:** *when two spends share one
+resource, the cheaper one starves the dearer unless something stops it.* Whenever
+a second sink is added to an existing pool, ask which threshold is crossed first
+and whether the expensive option is reachable at all.
+
+The fix guards the cheap branch with the SAME sustainability test the summon
+uses: convert power to gold only when the tribe could not feed even a rung-1
+creature. The cheap option becomes the fallback for tribes that cannot use magic
+as force, instead of a tax on every tribe that can. Gate 27 assertion 11 asserts
+the guard exists, proven to fire with it removed.
+
+**How it became findable, which is the transferable part.** "The AI spent mana
+and has no creature" had two indistinguishable explanations — a stuck countdown,
+or a spawn that silently produced nothing — and BOTH were wrong. Adding a `prep`
+row to the read-only instrument printed `prep 0 0 0 0 0`, eliminating both at
+once and pointing at the spend itself.
+
+**When two hypotheses predict the same observation, add the column that splits
+them rather than reasoning harder.** I had spent several minutes arguing myself
+toward each hypothesis in turn; one extra measured row settled it immediately.
+
+## 2026-08-01 — The upkeep rate became one knob, which is what made the test cheap
+
+**SHIPPED — `MomUpkeepRate`, a single seeded global.** The rate was a bare `* 2`
+at three sites: the upkeep scan, the insolvency refund, and the AI's
+sustainability projection. Three copies of a balance constant is an ordinary
+drift hazard, and a **correctness** hazard in the AI's: had its projection ever
+diverged from the rate actually charged, it would compute sustainability against
+a fiction and either starve itself or summon straight into a deficit.
+
+SLIC has no `#define`, so the rate is a global lazily seeded by
+`MomRecalcMagicPerTurn`. **The seeding is load-bearing, not decorative** — a SLIC
+global starts at 0, and a rate of 0 makes every creature free and upkeep silently
+dead. Gate 27 assertion 10 asserts both the single home and the seeding, proven
+against a reintroduced bare `* 2`.
+
+**The payoff is testability, and that was the point.** Insolvency is unreachable
+in a short game at shipped rates BY DESIGN — a summon needs 75 banked and each
+creature lowers net income, so a rung-1 tribe steps down 2 at a time against
+~20-25 income and it takes on the order of a hundred turns. With the rate behind
+one knob, `probe_insolvency.py` patches **that one line** to a rate where a single
+creature outruns income immediately and the disband fires within two turns.
+Everything else — ledger, weighted draw, `KillUnit`, refund, floor, message — is
+the shipped path untouched.
+
+**This is the general move, and it is the one I should reach for instead of a
+longer run: SHRINK THE RIG, NOT THE QUESTION.** Note precisely what it buys and
+what it does not — it proves the branch EXECUTES; it does not prove the shipped
+rate produces disbands in play, which it should not at rung 1, because disband is
+a backstop for income LOSS rather than a routine tax.
+
+**BLOCKED, and worth recording because it is invisible from inside the repo:**
+the harness preflight now ABORTS. The primary display became `\.\DISPLAY4` at
+1080x1920 **portrait**. CTP2 enumerates legal modes from display 0 only
+(`display.cpp display_EnumerateDisplayModes`), so 1280x1024 is not available, the
+engine REFLOWS its in-game UI to whatever client size it gets, and every pinned
+aim point authored at another resolution is wrong. Captures stay readable;
+**pointing** is what breaks. The preflight refuses rather than clicking blind,
+which is correct — a miss AVs.
+
+Fixing it means making a landscape display primary, which is a change to the
+operator's own desktop and is theirs to make, never something to do silently.
+
+## 2026-08-01 — The rig kept growing to fit the question. That was the bug.
+
+**Operator, twice:** *"don't do 700 turn runs"* / *"I told you not to do this a
+while ago when you wanted to do 200."* Correct both times, and I had a standing
+law on file saying the same thing (under 15 minutes per test; hour-plus runs are
+a design failure, not a property of the problem).
+
+**What went wrong is worth naming precisely.** I escalated 20 -> 220 -> 700 turns
+across one session, and each step felt locally justified: rung 2 is thousands of
+science deep, an AI army needs time to mature, turn 220 is still early game. Every
+one of those is true. **And every one of them is evidence the QUESTION was
+mis-sized, not that the rig needed to be bigger.**
+
+**What the long runs actually cost, measured:**
+- a 700-turn attempt stalled at turn 55 on an unswept diplomacy modal and burned
+  900 s before the watchdog fired;
+- killing it skipped the probe's `finally` and leaked its instrument into the
+  scenario tree;
+- staging while it ran committed a debug build over the real player-facing MAGIC
+  STATUS panel, which had to be reverted.
+
+Three separate failures. **None of them could have happened at 20 turns.**
+
+**The moves that were available the whole time**, and are the standing answer
+when a claim sits past the horizon:
+
+- **Shrink the rig, not the question.** A scratch scenario with one constant
+  changed exercises the same SLIC path in two turns instead of two hundred.
+- **Unit-test the maths directly.** The disband roulette was settled by
+  `tools/test_disband_weighting.py` — 4 varied ledgers x 200k trials, under a
+  second — while the in-game state that would exercise it is unreachable at rung 1
+  by construction.
+- **Report it unproven, and say why.** "Structurally unreachable in a short game"
+  is an honest disposition. Grinding a long run to produce a weaker version of the
+  same answer is not.
+
+**~20 turns is the working ceiling for this project.** Anything that needs more
+needs a different instrument.
+
+## 2026-08-01 — Summoning takes preparation, and a long run froze at first contact
+
+**CLOSED — a cycle validated at 200 turns is NOT validated at 700.** A 700-turn
+run **stalled dead at turn 55** and sat for 900+ seconds until the watchdog
+tripped. The turn cycle sliced out of `full_game_v3.json` sweeps exactly three
+modals — `SciAdvanceScreen`, `BattleViewWindow`, `ModalWindow` — and
+`grep -c DipWizard steps/full_game_v3.json` returns **0**. A diplomatic proposal
+modal is a documented turn-loop freezer here; earlier 200-turn runs simply never
+reached AI contact, so the gap never showed.
+
+Fixed by prepending `DipWizard.ViewButtons.RejectButton` to the cycle **in the
+probe**, not in the shared steps file, so the 200-turn-validated cycle stays
+byte-identical and the addition is visibly additive. `press` on an unrealised
+path is a no-op, which is why all four can sit unconditionally in every turn.
+**Confirmed, not merely plausible: the re-run reached turn 85 and exited clean**
+— past the stall, which is the falsifier the thesis had named in advance.
+
+**The law: turn count is a coverage dimension.** A longer game unlocks whole
+classes of modal a short game never produces, so a harness proven at one horizon
+carries no guarantee at a longer one.
+
+**SHIPPED — summons now require preparation.** Committing a summon debits the
+mana, rolls the creature, and starts a countdown equal to its sphere rung: a
+rung-1 Warbears still arrives next turn exactly as before, a rung-5 Great Wyrm is
+a five-turn commitment. One preparation at a time, and no cancel — a commitment
+you can walk away from for free is not a commitment.
+
+This is deliberately not a duplicate of upkeep. **Upkeep bounds how many
+creatures you can KEEP; preparation bounds how fast you can GET them.**
+
+The AI goes through the *same* state machine rather than spawning directly, so
+one writer owns placement, ledgering and timing for both sides and the two paths
+cannot drift. That change put five messagebox calls on the AI path for the first
+time, so the arrival popups needed an `IsHumanPlayer` guard they never previously
+required — a messagebox aimed at an AI player is how the message-queue AV was
+hit.
+
+**Two ordering traps found while building it:**
+- `MOM_MSG_SUMMON_BEGUN` interpolates `{MomPrepDisp}`, but that scalar is
+  refreshed by `mom_magic.slc` (include **56**) while the popup is raised from
+  `mom_msg.slc` (include **55**). Left alone it would have announced the previous
+  turn's value — *"will take shape in 0 turns"* on every single commit. Set
+  explicitly at commit. **Include order decides which handler sees fresh state.**
+- The arrival branch must be `elseif` against commit. As a separate `if`, a
+  rung-1 creature would commit and arrive in the same tick and preparation would
+  be invisible for exactly the tier most summons produce.
+
+**And an operational one, earned the hard way:** *never edit or stage a file a
+running probe owns.* The long-game probe swaps `scen_str.txt`, so an edit made
+mid-run is silently reverted by its restore — and a `git add -A` mid-run commits
+the instrumented tree, which is exactly what happened and had to be reverted.
+
+## 2026-08-01 — `finally` is not cleanup, and civ2 MoM Jr never summoned anything
+
+**CLOSED — a killed probe leaks its instrument, and `finally` will not save you.**
+`probe_long_game.py` injects a read-only diagnostic into `scen0000` (a
+`mom_probe.slc`, an `#include` in `scenario.slc`, a swapped MAGIC STATUS string)
+and restores all three in a `finally`. The round-trip was tested CLEAN before
+first use. Then the run was cancelled mid-flight and **`finally` never ran**,
+leaving all three in the tree.
+
+Worse than an ordinary leak on two counts: the next run would have silently
+measured an INSTRUMENTED scenario and reported it as shipped, and the leak sat
+one `git add -A` from committing a debug string over the real player-facing
+panel.
+
+**The law:** *`finally` handles the exceptional path, not the killed path.
+Anything that mutates the tree under test must be IDEMPOTENT at startup — strip
+your own prior leavings before installing, every time.* Exit cleanup is the
+optimisation; startup cleanup is the guarantee. Strip precisely (line match on
+the include, key match on the string) rather than with `git checkout`, which
+would discard unrelated edits. Where the original cannot be reconstructed — a
+REPLACED line rather than an ADDED one — refuse to run and name the restore
+command, because guessing what the real string said is how a probe ships a wrong
+value.
+
+**ANSWERED — what does civ2 MoM Jr do about upkeep for summoned units?** The
+question dissolves: **MOMJR has no summoning at all.** Zero `CREATEUNIT` in any
+file of the mod; `Events.txt` is 85 lines holding a CD track on scenario load and
+five `UNITKILLED` text messages for the heroes. Every fantastic creature —
+Warbears, Great Wyrm, Archangel — is BUILT in a city. Summoning is our own
+addition in the CTP2 port, so there was never a precedent for "free forever"; we
+invented that and are now correcting it.
+
+**But MOMJR did charge creatures ongoing upkeep**, through civ2 government
+support (`@COSMIC`: Monarchy and Communism pay for all units past 3,
+Fundamentalism past 10). "Creatures drain you continuously and you can field only
+as many as your economy sustains" is authentic MoM Jr — denominated in shields,
+because shields were the only lever civ2 had.
+
+**And in our port they were never free either.** Every unit already carries
+`ShieldHunger` (Spearmen 1, Warbears 1, Great Wyrm 2, Archangel 2), so the engine
+has been charging production upkeep on summons all along. Mana upkeep is a
+second, magic-specific layer: shields are the mundane cost every unit pays, mana
+is the magical cost only summoned creatures pay.
+
+**Balance note, unmeasured:** a Great Wyrm now costs 3490 to build, 2 shields per
+turn AND 10 mana per turn. High-rung creatures are expensive on three axes at
+once. Defensible — they are meant to be commitments, and it is what makes the
+weighted disband pick them first — but the stacking is real and untested in play.
+
+## 2026-08-01 — Upkeep-weighted disband, and a panel line that fell off the box
+
+**CLOSED — insolvency releases creatures by upkeep-weighted draw, not LIFO.**
+Operator: *"should just be a random sampled weighted by over average upkeep? this
+way units that cost more are more likely to evaporate."* Right, and better than
+the last-in-first-out it replaced on two counts: the creature likeliest to go is
+also the one that frees the most mana, so the pool recovers fastest; and a
+positional rule lets a player shield an expensive creature by summoning a cheap
+one after it.
+
+Implemented as a roulette walk with weight = rung (which IS the upkeep rate up to
+a constant), inline in `MomMagicPoolTick`, `KillUnit` still outside every loop so
+the one-disband-per-turn bound holds. Measured over four varied ledgers
+(`tools/test_disband_weighting.py`, 200k trials each): proportional to within
+0.5% everywhere, free slots never selected. The telling case is nine rung-1
+creatures plus one rung-5 — the single expensive creature carries **35.7%** of
+the risk.
+
+**PROPORTIONAL, not a strict "above average" filter.** Above-average degenerates:
+when every creature shares a rung, none is above the mean, nothing is ever
+released, and the pool stays negative forever. Proportional collapses to a
+uniform draw in that case, which is the correct behaviour.
+
+**Worth knowing: over-summoning is largely self-preventing.** A summon needs 75
+banked mana and each creature permanently lowers net income, so a rung-1 tribe
+walks net down 2 at a time and lands exactly ON zero — after which it can never
+bank 75 again. Net only goes negative when one creature's keep exceeds the
+remaining headroom (a high rung taken on thin margins) or when income falls
+afterwards (a city or mana node lost). Disband is a backstop for income LOSS, not
+a routine tax — which is also why a short rung-1 game structurally cannot
+exercise it, and why the selection maths is unit-tested rather than waited for.
+
+**CLOSED — the alertbox is FIXED HEIGHT and silently drops the tail.** Growing
+MAGIC STATUS to six lines pushed `Sphere rung: N of 5` clean off the bottom. No
+error, no clipping artifact, no log line — the panel simply rendered without it
+and looked entirely correct. This is nastier than the interpolation failure it
+sits next to: a bad `{Arr[Idx]}` drops the WHOLE message so you notice at once,
+whereas overflow drops only what you did not re-read.
+
+**The rule:** *after changing any panel string, COUNT the rendered lines in a
+captured frame and confirm the last line you wrote is present.* Budget ~5 visual
+lines of body; a long line wraps and costs two. The fix that keeps content is to
+collapse a breakdown into one arithmetic line — `Income 27 - upkeep 4 = 23 per
+turn` carries the same tally in a third of the space.
+
+**Also fixed: a scalar that quietly changed meaning.** `MomMagicPerTurn[]` became
+NET when upkeep landed, but three sites still copied it into `MomMagicGenDisp`,
+the *gross* Income scalar. The panel would have printed net under an "Income"
+label and its three lines would not have reconciled. `MomRecalcMagicPerTurn` is
+now the sole writer of all three display scalars — the only scope that still
+holds gross and upkeep separately. **When a variable's MEANING changes, grep
+every reader, not every writer.**
+
+## 2026-08-01 — A green static suite shipped a dead feature, twice over
+
+**CLOSED — SLIC builtins disagree about ident quoting, and the wrong form is a
+RUNTIME error.** Building the mana tally I wrote
+`CityHasBuilding(tmpCity, IMPROVE_TEMPLE)`, by analogy with the `UnitDB(UNIT_X)`
+/ `AdvanceDB(ADVANCE_X)` / `BuildingDB(IMPROVE_X)` family this mod uses
+everywhere. The engine answered on turn 3:
+
+```
+Slic Error | In object MomRecalcMagicPerTurn,
+            function _CityHasBuilding: Wrong type of argument
+```
+
+All 217 `CityHasBuilding` call sites under `H:\games\ctp2` pass a **quoted
+string** — `CityHasBuilding(city[0], "IMPROVE_CAPITOL")`. There is no mixed
+usage; I inferred the shape from a neighbouring builtin instead of reading one.
+
+**Why nothing static caught it.** This is not the familiar
+auto-created-unknown-symbol failure. A bare `IMPROVE_TEMPLE` in an argument
+position resolves fine — it is the wrong *kind* of thing, raised at call time.
+So the broken tree was **byte-stable**, passed **every** `validate_scenario.py`
+gate, passed `mom_audit.py` with 0 FAIL, and passed `backcast_slic.py --check`.
+Green suite, dead feature.
+
+**The law:** *when calling a builtin this mod has not used before, read a real
+call site out of the corpus — never infer the argument shape from a neighbouring
+builtin.* Conventions are per-builtin, not per-family. Closed by
+`tools/gate_mana_upkeep.py` assertion 7, proven to fire against the bare form
+before being trusted.
+
+**The second dead-feature lane, same day: a gate that measured the wrong text.**
+`gate_ai_magic._pools()` split the WHOLE of `mom_summon.slc` on `if (p == N) {`
+and attributed every later `UnitDB(...)` to the last sphere seen. That silently
+assumed nothing follows `MomSummonRoll`. The moment `MomSummonRungOf` — the
+upkeep rate table, every creature in one flat list — was emitted after it, the
+gate reported **CHAOS rolling 16 other spheres' creatures**. The pools live in
+the roll, so the parser now scopes to the roll's body first. Verified it was a
+fix and not a neutering by re-parsing: 5 spheres x 4 creatures, each sphere-pure.
+
+**A parser that reads "everything after the last marker" is asserting that
+nothing will ever be appended.** Scope to the construct you mean.
+
+## 2026-07-29 — The engine reads the REAL mouse, and a dead column excluded nothing
+
+**CLOSED — the map edge-scrolled through every run the harness has ever made.**
+The operator: *"the game is open and scrolling to the left ... my guess is the
+mouse likely isn't decoupled from MY mouse ... the screen only scrolls like that
+if the mouse is at the edge."* Right on every count.
+
+**CTP2's aui polls `GetCursorPos` — the operator's REAL cursor.** It never reads
+our posted `WM_MOUSEMOVE`. The window is stashed at (3012,-1262), past the right
+edge of a three-monitor virtual desktop (x 0..3004, y -1262..864). A cursor at
+(2428,-523) therefore converts to client **x = -584** — past the left edge — and
+the engine edge-scrolls left on every frame.
+
+It never *stopped* because edge-scroll only runs while the window holds
+`SDL_WINDOW_INPUT_FOCUS`, which `_spoof_focus()` sets before **every** input and
+which **nothing ever cleared**. One `enter` per turn armed a scroll that then ran
+until the process died. The earlier "scrolling up" report is the same mechanism
+armed by the turn ping, which hovers at `y=6` — the top edge.
+
+Fixed with `_drop_focus()` (`WM_KILLFOCUS` + `WM_ACTIVATE(WA_INACTIVE)`) after
+`hotkey`, `type_text`, `hover`, `drag` and `click`. Safe because each of those
+spoofs focus first, so the flag is re-armed immediately before it is needed.
+**Deliberately not fixed by moving the real cursor or by `ClipCursor`** — the
+operator is using the machine.
+
+Measured with phase correlation on the map region: **10 consecutive turns at
+exactly (0.0, 0.0) translation**, and the clock still advances 4000BC → 3725BC,
+so dropping focus does not break `enter`.
+
+**The laws:**
+
+- *An off-screen window is not an isolated window.* Anything the engine reads
+  from global state — cursor, keyboard, clock — still sees the real desktop.
+  Stashing hides the window from the operator; it does not decouple the input.
+- *Every flag you set, something must clear.* `_spoof_focus` had been correct and
+  incomplete for months: it enabled input delivery and also, invisibly, enabled a
+  cursor-polling loop.
+- *This silently polluted every frame comparison the harness has ever made.* A
+  scrolling map inflates deltas, so `decode_run`'s thresholds were fitted against
+  a moving background. Re-derive any threshold measured before this fix.
+- *Check the operator's monitor topology before claiming "off-screen".* My first
+  stash check compared against the PRIMARY display only and reported 0/40
+  on-screen — meaningless on a three-monitor desktop.
+
+**CLOSED — a control-plane column that excluded nothing.** The five `x`-sentinel
+wonders turned out to be **player-visible**: the Great Library's Warrior Code page
+listed *"Xapollo Program, Xcure For Cancer, Xlighthouse, Xstatue Of Liberty and
+Xwomens Suffrage"* among the wonders it enables. `wonders.csv` has an
+`IncludeInMoM` column — and the generator **never reads it**, on any row, and it
+is `True` on all 28. The intended exclusion mechanism did not exist; the column
+merely looked like governance. Culled the rows instead: **28 → 23**, which is the
+count gate 24's own docstring already asserted.
+
+**The law:** *a column nobody reads is not a control; it is a comment that looks
+like one.* Same shape as the dead `ident in momjr` discriminator
+([[mom-dead-discriminator-momjr]]) — grep for the reader before trusting a knob.
+
+**A one-creature pool is not the bug it resembles.** After the normal/fantastic
+split, every sphere has exactly ONE creature at rung 1, widening to four by rung
+5. That is the 5×4 grid working — but on screen it is indistinguishable from the
+five-constants bug 3.2 fixed. The MAGIC STATUS panel now states the rung, which is
+both the missing player information and the thing that let the harness explain a
+null result instead of mis-reading it: *"Sphere rung: 1 of 5"* at turn 144.
+
+**The law:** *when correct behaviour and a known bug produce the same
+observation, ship the discriminator.* Otherwise every future run re-opens the
+question.
+
+---
+
+## 2026-07-29 — I fixed the lane I was looking at, not the lane that was broken
+
+**Context:** the operator reported *"the tribes of nature would only ever spawn
+one unit."* I found that the SLIC summon resolved through five per-sphere
+constants, fixed it, and reported that as the explanation. The operator pushed
+back: *"summon != building... what about tribes of nature's ability to BUILD
+units?"* They were right, and the build lane was much worse.
+
+**CLOSED — every sphere unit was locked behind the magic ladder.** All 13 Nature
+units required `NATURE_LORE`: 1865 science, itself behind `GRAND_MASTERY` and
+`ELDRITCH_LORE`. Photographed in the Build Manager at turn 1 — Eudoria's Units tab
+offered **two** items, `Spearmen` and `Peasants`. At turn 78 the same capital
+reported *"there are already twelve units in that city, which is the maximum
+allowable units per tile"*: twelve identical Spearmen, because Spearmen was
+effectively the only choice. The unit the operator called "clayman" was almost
+certainly `IRON_GOLEM`, a neutral.
+
+**Cause:** 3.0's prereq rewrite pushed *every* sphere'd row onto a cost-derived
+ladder rung. Right for a fantastic creature, wrong for a racial troop — and MoM's
+whole design turns on that split: troops are BUILT and are the mainstay,
+creatures are SUMMONED. MOMJR already encoded it, in `advance_code_map.csv`'s
+`unit` lane. 23 normal / 20 fantastic, and the fix was to stop overriding data we
+already had.
+
+**The laws:**
+
+- *Fix the lane the symptom is in, not the lane you happen to be reading.* Two
+  mechanisms can produce one description. "Only ever one unit" fit both summon
+  and build; I checked one, found a real bug, and stopped. A real bug found is
+  not proof it is THE bug — it is the most seductive false positive there is.
+- *When a user says "you made it sound like X was the only reason", treat it as
+  evidence, not as a misunderstanding to correct.* They were describing the game
+  they played; I was describing the code I had read.
+- *Before overriding source data with a derived heuristic, check whether the
+  source already answers the question.* `cost_to_tier` was inventing an answer
+  that `advance_code_map.csv` already had. Same lesson as
+  [[mom-authored-rung-beats-derived-tier]], in the other direction: there the
+  derived tier demoted authored intent; here it erased a whole taxonomy.
+
+**The regression the fix caused, and what caught it.** The wall infers a block's
+sphere by reverse-looking-up its gate advance in the ladders. Once racial troops
+gated on mundane advances belonging to no ladder, that lookup returned nothing and
+**23 units silently fell out of `mod_CanCityBuildUnit`** — 87 walled idents down
+to 59, every tribe able to build everything. `gate_faction_gating`'s A9 caught it
+immediately. *An inference that reads a value back out of a derived field breaks
+the moment the field's domain widens; record the fact at the point you know it.*
+
+**A gate can outlive its premise.** A9 asserted "sphere'd but on a mundane advance
+⇒ every tribe reaches it". True only while every sphere'd block was forced onto a
+rung. There are TWO independent gates — the advance and the SLIC wall — so the
+real invariant is *sphere'd ⇒ walled*. Rewrote it and re-proved it by deleting
+Centaurs from the wall. *When a fix makes a gate fail, decide whether the code or
+the gate is wrong; do not assume the gate.*
+
+**Harness facts measured on the way (both cost a run):**
+
+- `ctrl+5` does NOT open the Great Library even though `keymap.txt:43` maps `^5`
+  to it — **the ctrl modifier does not survive injection**, so it arrives as a
+  plain `5` and opens the 5th top menu (Stats). What works in-game is
+  `press: BuildEditorWindow.LibraryButton`, then follow the `Requires:`
+  hyperlink. See [[ctp2-greatlibrary-reachable-from-buildmanager]].
+- The GL search box is at ~(434,301) at 1280x1024, not the (246,94) in
+  `steps/gl_advances.json`. Click the wrong spot and nothing has focus, so
+  subsequent `type:` text becomes **hotkeys**.
+
+**The GL is the best cheap witness for a data change.** Its GAMEPLAY prose is
+derived from the live DB every run, so its page IS the engine reporting the
+database back — reachable without playing to the tech that unlocks the thing.
+Verified: *"Warrior Code needs no prior research and is available from the first
+turn... It enables the units Minotaur, Peasants and Spearmen."*
+
+---
+
+## 2026-07-29 — A ladder nothing reads, and a resource one side cannot spend
+
+**Context:** two things noticed in a play session, both reported as vague
+impressions ("nature only ever spawns one unit"; "does the AI have any magic
+logic?"). Both turned out to be exactly true, and both were invisible to every
+gate in the repo because **nothing dangled**. Reference integrity cannot see a
+feature that resolves correctly to the wrong thing, or a code path no player can
+reach.
+
+**CLOSED — the six-rung sphere ladder governed nothing.** `MomSummonOrderTick`
+resolved the 75-mana summon through five CONSTANTS, one per player index. Nature
+was hardwired to `UNIT_WARBEARS` — cost 4, the *cheapest* of its 13 units — so
+`NATURE_LORE → ADEPT → MAGE → WIZARD → MASTER` changed nothing about what mana
+bought, and 12 Nature creatures were unreachable by summoning. The whole
+faction-gating and ladder effort was decorative *for the mod's headline feature*.
+The summon now rolls, weighted, over every rung the caster has unlocked.
+
+**The law:** *a feature that compiles, runs, and resolves to a legal ident can
+still be doing nothing.* Ask what READS a structure, not just whether it is
+well-formed. The ladder had six rungs and exactly one consumer, which ignored it.
+
+**CLOSED — the AI banked a resource it could never spend.** `MomMagicPoolTick`
+accrues mana for every sphere player 1..5, human or not — but `MomSummonChoice[p]`,
+the only thing that authorises a summon, is set in exactly ONE place: a **button
+body**. A button body runs only when a human clicks. So every AI tribe accrued to
+the 100 cap and sat there for the entire game, and the ten `IsHumanPlayer` guards
+in the magic modules only ever *suppressed* output for the AI — nothing replaced
+it with an action. This is part of why two long headless runs ended when the
+script ran out rather than when the game did: the AI was never doing the thing
+the mod is about.
+
+**The law:** *a guard that suppresses is not a guard that substitutes.* Every
+`if (IsHumanPlayer(p))` is a fork with a silent second branch — go read it.
+
+**What the mod corpus settles about SLIC AI (surveyed all 230 `.slc` under
+`H:\games\ctp2`).** Ages of Man's `AOM2_frenzy11.slc` is 2586 lines of exactly
+this: `if (!IsHumanPlayer(player[0]) && ...)` then a rule ladder over observable
+state, applied directly. Verb census — `GrantAdvance` 1561, `random`/`Random`
+1251, `CreateUnit` 829, `AddGold` 530, `KillUnit` 261, `MoveUnits` 61, `MoveArmy`
+35, `BreakAlliance` 16, `SetGovernment` 8. Two conclusions:
+
+- **A probability distribution over actions is the idiom, not an exotic.** 1251
+  uses of `random`.
+- **There is NO verb for the AI's build queue or research goal anywhere in the
+  corpus.** No `AddToBuildQueue`, no `SetResearchGoal`. **SLIC cannot instruct the
+  engine AI — only GRANT, PLACE and MOVE.** Design accordingly; do not go looking
+  for a steering API that does not exist.
+
+**AVOIDED — `HasAdvance` would have failed silently.** It is the obvious way to
+read rung attainment, it is used 700+ times across the other mods, and it was
+still the wrong choice here. Every one of those call sites passes a bare
+`ID_ADVANCE_*` ident, and two things make that unsafe: `scenario.slc`'s own header
+records that **the engine silently auto-creates unknown symbols** (so a name that
+does not resolve returns a permanent *false* instead of erroring), and
+`validate_all_surfaces.py`'s surface-7 regex is anchored `\bADVANCE_`, which
+**cannot match inside `ID_ADVANCE_`** — so nothing in the repo would have caught
+the typo. Rungs are tracked instead in a `MomSphereRung[]` array written by a
+`GrantAdvance` handler comparing `value[0] == AdvanceDB(...)` — primitives this
+mod has already proven, and covered by surface 7.
+
+**The law:** *before adopting a primitive because other code uses it, ask what
+happens when you get it WRONG.* A primitive whose failure mode is silent-false,
+in a codebase whose validator cannot see it, is worse than a more verbose one
+that fails loudly. Popularity elsewhere is not evidence of safety here.
+
+**Two defects the implementation itself introduced, both caught by instruments
+rather than review:**
+
+1. `;` is not a comment in a string table — `#` is. Seven comment lines added to
+   `scen_str.txt` produced `Could not find text for id ;` and killed the process
+   at load. `turnloop.py`'s **native-dialog error channel** surfaced the exact
+   file, line and text in one run. Pixels would never have shown this.
+2. Rung 0 owns no creature, so a tribe holding only its `*_MAGIC` root — i.e.
+   **every tribe at the start** — would have rolled 0 and summoned *nothing*,
+   while the arm still looked affordable. Spotted by reading the generated pools,
+   not the code. Fixed twice over: the root now maps to rung 1, *and*
+   `MomSummonRoll` floors `r` at 1 so grant timing cannot matter.
+
+**The law:** *a refactor from a constant to a lookup must be checked at the
+BOTTOM of the range.* The old code could not fail at rung 0 because it never
+consulted a rung; the new code's most common starting state was its one dead
+branch.
+
+---
+
+## 2026-07-27 — A completed run is not a played run; an empty list is a deletion
+
+**Context:** the goal was a *complete* playthrough — run to a terminal game
+state and audit balance on the way. Two things stood in the way, and both were
+invisible to every gate the repo had, because both are failures of
+*reachability* rather than of *legality*.
+
+**CLOSED — the 600-turn run never played 600 turns.** Run `20260727-201217`
+reported 600/600, exit 0, 125 shots, in ~18 minutes. `decode_run.py` disagreed:
+**117 consecutive checkpoints at 0 px**, byte-identical, from turn 20 to turn
+600. Screenshotting the frozen frame answered it in one look — a rival tribe had
+opened a **DIPLOMATIC PROPOSAL** ("give us 100 gold or suffer our wrath"), which
+is modal, so END TURN never fired again. The per-turn sweep knew about the
+science and battle modals and not this one.
+
+The mechanism that hid it is worth keeping: **a frozen window is stable**, so
+`wait_stable` returns instantly. Turn count, shot count and exit code are all
+measures of what the SCRIPT did; only per-checkpoint pixel delta measures
+whether the GAME moved. Fixed by adding `DipWizard.ViewButtons.RejectButton`
+(`dipwizard.ldl:494`) to the sweep — reject, never accept, because an unattended
+walk must not hand over gold. Verified: 60/60 turns, all LIVE, no stalls.
+
+**CLOSED — the AI could not build any wonder, so the victory did not exist.**
+All seven lists in `aidata/WonderBuildLists.txt` shipped EMPTY. The reason was
+sound (an empty override stops the engine falling back to stock aidata idents
+that would dangle against the MoM WonderDB) and the consequence was not: the
+engine picks wonders for an AI goal *only* from these lists. So no AI could
+build any of the 23 live MoM wonders — and `EndGameObjects.txt` makes the
+scenario's victory *hold `WONDER_RUNE_OF_RULERSHIP` for 10 turns*. In an AI-only
+game the win condition was **unreachable by construction**.
+
+**The law: an empty allowlist is a silent deletion.** It looks tidy, it is
+conservative, and it passes every reference-integrity gate — nothing can dangle
+when nothing is referenced. The gates asked "does this resolve"; nothing asked
+"is this reachable".
+
+`_write_wonder_build_lists()` now derives the lists from the generated
+`Wonder.txt`, keeping the original guarantee (no stock ident can appear, because
+every ident is read out of the scenario's own DB) and categorising each wonder
+by its own effect lines, so a wonder re-files itself instead of desyncing from a
+hand-typed roster. **Pass ordering bit again:** it must run AFTER
+`_retire_x_sentinels()`, which stamps `ObsoleteAdvance` on the five `WONDER_X*`
+stubs; placed ~674 lines earlier the stubs still looked live and were offered to
+the AI. Gate 24 `check_wonder_build_lists` asserts coverage both ways and that
+the EndGameObjects wonder is listed — proven against the known-bad artifact
+first, where it produced **24 FAILs**.
+
+**The terminal state is turn 1000, and it always was.** `DiffDB.txt` TIME_SCALE:
+20 yr/turn to turn 150, then 10, 5, 2, and 1 from turn 600. `END_OF_GAME_YEAR`
+2300 therefore falls at **turn 1000**; turn 200 is 500BC and turn 600 is 1900AD.
+A frame at turn 15 reads *3750BC*, which matches the table exactly and refutes
+the earlier "turn 200 = 150AD" figure. So no 200- or 600-turn script could ever
+have ended the game on the clock, independent of the two bugs above.
+
+**CLOSED — the scenario reaches a terminal state, and the ending was being
+reported as the worst possible failure.** On the fixed scenario a walk ended in
+`DEFEAT` at **turn 390 / 1505AD**, score 4380, 1 city — the first run in this
+project to stop because the *game* ended. `decode_run.py` called it
+`STALLED at 117 checkpoints`, and it was not wrong: an ending and a freeze
+produce **identical zero-delta frames**. A pixel-delta instrument cannot
+separate them, so the single most important event a run can produce was
+classified as its worst failure. `detect_endgame.py` reads the `VictoryWindow`
+title strip instead, and was validated in both directions before being believed
+— it finds turn 390 in the run that ended and reports *no* ending for the run
+that genuinely froze.
+
+**Attribution by controlled experiment, one variable.** The defeat is the
+`LOST_SCIENCE` path (player still alive with a city), which per
+[[mom-endgame-autodefeat]] runs through `GaiaController`'s countdown — gated
+since the 2026-07-11 engine fix on someone actually HOLDING the Rune of
+Rulership. Populating the AI wonder lists is exactly what made an AI capable of
+building it. Rather than assert that, the same walk was re-run against a
+scenario with the lists emptied again: **420/420 turns, no endgame window, no
+stalls**. Populated lists end the game; empty lists do not. One run per arm on
+different maps, so this is the predicted direction, not a rate.
+
+**Play data beats static analysis.** The end-of-game Power graph shows **Nature
+Tribe** climbing to roughly two-thirds of all power, **Sorcery collapsing around
+turn 60** and never recovering, and **Chaos absent from the legend entirely**
+(with empty rows below it, so not a scroll artifact) despite having been alive
+and sending diplomacy in an earlier run — most likely eliminated. The static
+report ranks chaos the STRONGEST sphere (1165 total power, the Infernal Device)
+and nature second. The game says the opposite. Static power ranks a roster; it
+does not predict outcomes, which is why `balance_report.py` exits 0 and gates
+nothing.
+
+**Balance, first quantitative pass** (`tools/balance_report.py`, new). It scores
+the SHIPPED `Units.txt`, not `units.csv` — the generator rescales on the way out
+(cost x~100, attack x5), so the control plane cannot answer "what does a player
+experience". Measuring that immediately killed the first metric: **all 55 units
+have `MaxHP 10`**, the civ2 `1h..6h` spread having been flattened in the port,
+so `hp` is a constant and had to be dropped from the power proxy. Durability no
+longer differentiates any unit — the single largest dimension lost in the
+conversion.
+
+- **One outlier past 3 MAD:** `INFERNAL_DEVICE`, attack 495 for 480 shields,
+  ~15x the median efficiency.
+- **Stat twins** (identical line, same domain, different price) — the check an
+  outlier band structurally cannot make, since each unit is individually
+  reasonable: `UNDEAD_DRAGON` 1200 vs `STORM_DRAKE` 4000 (**3.33x**, both
+  60/30/10/2); `ALORRA` 470 vs `PALADINS` 1125 (2.39x); `KNIGHTS` 460 vs
+  `HELL_HOUNDS` 740 (1.61x). The dragon gap is faithful to `RULES.TXT:427`,
+  i.e. an upstream MoMJR authoring bug carried correctly — not a pipeline defect.
+- **Sphere spread** 2.56x by total power (chaos 1165 > nature 915 > sorcery 585
+  > life 570 > death 455) and 1.86x by roster size (nature 13, life 7).
+- **Structural:** `ADVANCE_RUNE_LORE`, which unlocks the victory wonder, is
+  **AGE_TWO of seven** and ungated — the win unlocks before most of the magic
+  ladder exists.
+
+The report exits 0 by design. Balance is a judgement call; the numbers are an
+input to it, not a verdict.
+
+**Tooling note that cost 30 minutes.** Writing generator code through a Python
+heredoc, `` inside a non-raw string is a **backspace**, not a word boundary —
+so `r'EnableAdvance'` reached the file as `r'<0x08>EnableAdvance'` and matched
+nothing, silently. `\s`, `\{` and `\}` survive because they are not valid
+escapes. The tell was `cat -A` showing `^H`. Generate code with raw strings or
+verify the bytes.
+
+## 2026-07-26 — The SLIC mod hooks: `theCity.owner` works, `thePlayer` is a lie
+
+**Context:** per-tribe "who gets what" gating rides CTP2's four SLIC mod
+functions (`mod_CanPlayerHaveAdvance`, `mod_CanCityBuild{Unit,Building,Wonder}`).
+A six-probe campaign, one variable each, prediction written before every run.
+Readout was always the same frame: a turn-0 city's Units tab
+(`steps/verify_build_costs.json`, `runs/<stamp>/03_city_founded_units_tab.png`),
+whose control baseline is three rows — Spearmen, **Minotaur**, Peasants.
+
+**CLOSED — a scenario-defined mod function binds and is called.** B1: an
+unconditional `theUnit == UnitDB(UNIT_MINOTAUR) -> 0` dropped Minotaur from the
+list. Scenario segments compile before `AddModFuncs()` runs (`SlicEngine.cpp:1020`),
+so no base-tree edit is needed.
+
+**CLOSED — `theCity.owner` resolves.** B2 added `theCity.owner == 1` and the
+outcome was unchanged. Previously unproven, because the only shipped reference
+(`AlexanderTheGreat/AG_mod.slc`) matches cities by *location* and never reads the
+field. No `GetCityOwner` fallback is required.
+
+**CLOSED — the advance hook intercepts scenario-start seeding.** B4 denied
+`ADVANCE_WARRIOR_CODE` and the Units tab went *empty*, not down to one row as
+predicted: `UNIT_PEASANTS.EnableAdvance` is also `ADVANCE_WARRIOR_CODE`, via the
+generator's `_NO_ADVANCE -> WARRIOR_CODE` fallback. So `Player.cpp:539`'s
+`GiveAdvance(CAUSE_SCI_INITIAL)` does route through the hook, and **seed advances
+are unnecessary** — the veto covers the initial grant too.
+
+**THE TRAP — the `thePlayer` parameter cannot carry identity.** Two dead ends,
+both of which hang the headless harness, because a native modal stops the
+engine's message pump and every later capture is a byte-identical stale frame:
+
+- `player_t` is not a SLIC type. The lexer defines only `Unit_t`, `City_t`,
+  `Location_t`, `Int_t`, `Void_t`, `Army_t`. Declaring it is a compile-time
+  *"SLIC Error: syntax error"*.
+- Declared `int_t`, **reading** it raises *"mod_CanPlayerHaveAdvance#thePlayer:
+  is not an integer"* and evaluates to `0`.
+
+The source says exactly why. `CallMod` builds the argument as
+`new SlicSymbolData(SLIC_SYM_PLAYER)` and then calls `SetIntValue`
+(`SlicEngine.cpp:3148-3152`) — but `SetIntValue` only writes when the type is
+`SLIC_SYM_IVAR` (`SlicSymbol.cpp:182`). **The player index is never stored.**
+`GetIntValue` returns FALSE and `SlicStack::Eval` falls through to `return 0`
+(`SlicStack.cpp:94-123`). `AG_mod.slc` ships an `int_t` declaration and survives
+only because it never reads the parameter. `CallExcludeFunc` has the same defect.
+
+**The replacement — `g.player`, with its negative control.** B5 guarded the same
+deny with `g.player == 1`: empty tab, as predicted. But "empty" is also what a
+degenerate always-true comparison produces, so B6 flipped it to `g.player == 2`
+and predicted the units would **return** — they did. That pair, not B5 alone, is
+what makes the claim evidence.
+
+> **Scope, honestly:** confirmed for the scenario-start seeding path, player 1.
+> **Untested** during an AI turn and inside `Advances::ResetCanResearch`. The AI
+> stall check (~turn 40) must assert per-tribe denial there before this is
+> claimed global.
+
+**Design consequence.** Per-player *advance* gating is expressed as `g.player`,
+never as the parameter. Per-tribe *unit/building/wonder* gating rides
+`theCity.owner`, which is independently proven.
+
+**Method note.** The dialog text was the whole game, and it is not in any log —
+`EnumWindows` for a title containing "error", then `EnumChildWindows` to read the
+static, is what turned an opaque hang into a one-line diagnosis. Match the title
+**case-insensitively**: the runtime modal is titled `Slic Error` and the compile
+modal `SLIC Error`, and a case-sensitive probe silently sees only one of them.
+
+## 2026-07-26 — Great Library text colour lives in the CONTENT, not the LDL
+
+**Symptom:** GL article body text is dark grey (50,50,50) on MoM's dark brown
+article pane — nearly invisible.
+
+**Two theses falsified before the right one.**
+1. "the scenario tree's `greatlibrary.ldl` overrides the base tree" — FALSIFIED.
+   A `widthpix 415 → 300` marker in `Scenarios/mom/scen0000/default/uidata/layouts/`
+   produced no visual change. **LDL is loaded from the BASE tree only.**
+2. "so set `fontcolor*` on `GREAT_BOX`/`GREAT_BIG_BOX` in the base tree" —
+   FALSIFIED. The same file over the base tree visibly narrowed the pane (proving
+   the file was live) while the text stayed dark. A geometry change applying and a
+   colour change not applying, from one edit, is the discriminating observation.
+
+**Root cause, from the engine source** (`ui/aui_ctp2/ctp2_hypertextbox.cpp`):
+`ctp2_HyperTextBox::InitCommon` hardcodes `m_hyperColor = RGB(50,50,50)` and
+`LoadFromLdl` never reads `fontcolor*`. **The colour cannot be set from LDL at
+all.** The only supported override is the in-text markup the parser consumes:
+`<c:r,g,b>` colour, `<h:r,g,b>` shadow, plus `<t:> <p:> <b:> <i:> <s:> <u:>`.
+Links are separately hardcoded to `RGB(0,0,100)` and restore `m_hyperColorOld`
+at `<e>`, so a leading `<c:>` survives every link in the section.
+
+**Fix:** `gl_descriptions.apply_text_color()` stamps `<c:245,240,225><h:0,0,0>`
+on every section, idempotently (strips any prior colour prefix first, so output
+stays byte-stable when the constant changes). `strip_markup()` now drops every
+`<x:...>` control tag, not just `<L:...>`, so the filler gate keeps measuring
+prose rather than markup.
+
+**Confirmed in-game headlessly** — Barracks GAME PLAY and a HISTORICAL panel both
+render near-white and legible. `steps/newgame_gl_descriptions.json --save none`.
+
+## 2026-07-26 — Two repos: ctp2-modding is the HARNESS, ctp2-momjr is the MOD
+
+I merged the game tree into `ctp2-modding`'s `main` and destroyed the toolkit
+repo: no README, no `wiki/`, no `memory-bank/`, no control-plane scripts. The
+mistake was treating one checkout as one project. It is two.
+
+- **`ctp2-modding`** holds the *code*: `tools/` (pipeline + `tools/uiwalk/`),
+  `docs/`, `wiki/lessons_learned.md`, `memory-bank/`, and
+  `examples/<mod>/control-plane/` with a README **pointing at** the mod's repo.
+  Scenario data never lands here; `.gitignore` blocks `Scenarios/` and
+  `scen0000/`.
+- **`ctp2-momjr`** *is* `Scenarios\mom` — the scenario, the workbook, `mom.zip`.
+  There is no separate `Scenarios/momjr` folder.
+
+Recovery only worked because `archive/toolkit-main` (`123db97`) still held the
+original layout. It was restored as `92d3e1d` **on top of** the bad merge, so
+history is intact and only the tree changed: 267 files.
+
+What made it recoverable, and what would have made it avoidable:
+
+- Archive a branch before doing anything structural to it. That one branch was
+  the difference between a bad afternoon and losing the harness.
+- `git remote -v` in **both** repos before any push. The parent checkout had
+  picked up a `momjr` remote and had been pushing the entire game install into
+  the scenario repo.
+- **Never `git checkout` a small branch in the parent** — its working tree *is*
+  the game install, so checkout would delete it. `git commit-tree` builds a
+  commit from a chosen tree with chosen parents and touches zero working files.
+  That is the tool for merging across trees you cannot afford to materialise.
+- Harness-vs-live file comparisons are mostly CRLF noise. `diff
+  --strip-trailing-cr` cut 40-odd "changed" tools down to the 8 that really
+  were.
+- Curate, never bulk-copy. `tools/uiwalk/runs/` alone is 1.8 GB of captures and
+  logs. Scripts, step JSON and goldens are tracked; run output is ignored.
+
 ## 2026-07-26 — SLIC is a control-plane dimension, and it flows BACKWARD
 
 The control plane is `mom_dimension_inventory.xlsx`: one tab per dimension, and
@@ -2311,3 +3151,721 @@ round-robined over the other 10 MoM-generated looks (MoM aesthetic preserved, ad
 dupes broken). **Rule: fix the complained-about set, nothing more — "correct" is what the
 user sees, not what a tier ladder scores.** The desc=0x00 normalization of the 63 recovered
 loose TGAs stands (GL-crash guard).
+
+## 2026-07-26 — Great Library descriptions for EVERY element, and the harness lessons that got us there
+
+**Symptom:** the Barracks article rendered a blank GAME PLAY panel. Root cause was
+coverage, not rendering: most MoM elements had only a link-stub section.
+
+**Design:** GAMEPLAY prose is **derived** from the live DB blocks on every generator run
+(so it stays true when costs are retuned); HISTORICAL prose is **authored once** in the
+control plane (`tools/momjr_csv/gl_descriptions.csv`, 293 rows). One shared filler
+predicate, `gl_descriptions.is_filler()`, defines "missing" for both the writer and the
+gate — anything under 60 characters. Final state: 593 sections written (298 derived,
+293 authored), gate 800/800 PASS, output byte-stable across two runs.
+
+**Pass ordering (again).** The description pass must run LAST, immediately before
+`reg.save_all()`. A PREREQ section written by an earlier pass says "No advance required"
+for elements the advance-patch pass later gives a prerequisite; the last-running pass has
+to reconcile it.
+
+**Display labels come from the stock GL link stubs, not `gl_str`.** Several terrain idents
+have no `gl_str` entry, so `humanize()` fell back to the raw ident and the article titled
+"Desert Mountain" opened with "A Brown Mountain tile produces…". `_harvest_labels()` now
+reads labels back out of the stock articles' own `<L:DATABASE_X,IDENT>Name<e>` stubs. Two
+follow-ons: (a) among non-stub occurrences, first-wins is wrong — prose pluralises
+("found in Desert Mountains") while PREREQ "Location:" lists carry the singular, so vote
+by frequency and break ties on the shorter string; (b) terraform tileimps have neither a
+`gl_str` entry nor a stub, so name them from their `TerraformTerrain` field.
+
+**Harness lessons (all measured this session):**
+- `ctrl+5` does NOT open the Great Library. Use
+  `ControlPanelWindow.ControlPanel.ShortcutPad.GreatLibraryButton`.
+- GL search *filters* the index but does not *select* an article; a `select` on
+  `GreatLibrary.IndexSheet` is required. The first search after opening returns an empty
+  index — search twice.
+- GL tab buttons are `Tabs.<Name>.TabButton`, not `Tabs.<Name>`
+  (greatlibrary.ldl:403-442). Pressing the bare tab path is a silent no-op.
+- Selecting an index row resets the panel to GAME PLAY, and the first select after a
+  filter does not always load the article. Select, select again, *then* press the tab.
+- **With the vanilla-guard Targa modal gone, main-menu clicks are process-lethal**
+  (0xC0000005). The whole boot must be injection-driven. Working path:
+  `InitPlayWindow.NewGameButton` → `SPNewGameWindow.ScenarioButton` →
+  `ScenarioWindow.AvailableListBox` index 3 → `LoadButton` → index 0 → `LoadButton` →
+  `SPNewGameWindow.StartButton`. Frozen as `steps/newgame_mom_inject.json`.
+- The scenario dialog is TWO-LEVEL: the outer list holds *packs*, `LoadButton` descends
+  into that pack's scenario list. Pack order is case-insensitive alphabetical by folder
+  (0=AE_Mod, 1=AlexanderTheGreat, 2=MagnificentSamurai, **3=mom**, 4=NuclearDetente,
+  5=smm, 6=WorldMaps); `archived/` is skipped.
+- `uiwalk.py --save none` is required for any menu-entry walk; the default `uiwalk_start`
+  save is stale and raises a native "Load save game Error" modal.
+- `_assert_no_blocking_modal()` reports only the dialog TITLE. Dump the body with a Win32
+  `EnumWindows`+`EnumChildWindows` sweep — that is how the SMM defect below was read.
+
+**Backlog opened:** `Scenarios/smm/scen0000/default/gamedata/mom_turns.slc:19: Array index
+1 out of bounds` raises a SLIC Error modal and makes the SMM scenario unlaunchable.
+
+## Derived tier must never override an AUTHORED ladder rung (2026-07-26)
+
+Plan item 2 said "tier from the existing `cost_to_tier`". Measured it against the
+20 summon units whose prereq already sits on a sphere ladder — a deliberate
+authoring act: **agree 12, disagree 8, and every disagreement is a demotion of a
+master-tier summon.** Undead Dragon (cost 3) would have landed on `lore` — a
+turn-1 dragon. Deriving tier from cost would have quietly dismantled the summon
+grid the plan itself calls "already perfect… needs no work."
+
+**Law: the authored rung wins; `cost_to_tier` is a seed only for rows with no
+ladder prereq.** The original author hit this too — `assign_unit_factions.py`
+already carries a hardcoded `"dragon" -> master` special case, which is a patch
+on exactly this defect.
+
+Corollary evidence rule, established while writing the `sphere` column: a prereq
+on a **sphere** ladder is decisive. A prereq on the **neutral** ladder
+(`War`/`Bro`/`Iro`/`Feu`/`Chi`) or `nil`/`no` encodes **no intent** — it is the
+default that *produced* the reported defect. Minotaur is offered to a
+Tribe-of-Life city precisely because its prereq is `War`. Those rows must be
+decided by name and lore, never by trusting the existing prereq.
+
+## civ2 `nil` vs `no` — opposite sentinels, one union bug (2026-07-27)
+
+`nil` = **no prerequisite** (researchable root). `no` = **never available**.
+Stock `RULES.TXT` ~line 419 settles it: *"If these units are given prerequisites
+other than 'no' they will appear in the game..."*
+
+`ctp2_generator.py` held `_NO_ADVANCE = {'nil','no',''}` — their union. That is
+right for "is this slot a usable code?" and wrong for "does this advance have
+prerequisites?". Using it for the second question shipped `ADVANCE_GLYPHS` as a
+free cost-455 AGE_ONE root.
+
+**The rule was derived, not assumed:** disabled iff at least one slot is `no` AND
+no slot carries a real code. `no,no` selects exactly three rows; a lone `no`
+beside a real code (`Animism = Uni,no`) is an unused second slot.
+
+**Disable, don't delete.** `Advances.cpp::ResetCanResearch` forces
+`canResearch=FALSE` for any advance listing itself as a prerequisite, and the
+block stays in the DB so every reference resolves — deletion instead produces the
+in-game *"not found in Advance database"* dialog.
+
+**The gate is scoped to CITED codes.** `advance_code_map.csv` code `FP` points
+only at the correctly-disabled `ADVANCE_GLYPHS`, and nothing cites `FP`. That is
+dead weight, not a defect. A gate that fires on harmless rows teaches the
+operator to ignore it.
+
+**Collateral finding.** A placeholder cull had swept `Ecognomics` along with 12
+genuine placeholders — a fully enabled advance (`Uni,Ban`) — which is what
+dangled the `Eco` prereq of Merchant's Guild and Gnome Treasury. The lesson is
+that a cull predicate needs a negative control as much as a gate does.
+
+**Process note.** The "headless confirmation is blocked on the portrait primary
+display" blocker was carried across a compaction and was **stale**. One
+`Screen::AllScreens` call killed it and the probe then ran end-to-end. Re-measure
+inherited blockers before reporting them as OPEN.
+
+## The `nil`/`no` union bug had THREE lanes, not one (2026-07-27)
+
+The advance lane was fixed first (see the 2026-07-27 entry above). The same
+`_NO_ADVANCE = {'nil','no',''}` union was load-bearing in two more places, and
+fixing only where the bug was *discovered* left the leak shipping:
+
+| Lane | Site | Symptom |
+|---|---|---|
+| advances | `_advance_row_is_disabled` | `ADVANCE_GLYPHS` shipped as a free cost-455 AGE_ONE root |
+| improvements | `ctp2_generator.py` improvement emit | 3 buildings gated on `ADVANCE_WARRIOR_CODE` = **buildable turn one** |
+| units | `ctp2_generator.py` unit emit | latent — no `no` unit ships today |
+
+The improvement leak was `Coastal Fortress`, `xPower Plant`, `xHydro Plant`.
+Only the first was suspected; a gate found the other two. **The `x` prefix does
+not protect this lane** — the improvement emitter deliberately KEEPS
+`x`-sentinels in the DB for index stability (`_retire_x_sentinels`), so an
+`x` name is not an exclusion here even though it is in seven other passes.
+
+**The fix is the same idiom as the advance lane, not a special case.** A `no`
+entity is gated on a self-prerequisite advance: the block stays in the DB so
+every reference resolves, but the gate can never be researched. Shared helpers
+`self_prereq_advances()` / `never_buildable_gate()` so the two lanes cannot
+disagree.
+
+Gated by `validate_scenario.check_disabled_entities_unbuildable` (Gate 20), which
+reads the **shipped** `EnableAdvance` rather than trusting the generator — a
+future emitter that reintroduces the union fails here even if its own predicate
+says otherwise. Negative-controlled four ways: pre-fix (3 FAILs), column removed
+(blindness detected), gate repointed at a live advance (3 FAILs), a shipping unit
+marked `no` (units lane proven non-blind).
+
+Observed headlessly: the turn-one Build Manager buildings tab now offers
+**Barracks only**; Coastal Fortress is gone.
+
+**The law:** when a sentinel is collapsed in one place, grep every consumer of
+that constant before calling the class closed. One fixed lane is not a fixed bug.
+
+## The fake control: a one-signature verdict filter (2026-08-02)
+
+Chasing a `0xC0000005` at scenario boot, the probe watcher classified runs as
+`grep -q 0xC0000005 → CRASH, else CLEAN`. The **baseline** run — the control the
+whole bisect rested on — died on `pywintypes.error: Invalid window handle`
+instead. No match, so it was reported CLEAN.
+
+Every run that day failed, including HEAD. The crash was never in the mod. Four
+bisect verdicts (the `GrantAdvance` calls, the `MomSphereRootDone[]` declaration,
+the generator change, the no-new-symbol rewrite) were each a real game boot spent
+comparing a failure against a failure that had been labelled a success.
+
+**The tell was free and ignored:** every run directory contained exactly one
+file, `01_main_menu.png`. Uniform stop at the first input step, in every
+configuration. One `ls` would have ended the chain before the first bisect.
+
+Two rules, both cheap:
+
+* **Assert the SUCCESS signature** (`turns reached`, `panels:`), never the
+  absence of one failure string. A harness has many ways to die and one way to
+  finish. Classify *which* failure only after success is ruled out.
+* **Look at the artifacts before the log.** Run dirs are a coverage measure the
+  log's grep is not.
+
+Second lesson, from the same session: the lore-rung demotion was moved twice
+before it landed. `sphere_gate_targets()` is read by three consumers, and only
+one of them writes a build gate. Putting the demotion in the shared helper
+deleted `ADVANCE_*_LORE` from the faction wall; putting it in the shared map
+emptied the rung-1 summon pools (a 50-line drop in `mom_summon.slc`, caught only
+by diffing generated output against HEAD). It belongs in `_apply_sphere_gating`,
+the sole writer. **Before editing a shared derivation, list its consumers and
+name what each one would do with the new value.**
+
+## The fatal pattern that was fixed in one place and not swept (2026-08-02)
+
+The boot crash chased through four bisect rounds was a **posted mouse click**,
+`full_game_v3.json` prologue step 27, `{"do":"click","x":600,"y":6}`. The very
+same ping had already been diagnosed as fatal six days earlier and migrated to
+`hover` — but only in the per-turn CYCLE. The prologue kept its copy, in the same
+file, twenty-six lines above the fixed one, under a comment that read "This is
+the ONLY posted click in the file."
+
+Three things worth keeping:
+
+* **It failed uniformly** — at HEAD, with every change reverted, in every
+  scenario. A failure that survives reverting the mod is not a mod regression,
+  and one `git stash` run should have said so before any bisect began.
+* **The generalised law is broader than the ping.** Any posted click can AV when
+  the engine letterboxes its 800x600 UI inside a 1024x1280 client: after the
+  prologue was fixed the run died at turn 5 in `click_alert_arm`, and a
+  scrollbar-arrow click killed a separate probe. Injection (`press`/`select`),
+  keys and `hover` are unaffected. Hence `PROBE_OBSERVE=1`.
+* **Sweep one degree out when a pattern is declared fatal.** Grep the corpus for
+  the pattern at the moment you learn it kills, not just the site that bit you.
+
+### A correction that was itself the defect
+
+Mid-diagnosis the scenario row was "fixed" from 3 to 5 on the theory that adding
+`Scenarios/smm` had shifted it. It had not: **the engine sorts the picker
+case-insensitively**, so `mom` is row 3 (`ae_mod, alexanderthegreat,
+magnificentsamurai, mom, nucleardetente, smm, worldmaps`) and always was. Row 5
+is `smm`, and selecting it loaded the wrong scenario for the first time all
+session — provable only because smm's stale SLIC fork raised errors naming
+`scenarios\smm\` in the path. ASCII and folded order agree on rows 0..2, so the
+picker screenshot could not distinguish them; only a run could.
+`uiwalk.scenario_pack_index()` now derives it with `key=str.casefold`.
+
+## What a 200-turn run actually showed (2026-08-02)
+
+First long run of the session, once the posted-click crash was fixed. Rows are
+Life / Nature / Sorcery / Death / Chaos; the human is Life.
+
+```
+t020   units  4  5 10  2 0   summon 0  3  4 0 0   mana 200 39 72 240 0
+t080   units 15 38 38 16 0   summon 3 21 25 0 0   mana 200 18 26 240 0
+t200   units 15 46 43 15 0   summon 3 26 30 0 0   mana 200 55 71 240 0
+```
+
+Four defects, each measured rather than argued:
+
+1. **Majority-summoned armies.** Nature 26/46 (57%), Sorcery 30/43 (70%). Stable
+   from t80 to t200, so it is the equilibrium, not a transient. This is the
+   operator's original "every Nature unit I meet is a Warbears" report, in
+   numbers. Cause: `mom_ai_magic.slc` summons on a 70% per-turn roll whenever
+   solvent, with **no bound relative to army size**. A ratio cap is the obvious
+   lever and is a design choice, not a bug fix.
+
+2. **Dead capital: a full bank with no income can never be spent.** Death held
+   exactly 240 mana -- its cap -- at t20 AND t200, and summoned nothing across
+   180 turns. The gate read `MomMagicPerTurn[p] - keep >= 0`; Death built neither
+   of its mana buildings (MECHANICIANS_GUILD, BARRACKS) so net was 0 and
+   `0 - 2 < 0` would reject every roll forever.
+
+   **That hypothesis was tested and FALSIFIED.** Patching the gate to also accept
+   a bank covering price plus ~25 turns of keep changed nothing: Death still read
+   240 mana and zero summons. The patch was reverted rather than shipped
+   unvalidated. What it eliminates: the block is not affordability, and Death's
+   rung-1 pool is populated (UNIT_ZOMBIES), so it is not an empty pool. Surviving
+   hypothesis: `MomSphereRung[4]` is still 0. **Next test is to READ that
+   variable** -- the probe samples per-player mana but not rung -- rather than
+   infer it from behaviour again.
+
+   Method note earned here: the scenario generates a fresh map per new game, so
+   two runs are NOT a controlled before/after. A summon-count comparison across
+   seeds cannot confirm a fix; the rung readout can.
+
+3. **A whole tribe never played.** Chaos shows 0 units AND 0 mana in all ten
+   samples. Zero *mana* is the tell -- the pool is seeded per player, so player 5
+   never took a turn. All five tribes exist in `players.csv`, so this is starting
+   placement in the map, not SLIC.
+
+4. **The human is pinned at its mana cap**, 200/200 with +33/turn, discarding
+   income it cannot store.
+
+Also: the run reported "200 turns reached" while a DEFEAT screen (CITIES 0,
+POPULATION 0) was standing -- the human had been wiped out and the loop kept
+ending turns. Same trap as [[ctp2-ending-and-freeze-look-identical]]: turn count
+is not evidence the game is still being played. Read the frames.
+
+## v3.11.0 measured, and two lessons about reading the measurement (2026-08-03)
+
+First 200-turn run on the shipped economy (uniform 200 anchor + per-civ price).
+
+```
+t120   units 16 34 42  1 0   summon 5 19 32 0 0   mana 200 40  32 200 0
+t200   units 19 68 98  3 0   summon 8 32 32 0 0   mana 200 36 137 200 0
+```
+
+**Do not read a ratio mid-climb.** At t120 Sorcery was 32/42 = 76% summoned and
+I reported the change had made things WORSE. At t200 it was 32/98 = 33%: the
+summon count had **plateaued at 32** while the built army kept growing. The
+plateau is the success criterion the probe was written to test, and I called a
+negative result off the sample taken before it flattened. A ratio whose
+denominator is still growing is not a verdict.
+
+**Two fresh runs are not an A/B.** `civapp.cpp:1762` reseeds from `time(0)` on
+every scenario start and there is no seed flag, so the improvement against the
+pre-3.10 baseline (Nature 57%->47%, Sorcery 70%->33%) is a non-contradiction,
+not causal evidence. A controlled arm has to start from a shared SAVE, which
+restores the seed (`g_oldRandSeed`, civapp.cpp:2709) and which `uiwalk` already
+supports via `-l<save>`. See [[ctp2-scenario-seed-is-wallclock]].
+
+**What IS attributable** is the within-run observation, because it compares
+tribes inside one game: Death holds the joint-cheapest price (54%), sits at its
+200 cap for 200 turns, and summons nothing while every other living tribe does.
+Price is now falsified as Death's blocker from BOTH directions -- raising its
+bank did nothing, lowering its price did nothing. `MomSphereRung[4] == 0` is the
+only surviving hypothesis and the next step is to READ that variable.
+
+Chaos remains at 0 units and 0 mana in all ten samples: it never enters play.
+
+## Death and Chaos: one root cause, nine falsified hypotheses (2026-08-03)
+
+Death never summons. Chaos never appears. After instrumenting every input to the
+AI summon gate, both reduce to the SAME cause and neither is a magic-system bug.
+
+Falsified, each by measurement: insufficient bank; price too high; rung stuck at
+0 (measured rung 1); no cities (measured 2); stuck preparation (measured 0);
+negative net income (measured 33, the HIGHEST of any tribe); asymmetric generated
+SLIC (the p==4 branch is byte-identical to p==2's); mana refilling too fast to
+observe (per-turn sampling showed a perfectly MONOTONE climb 10->21->32->...->200
+while Nature and Sorcery visibly oscillate); and the human seat sitting on Death
+(measured `human 1 0 0 0 0` -- Death is an AI).
+
+**The actual cause is army size.** Across four runs:
+
+    run    Life  Nature  Sorcery  Death  Chaos
+    t30      8     15      16       4      0
+    t30      6      9      12       4      0
+    t40     10     14      24       5      0
+    t8       3      1       3       0      0
+
+Death never exceeds 5 units while its neighbours reach 9-24; Chaos is at zero in
+every sample of every run. A tribe with no cities fails the AI tick's very first
+clause (`player[0].cities > 0`), so it can hold a full pool at rung 1 forever and
+never spend a point. That is Death's whole signature, and it is downstream of
+being crippled early rather than of anything in the summon path.
+
+Two lessons worth more than the finding:
+
+* **A gate with many inputs should be instrumented as a WHOLE, not narrowed one
+  variable per run.** Nine runs went into eliminating clauses one at a time; a
+  single pass that dumped every input at once would have cost one.
+* **A constant is not evidence of inaction.** "Death's mana is pinned at 200"
+  was read as "never spends", but with net 33 and a price of 40 it refills in
+  1.2 turns and a 20-turn sample would read 200 either way. Only per-turn
+  sampling could tell a monotone climb from a sawtooth, and the sampling
+  interval had to be shorter than the phenomenon.
+
+Death's roster being the thinnest in the game (r5 mean 760 shields vs 1412-1590)
+is the likely reason it loses, which makes the death-knight/skeleton additions a
+BALANCE fix rather than flavour.
+
+## The preflight blamed the wrong monitor for two days (2026-08-04)
+
+`preflight_display` selected the first display device with the PRIMARY bit and
+never checked ATTACHED. `EnumDisplayDevicesW` enumerates adapters that are not
+part of the desktop, so it named `\.\DISPLAY4` -- rotated, unused -- and
+aborted every run. Meanwhile the real primary, `\.\DISPLAY1`, was landscape
+with `1280x1024` legal the whole time.
+
+I relayed that verdict to the operator as a fact about their hardware and
+declared the day's work unverifiable. It cost two rounds of "your display is
+rotated" before one read of the display list settled it in seconds.
+
+**A gate that blocks work must be at least as careful as the thing it protects,
+and its diagnosis is a hypothesis until its own inputs are checked.** Fixed by
+requiring ATTACHED **and** PRIMARY.
+
+The run that followed immediately found a real defect the static gates could not:
+`ID_BUTTON_BACK` is not a stock CTP2 string -- only `ID_BUTTON_CLOSE` is -- so
+both Back arms died at load with "BUTTON_BACK not found in string databse". Every
+gate passed them because the gates validate `MOM_*` keys and never stock ones.
+Assuming a sibling key exists because one does is the same mistake that left the
+spellbook arms reading "Research" and "Goal".
+
+## Sphere is bound to the SEAT, not the civ (2026-08-04)
+
+`MomPlayerIsLife(p)` is `if (p_1 == 1) { return 1; }`. All five predicates are
+seat-index tests, and summon pools, the faction wall, mana caps, per-civ price
+and sphere income all key off them.
+
+The New Game screen has an EMPIRE selector. It defaults to **Tribes of Nature**,
+and the human sits at **seat 1** -- so the human is Nature and receives LIFE's
+magic. Visible in a build list: playing Tribes of Nature, the Build Manager
+offers **Guardian Spirit**, Life's rung-1 creature, because the wall checks the
+seat rather than the civ.
+
+The same screen sets **# EMPIRES to 4**, so only four of the five tribes ever
+spawn. A seat census (counting ticks per player index, outside the p<=5 guard)
+showed seat 4 ticking and seats 5-8 never ticking. Chaos reading 0 units AND
+0 mana in every run was never "Chaos loses early" -- it usually is not dealt in.
+
+**This invalidates every per-sphere conclusion drawn from telemetry**, including
+the nine-hypothesis Death investigation: the tribe at seat 4 need not be Death.
+
+The fix is idiomatic and heavily proven -- PlayerCivilization and
+CivilizationIndex have 484 call sites each in Ages of Man:
+
+    if (PlayerCivilization(p) == CivilizationIndex("TRIBES_LIFE")) { ... }
+
+Two lessons. **A comment asserting a premise is not evidence for it** -- "Player
+1 == Tribes of Life (civ #1)" sat above the code for weeks and was simply wrong.
+And **when a system is parameterised by a menu the harness never touches, the
+harness is testing one arbitrary configuration** -- rotating the EMPIRE selector
+would have surfaced this immediately, which is exactly what the operator asked
+for.
+
+## Sphere follows the CIV now, and the rotation that proved it (2026-08-04)
+
+`MomPlayerIsLife(p)` was `if (p_1 == 1)`. Forty seat tests across five
+predicates, the building tally, the sphere-root grant, and three generator
+emitters (summon roll, rung tick, faction wall) all assumed sphere == seat. The
+New Game screen's EMPIRE selector makes that false, and the default pairing --
+Tribes of Nature at seat 1 -- meant the human played Nature and received LIFE's
+magic.
+
+Fixed by resolving each seat once per turn from `PlayerCivilization` into
+`MomSphere[]`, which every predicate then reads. An array rather than a call:
+these predicates are invoked from handlers AND from inside other user functions,
+so calling another user function would build the 2-level chain that is the
+documented 0xC0000005.
+
+**The proof is that the sphere row is no longer the identity function:**
+
+    chose Chaos:  sphere 2 3 1 4 0
+    chose Death:  sphere 2 1 3 4 0
+
+Seat 1 holds sphere 2 in both games; seat 2 holds Sorcery in one and Life in the
+other. Under the old code every one of those seats would have been mislabelled.
+
+### Four things the rotation harness cost, each a wrong assumption
+
+* `SPNewGameWindow.CivButton` and `.NumPlayersButton` do not exist. The real
+  controls are `TribeButton` and `PlayersButton`, found in spnewgame.ldl.
+* TribeButton opens a MODAL (`SPNewGameTribeScreen`) with its own listbox
+  (`CivBox`), not a cycling button.
+* Arrow keys do not move that listbox -- measured, the highlight stayed on the
+  preselected row -- so it needs `select` by index.
+* **The choice commits when the modal CLOSES.** `press` on its BackButton left
+  it open, and StartButton was pressed straight through, so two whole runs
+  launched with the DEFAULT tribe while the screenshots showed the intended one
+  selected. press -> trigger -> esc closes it.
+
+The list is ALPHABETICAL (Chaos, Death, Life, Nature, Sorcery) with Nature
+preselected, so row order is not sphere order and guessing it would have played
+the wrong tribe while reporting the right one.
+
+**And the near-miss worth remembering:** staging `scen0000/` wholesale while the
+probe was running staged the LIVE instrument -- an instrumented scenario.slc and
+a debug scen_str.txt, plus a mom.zip built from them. Caught before commit. Stage
+explicit paths, never a tree, while anything is running.
+
+## The summon lane still picked by seat, and my 250-turn run could not have caught it (2026-08-04)
+
+The predicates in `mom_func.slc` were converted to read `MomSphere[]`. Five
+sites never used a predicate, because they had **deliberately inlined** the old
+comparison to dodge the 2-level user-call `0xC0000005`:
+
+    mom_spells.slc:71-75   the summon unit picker   <-- the one that matters
+    mom_spells.slc:153     Demon Strike's Chaos gate, written `p != 5`
+    mom_spells.slc:220     which spellbook variant opens
+    mom_spells.slc:297     the AI's Demon-vs-Flame choice
+    mom_msg.slc:239-247    the summon arrival message
+
+So a Chaos player at seat 1 could BUILD Hell Hounds (the build lane goes through
+the generator's faction wall, which was fixed) while SUMMONING Life's Guardian
+Spirit. Two lanes, one concept, and only one of them was converted.
+
+**The fix is safe on these paths precisely because `MomSphere` is an ARRAY.** A
+subscript is not a call, so it adds no depth. That is the whole reason the
+predicates resolve into an array instead of staying functions — and it means the
+inline sites can now read the true sphere without reintroducing the crash.
+
+### Why 250 turns of "verification" proved nothing here
+
+The rotation read the sphere row off the `j` panel. **That row is populated from
+`MomSphere[]` — the array I had just fixed.** The test read my change back out
+and confirmed it equalled itself. A test whose observable IS the thing you
+changed cannot fail. It never touched the five consumers.
+
+Before calling a run a verification: **name the consumer.** What reads this value
+to do something the player can see, and did the run exercise that path? A debug
+readout is an instrument, not a behaviour.
+
+### Two smaller traps, both mine
+
+* **Sweep the mechanism, not one syntax.** My first grep was `p == [1-5]` and it
+  reported clean. `p != 5` survived it. If the defect is "compares a player to a
+  seat literal", cover every operator, every alias, and the negated form.
+* **Grep the assumption's WORDING.** The code said, in a comment,
+  *"inlined MomSphereSummonUnit: seating is player N == civ N"* — the false
+  premise written down, in the file, the entire time. Whoever inlines a shortcut
+  usually records why; that sentence is searchable and would have found all five.
+
+## Artifacts and Wishes: what four failed launches taught (2026-08-05)
+
+The two remaining v4 menus turned out not to be menu work. Nothing existed for
+them to operate on -- zero vessel units, in the control plane or the 60 shipped
+units -- so an Artifacts spoke had nothing to list. The menus were the last 10%.
+
+Built: a Lamp unit (`MaxMovePoints 0`, never buildable via a new
+`unit_roles.vessels` policy role), its art authored as CODE in
+`tools/make_vessel_art.py` because civ2 MoM has no lamp to extract, a +25%
+capacity Boon against a 4-mana-per-turn Bane, three enumerated wishes, and a
+source. Verified in game: the panels render, the scalars interpolate, and the
+Riches wish pays out.
+
+### Four launches, four defects the static suite could not see
+
+1. **Fourteen strings with real newlines.** Each value swallowed the lines
+   beneath it; the engine aborted at load. `check_string_refs` verifies a
+   referenced key EXISTS and never looks at the value, so nothing static could
+   catch it. Now gated by `check_string_grammar`.
+2. **A write to a gold property that does not exist.** It is `AddGold(p, n)`.
+   The parser blamed the `} else {` two lines below -- **read UPWARD from a
+   reported syntax-error line.**
+3. **`HandleEvent(KillUnit)` at all.** "-1 is not a valid player index", with no
+   file and no line because it comes from inside a builtin. It fires before turn
+   1, since units die during initial placement, so it looks like a load defect.
+4. **A clipped button label.** Only a capture could show it.
+
+### The rule that would have saved two of those launches
+
+**An error with no line gets a BISECT, not a hypothesis.** I reasoned my way to
+two plausible fixes for #3 -- both wrong, one launch each. Renaming the handler's
+segment so the engine never fires it attributed it in a single pass, and
+`tools/uiwalk/bisect_slic_error.py` now does that automatically. Renaming rather
+than deleting keeps declarations and include order intact, so a disabled handler
+cannot introduce a different bug than the one under test.
+
+The workaround is worth remembering on its own: **derive the event from a COUNT
+DROP.** The BeginTurn sweep already walks every unit, so counting a type there
+and acting when the count falls gives the same signal with no event at all -- and
+it catches disbands for free.
+
+### The test suite was INVERTED, not merely stale
+
+`test_mom_slic.py` read 0 PASS / 64 FAIL, and three of its assertions demanded
+exactly the forms that are known broken:
+
+* *"TRIBES_* is not a SLIC symbol, use the numeric player index"* -- the
+  seat-is-sphere premise that cost a full day.
+* *"CityHasBuilding takes BuildingDB(), not a quoted string"* -- backwards.
+* *"burst buildings compare building[0].type"* -- CreateBuilding does not
+  populate `building[]`.
+
+**A suite asserting falsehoods with authority is worse than no suite**, because
+following it reintroduces the bugs it claims to prevent. Now all-pass, and a
+three-case battery confirms it still bites.
+
+### And the display gate blamed the operator a fourth time
+
+It aborted naming a portrait display as primary. Minutes later, unchanged code on
+an unchanged desktop read the landscape display primary with 1280x1024 legal --
+it had sampled a value in flux and I relayed it as fact. It now corroborates the
+PRIMARY flag against the display at the desktop origin and re-reads when they
+disagree. **A gate that BLOCKS work must re-read before it blocks.**
+
+## 2026-08-07 — Spell effect targeting design (PENDING implementation)
+
+**Context:** Spellbook UI v5 shipped with paged pages, single-char buttons,
+research gating via MomSphereRung, and magic-share cost pacing (40% of era
+midpoint). All spell effect bodies are currently stubs (`Message(p, 'MomSpellCast')`).
+This entry documents the targeting architecture for when effects are implemented.
+
+**Design: proximity-gated casting with range tiers.**
+
+| Caster type | Range | Role |
+|-------------|-------|------|
+| Any unit (proxy) | 0 (on tile) | Self-buffs, terrain under foot |
+| War Mage (UNIT_WAR_MAGE) | 1 tile | Adjacent city assault, tactical |
+| Arch Mage (UNIT_ARCH_MAGE) | 2 tiles | Long-range artillery, strategic |
+
+**Targeting strategies by effect_kind:**
+
+- `summon`: No range check needed — spawns at caster's city (existing implementation).
+- `unit_enchant`: Range 0 — caster must be on the same tile as the target unit.
+  Or self-cast: enchants the mage unit itself.
+- `city_enchant` (beneficial): Range 0-1 — mage must be IN or adjacent to own city.
+  Fallback: nearest own city if no adjacent found.
+- `city_enchant` (harmful) / `instant_damage`: Range 1-2 based on caster tier.
+  Scan for enemy city within range. If none found, "No valid target" + no mana spent.
+- `global_enchant`: No range — affects whole map. Fire-and-forget from spellbook.
+- `dispel`: Range 1-2 — targets enemy enchantment on nearest enemy city within range.
+- `terrain_transform` (new kind, future): Range 0 — transforms the tile the mage stands on.
+  Common = random outcome. Rare = player-chosen by positioning the mage.
+
+**SLIC pattern (all builtins, no user-function depth):**
+
+```
+// In the spell's if-branch inside MomCastSpell:
+// 1. Identify caster unit type for range tier
+// 2. Scan GetNeighbor loop out to range N
+// 3. Filter: city.owner != p (harmful) or city.owner == p (beneficial)
+// 4. Distance(unit.location, city.location) <= range
+// 5. Apply effect or "No valid target" message (mana NOT deducted on miss)
+```
+
+Key builtin set: `Distance(loc, loc)`, `GetNeighbor(loc, dir, out)`,
+`TerrainType(loc)`, `CityIsValid(city)`, `city.owner`, `unit[0].location`,
+`unit[0].type`, `UnitDB()`. All base-verified.
+
+**Rarity→utility dichotomy:**
+
+- Common: general, low control, fire-and-forget. Small random effects.
+  "Nature's Touch" = random tile near city improves. Low mana, no targeting.
+- Uncommon: smarter algorithmic targeting. Guaranteed positive outcome.
+- Rare: unit-proxy targeting. Player positions War Mage, casts with intent.
+- Very Rare: powerful area effects OR long-range (Arch Mage at 2 tiles).
+  "Gaia's Blessing" = all city tiles improve. "Call the Void" = devastate
+  enemy city from 2 tiles away.
+
+**What this changes in spells.csv (future):**
+
+Add columns: `targeting` (self/adjacent/range2/global), `polarity` (beneficial/harmful),
+`caster_type` (any/war_mage/arch_mage). The generator reads these and emits the
+appropriate SLIC body instead of a stub. One effect_kind at a time, unit-tested.
+
+**Not yet implemented.** This is a design doc, not a commit. The architecture
+(spell IDs, pages, cast chain hook points) supports this without structural change.
+
+## Unit-Spell Binding System (2026-08-07)
+
+### What was built
+Two-axis magic targeting system:
+1. **Proximity gating** (range tiers): Any unit=0, War Mage=1, Arch Mage=2
+2. **Unit-spell binding** (10 signatures): specific elite units required for full spell effects
+
+### Key SLIC findings
+- `unit_t.attack` does NOT exist as a member — SLIC unit objects only expose `.type`, `.owner`, `.location`, `.valid`
+- Cannot do strength-weighted kill targeting. Kill effects use positional selection (first/last enemy found at location)
+- `KillUnit(unit)` 1-arg form is base-verified (MagnificentSamurai SS_func.slc)
+- `GetUnitFromCell(location, index, out_unit)` + `GetUnitsAtLocation(location)` for cell iteration
+- `Event: KillUnit(unit, cause, killer)` 3-arg form also works (AlexanderTheGreat)
+- All targeting logic MUST be inlined in MomCastSpell — call-depth budget consumed by Button→function path
+
+### Architecture
+- Generator emits SPELL_BINDINGS config → per-spell bound-unit scan + effect body
+- Preamble scans player's units once (GetUnitByIndex loop)
+- For bound spells: re-scan for the specific unit within binding range of the pre-resolved target
+- Three-tier fallback: bound unit found → full effect | target found but no unit → mana spent, diminished | no target → no mana spent
+
+### Binding table
+| Spell | Unit | Range | Effect |
+|---|---|---|---|
+| Death Wish | DEATH_KNIGHT | 1 | kill first enemy unit |
+| Black Wind | WRAITH | 1 | kill last enemy unit |
+| Cruel Unminding | LICH | 1 | drain 30 mana |
+| Fire Storm | EFREET | 2 | spawn HELL_HOUNDS |
+| Call the Void | GREAT_WYRM | 2 | kill 2 enemy units |
+| Earthquake | BEHEMOTH | 1 | spawn WAR_TROLL |
+| Ice Storm | STORM_GIANT | 2 | spawn WARBEARS |
+| Stasis | STORM_DRAKE | 2 | spawn PHANTOM_WARRIORS |
+| Spell Binding | WARLOCK | 2 | drain 50 mana |
+| Great Unsummoning | AIR_ELEMENTAL | 2 | kill first enemy unit |
+
+### Dead ends
+- `.attack` member access on unit_t → SLIC error "attack is not a member of killUnit"
+- Cannot differentiate units by combat stats from SLIC — only by type
+
+## Magic Resistance System (2026-08-07)
+
+### What was built
+Inline resistance/immunity checks before every KillUnit call in bound spells.
+
+### Classification
+- **Undead immune to death** (8 units): Zombies, Skeletons, Wraith, Minion, Death Knight, Lich, Undead Dragon, Dracolich
+- **Holy immune to death** (3 units): Paladins, Archangel, Arch Mage
+- **Heroes resist all kills** (9 units, 50% base): Ariel, Serena, Freya, Alorra, Jafar, Rjak, Malleus, Tauron, Warrax
+- **Lamp protection** (+25%): stacks with hero (75% total), non-hero with lamp gets 25%
+
+### SLIC implementation
+- `Random(100)` for percentage rolls — base-verified in AlexanderTheGreat
+- Immunity is a flat if-chain of `killUnit.type == UnitDB(UNIT_X)` checks (no SLIC set data structure)
+- `_emit_resistance_check()` in the generator emits the full inline block per kill-point
+- Death-school spells (Death Wish, Black Wind) get the undead+holy immunity block; general kills skip it
+- Mana is spent regardless of resist outcome — commitment model, not refund model
+
+## Holy Aura Protection (2026-08-07)
+
+### What was built
+Co-located protector units grant resistance or immunity to allies on the same tile.
+
+### Aura tiers
+- **Death immunity aura** (Paladins, Archangel): any friendly unit on the same tile
+  is immune to death-school kill spells (Death Wish, Black Wind). Stack a Paladin
+  with your army and the Death Knight's spell bounces off the whole group.
+- **Resistance aura** (Guardian Spirit, Unicorn, Ariel, Serena): +30% resistance
+  to all kill spells for friendly units on the same tile. Stacks checked once
+  (first protector found triggers the roll, then breaks).
+
+### Resolution order
+1. Self-immunity (undead/holy type)
+2. Holy aura immunity (co-located Paladin/Archangel, death spells only)
+3. Aura resistance (co-located Guardian/Unicorn/life hero, 30% all spells)
+4. Hero self-resistance (50% base, +25% with lamp)
+5. Artifact protection (25% non-hero with lamp)
+
+Each layer checked only if resisted == 0 from previous layers. First success = target survives.
+
+### Gameplay implication
+Paladins are now mandatory escorts for non-undead armies in death-sphere territory.
+A Death Knight adjacent to an unprotected city is deadly; add one Paladin to the
+garrison and the Death Wish is neutralized entirely. Counter-counter: use a
+non-death spell (Great Unsummoning via Air Elemental) which bypasses death immunity.
+
+## 5-Sphere Resistance Matrix (2026-08-07)
+
+### What was built
+Extended the Death-only resistance system to cover all 5 spheres using the MtG
+color wheel opposition model. Each sphere's kill spells are now countered by the
+opposing sphere's creatures.
+
+### Opposition pairs
+- Life ↔ Death: Life creatures immune to death magic; Death creatures immune to life
+- Nature ↔ Sorcery: Nature creatures immune to sorcery; Sorcery creatures immune to nature
+- Chaos: 20% blanket resistance to ALL targeted spells (entropy disrupts everything)
+
+### Full resistance table
+| Attacker | Immune To It | Aura Immunity | Aura Resist (+30%) |
+|---|---|---|---|
+| Death | Undead+Paladin+Archangel+Arch Mage | Paladins, Archangel | Guardian Spirit, Unicorn, Ariel, Serena |
+| Chaos | Storm Drake, Air Elemental, Warlock | Storm Drake, Warlock | Mage, Jafar, Storm Giant |
+| Nature | Efreet, Hydra, Infernal Device | Efreet, Hydra | Hell Hounds, Tauron, Warrax |
+| Sorcery | Behemoth, Great Wyrm, War Mammoth | Behemoth, Great Wyrm | Warbears, Freya, Alorra |
+| Life | Lich, Death Knight, Dracolich | Lich, Dracolich | Wraith, Rjak, Malleus |
+
+### Design reference
+See `Scenarios/mom/inspirations.md` for the full TRIZ + Six Hats + Enneagram
+analysis that produced this matrix.
