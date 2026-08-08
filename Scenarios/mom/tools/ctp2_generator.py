@@ -9,7 +9,11 @@ sys.path.insert(0, str(TOOLS_DIR))
 import ctp2_parser as P
 import civ2_sprite_extractor as extractor
 import gl_descriptions
-from export_mod_workbook import DEFAULT_OUTPUT as MOD_WORKBOOK_PATH, export_workbook
+try:
+    from export_mod_workbook import DEFAULT_OUTPUT as MOD_WORKBOOK_PATH, export_workbook
+except ImportError:
+    MOD_WORKBOOK_PATH = None
+    export_workbook = None
 
 MOMJR = Path(
     os.environ.get(
@@ -3327,46 +3331,38 @@ _SPELLBOOK_SPHERE_SLC_REL = {
     s: f"default/gamedata/mom_spellbook_{s}.slc" for s in _SPELLBOOK_SPHERES
 }
 
+_RARITY_ORDER = ["common", "uncommon", "rare", "very rare"]
 
-def _emit_spellbook_pages() -> tuple[int, int]:
-    """Emit per-sphere spellbook SLIC files: two-tier navigation.
 
-    Tier 1: Hub alertbox per sphere with rarity filter buttons (Common/Uncommon/Rare/Very Rare/Close).
-    Tier 2: Paged alertboxes per (sphere, rarity) with 3 spells + prev/next navigation.
+def _load_implementable_spells() -> dict[str, list[dict]]:
+    """Load, filter, and cost-rescale spells from spells.csv.
 
-    Reads spells.csv, filters (effect_kind != 'flavour' AND overland_cost > 0),
-    groups by sphere then rarity, rescales costs per mod_policy, sorts alphabetically
-    within each rarity group, paginates at 3 spells per page, emits one .slc per sphere.
-
-    Returns (total_pages, total_spells) across all 5 spheres.
+    Returns dict keyed by sphere name, each value a list of spell row dicts with
+    `_shipped_cost`, `_research_cost_int`, and `_rarity` fields added. Spells are
+    sorted alphabetically by name within each rarity within each sphere, then
+    concatenated in rarity order (common → very rare). This is the CANONICAL
+    ordering that both page emission and cast-chain emission must use so spell IDs
+    match.
     """
-    # Load rescale policy
     rescale_cfg = MOD_POLICY["spellbook"]["cost_rescale"]
     rescale_factor = rescale_cfg["rescale_factor"]
     min_cost = rescale_cfg["min_cost"]
     max_cost = rescale_cfg["max_cost"]
     rarity_factors = rescale_cfg.get("rarity_factors", {})
 
-    # Read and filter spells
     spells_path = MOMJR / "spells.csv"
     with open(spells_path, newline="", encoding="utf-8-sig") as fh:
         all_spells = list(csv.DictReader(fh))
 
-    RARITY_ORDER = ["common", "uncommon", "rare", "very rare"]
-    RARITY_LABELS = {"common": "Common", "uncommon": "Uncommon", "rare": "Rare", "very rare": "Very Rare"}
-    RARITY_KEYS = {"common": "COMMON", "uncommon": "UNCOMMON", "rare": "RARE", "very rare": "VERY_RARE"}
-
-    # Group implementable spells by sphere
     by_sphere: dict[str, list[dict]] = {s: [] for s in _SPELLBOOK_SPHERES}
     for row in all_spells:
         sphere = row["sphere"].strip().lower()
         if sphere not in by_sphere:
-            continue  # skip arcane
+            continue
         effect_kind = row["effect_kind"].strip()
         overland_cost = int(row["overland_cost"].strip() or "0")
         if effect_kind == "flavour" or overland_cost <= 0:
             continue
-        # Rarity-aware cost rescaling (Phase 4)
         rarity = row.get("rarity", "").lower().strip()
         factor = rarity_factors.get(rarity, rescale_factor)
         shipped_cost = max(min_cost, min(max_cost, int(overland_cost * factor)))
@@ -3375,12 +3371,65 @@ def _emit_spellbook_pages() -> tuple[int, int]:
         row["_rarity"] = rarity
         by_sphere[sphere].append(row)
 
-    # Assign sequential spell IDs for string references
-    spell_id_counter = 0
+    # Sort: by rarity tier order, then alphabetically within each rarity
+    rarity_rank = {r: i for i, r in enumerate(_RARITY_ORDER)}
+    for sphere in _SPELLBOOK_SPHERES:
+        by_sphere[sphere].sort(key=lambda x: (
+            rarity_rank.get(x["_rarity"], 99),
+            x["name"].strip().lower()
+        ))
+
+    return by_sphere
+
+
+def _emit_spellbook_pages() -> tuple[int, int]:
+    """Emit per-sphere spellbook SLIC files: two-tier navigation.
+
+    Tier 1: Hub alertbox per sphere with rarity filter buttons (Common/Uncommon/Rare/Very Rare/Close).
+    Tier 2: Paged alertboxes per (sphere, rarity) with single-char buttons (1/2/3)
+             and body-text legend showing spell names + costs.
+
+    Research gating: each rarity tier requires the corresponding sphere ladder
+    advance (mod_policy.json spellbook.rarity_advance_tier). If the player lacks
+    the advance, the hub button shows a "not yet researched" message instead of
+    navigating to the spellbook page.
+
+    Enforces max_pages_per_rarity cap (default 3) so no rarity has excessive pages.
+
+    Returns (total_pages, total_spells) across all 5 spheres.
+    """
+    # Load config
+    spells_per_page = MOD_POLICY["spellbook"].get("spells_per_page", 3)
+    max_pages = MOD_POLICY["spellbook"].get("max_pages_per_rarity", 3)
+    rarity_advance_tier = MOD_POLICY["spellbook"].get("rarity_advance_tier", {})
+
+    # Use shared spell loader (canonical ordering for ID assignment)
+    by_sphere = _load_implementable_spells()
+
+    RARITY_ORDER = _RARITY_ORDER
+    RARITY_LABELS = {"common": "Common", "uncommon": "Uncommon", "rare": "Rare", "very rare": "Very Rare"}
+    RARITY_KEYS = {"common": "COMMON", "uncommon": "UNCOMMON", "rare": "RARE", "very rare": "VERY_RARE"}
+
     spell_string_entries: list[str] = []
     total_pages = 0
 
     sphere_identity = MOD_POLICY.get("sphere_identity", {})
+
+    def _rarity_min_rung(rarity: str) -> int:
+        """Return the minimum MomSphereRung[] value required for a rarity tier."""
+        return int(rarity_advance_tier.get(rarity, 1))
+
+    # Pre-assign spell IDs to ALL implementable spells in canonical order.
+    # The cast if-chain covers all of them; pages only show a subset (capped by
+    # max_pages_per_rarity), but IDs must be consistent between the two.
+    all_spell_ids: dict[str, int] = {}  # spell ident -> global spell ID
+    global_id = 0
+    for sphere in _SPELLBOOK_SPHERES:
+        for row in by_sphere[sphere]:
+            ident = row.get("ident", row["name"].strip())
+            all_spell_ids[id(row)] = global_id
+            global_id += 1
+    total_spells_all = global_id
 
     for sphere in _SPELLBOOK_SPHERES:
         spells = by_sphere[sphere]
@@ -3404,7 +3453,8 @@ def _emit_spellbook_pages() -> tuple[int, int]:
             "//",
             f"// Two-tier spellbook for {sphere.upper()} sphere.",
             f"// Tier 1: Hub with rarity filter (Common/Uncommon/Rare/Very Rare/Close).",
-            f"// Tier 2: Paged spells per rarity, 3 per page + Prev/Next/Close.",
+            f"// Tier 2: Paged spells per rarity, {spells_per_page} per page, single-char buttons + body legend.",
+            f"// Research-gated: each rarity requires a sphere ladder advance.",
             "",
         ]
 
@@ -3419,18 +3469,21 @@ def _emit_spellbook_pages() -> tuple[int, int]:
         slic_lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
         slic_lines.append(f"        Kill();")
         slic_lines.append(f"    }}")
-        # Arms 1-4: rarity filters (only if that rarity has spells)
-        arm_num = 1
+        # Arms 1-4: rarity filters with research gating
         for rarity in RARITY_ORDER:
             rarity_key = RARITY_KEYS[rarity]
             if by_rarity[rarity]:
                 first_page_name = f"MomSpell_{sphere}_{rarity_key}_1"
-                slic_lines.append(f"    // {RARITY_LABELS[rarity]} ({len(by_rarity[rarity])} spells)")
+                min_rung = _rarity_min_rung(rarity)
+                slic_lines.append(f"    // {RARITY_LABELS[rarity]} ({len(by_rarity[rarity])} spells) -- requires rung >= {min_rung}")
                 slic_lines.append(f"    Button(ID_MOM_SPELLHUB_BTN_{rarity_key}) {{")
                 slic_lines.append(f"        Kill();")
-                slic_lines.append(f"        Message(player[0], '{first_page_name}');")
+                slic_lines.append(f"        if (MomSphereRung[player[0]] >= {min_rung}) {{")
+                slic_lines.append(f"            Message(player[0], '{first_page_name}');")
+                slic_lines.append(f"        }} else {{")
+                slic_lines.append(f"            Message(player[0], 'MomSpellLocked');")
+                slic_lines.append(f"        }}")
                 slic_lines.append(f"    }}")
-                arm_num += 1
         slic_lines.append(f"}}")
         slic_lines.append(f"")
 
@@ -3442,10 +3495,27 @@ def _emit_spellbook_pages() -> tuple[int, int]:
             rarity_key = RARITY_KEYS[rarity]
             rarity_label = RARITY_LABELS[rarity]
 
-            # Paginate at 3 spells per page
+            # Paginate respecting 5-arm ceiling:
+            # Close always takes 1 arm. Prev/Next each take 1 arm when present.
+            # First page: Close + spells + Next(if more) = spells + 2 max
+            # Middle page: Close + Prev + spells + Next = spells + 3 -> max 2 spells
+            # Last page (not first): Close + Prev + spells = spells + 2 max
+            # So: first/last pages get 3 spells, middle pages get 2 spells.
+            # With max_pages=3: layout is [3, 2, remaining] for 3 pages.
             pages: list[list[dict]] = []
-            for i in range(0, len(rarity_spells), 3):
-                pages.append(rarity_spells[i:i+3])
+            remaining = list(rarity_spells)
+            page_idx = 0
+            while remaining and len(pages) < max_pages:
+                is_first_page = page_idx == 0
+                is_potentially_last = len(remaining) <= spells_per_page
+                # Middle page (has prev AND will have next) gets 2 spells
+                if not is_first_page and not is_potentially_last:
+                    n = spells_per_page - 1  # 2 spells on middle pages
+                else:
+                    n = spells_per_page  # 3 spells on first/last
+                pages.append(remaining[:n])
+                remaining = remaining[n:]
+                page_idx += 1
             num_pages = len(pages)
             total_pages += num_pages
 
@@ -3460,7 +3530,7 @@ def _emit_spellbook_pages() -> tuple[int, int]:
                 has_next = not is_last
 
                 alertbox_name = f"MomSpell_{sphere}_{rarity_key}_{page_num}"
-                title_key = f"MOM_SPELL_TITLE_{sphere.upper()}_{rarity_key}_{page_num}"
+                title_key = f"MOM_SPELL_PAGE_{sphere.upper()}_{rarity_key}_{page_num}"
 
                 slic_lines.append(f"// Page {page_num} of {num_pages}")
                 slic_lines.append(f"alertbox '{alertbox_name}' {{")
@@ -3469,58 +3539,56 @@ def _emit_spellbook_pages() -> tuple[int, int]:
                 slic_lines.append(f"")
 
                 # Arm 0: Close (back to hub)
-                slic_lines.append(f"    // Close (back to hub)")
+                slic_lines.append(f"    // [X] Close")
                 slic_lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
                 slic_lines.append(f"        Kill();")
                 slic_lines.append(f"        Message(player[0], '{hub_name}');")
                 slic_lines.append(f"    }}")
 
-                arm_num = 1
-
                 # Prev button if not first page
                 if has_prev:
                     prev_name = f"MomSpell_{sphere}_{rarity_key}_{page_num - 1}"
-                    slic_lines.append(f"    // Prev")
+                    slic_lines.append(f"    // [<] Prev")
                     slic_lines.append(f"    Button(ID_MOM_SPELL_PREV) {{")
                     slic_lines.append(f"        Kill();")
                     slic_lines.append(f"        Message(player[0], '{prev_name}');")
                     slic_lines.append(f"    }}")
-                    arm_num += 1
 
-                # Spell buttons
-                for spell_row in page_spells:
+                # Spell buttons — single-char labels "1", "2", "3"
+                # CTP2 renders arms last-defined=top, so emit in REVERSE order
+                # so they appear 1, 2, 3 reading top-to-bottom on screen.
+                for slot_idx, spell_row in enumerate(reversed(page_spells)):
+                    # slot_idx here is reversed; compute the DISPLAY number
+                    display_num = len(page_spells) - slot_idx
                     spell_name = spell_row["name"].strip()
                     shipped_cost = spell_row["_shipped_cost"]
-                    str_id = f"ID_MOM_SPELL_{spell_id_counter}"
+                    btn_key = f"MOM_SPELL_BTN_{display_num}"
+                    spell_id = all_spell_ids[id(spell_row)]
 
-                    slic_lines.append(f"    // {spell_name} ({shipped_cost} mana)")
-                    slic_lines.append(f"    Button({str_id}) {{")
+                    slic_lines.append(f"    // [{display_num}] {spell_name} ({shipped_cost} mana)")
+                    slic_lines.append(f"    Button(ID_{btn_key}) {{")
                     slic_lines.append(f"        if (MomMagicCur[player[0]] >= {shipped_cost}) {{")
-                    slic_lines.append(f"            MomCastSpell(player[0], {spell_id_counter});")
+                    slic_lines.append(f"            MomCastSpell(player[0], {spell_id});")
                     slic_lines.append(f"        }} else {{")
                     slic_lines.append(f"            Message(player[0], 'MomNotEnoughMana');")
                     slic_lines.append(f"        }}")
                     slic_lines.append(f"        Kill();")
                     slic_lines.append(f"    }}")
 
-                    # String entry for button label
+                    # String entry for cast.slc reference
+                    str_key = f"MOM_SPELL_{spell_id}"
                     label = f"{spell_name} ({shipped_cost})"
                     label = label.encode("latin-1", errors="replace").decode("latin-1")
-                    str_key = f"MOM_SPELL_{spell_id_counter}"
                     spell_string_entries.append(f'{str_key}\t\t"{label}"')
-
-                    spell_id_counter += 1
-                    arm_num += 1
 
                 # Next button if not last page
                 if has_next:
                     next_name = f"MomSpell_{sphere}_{rarity_key}_{page_num + 1}"
-                    slic_lines.append(f"    // Next")
+                    slic_lines.append(f"    // [>] Next")
                     slic_lines.append(f"    Button(ID_MOM_SPELL_NEXT) {{")
                     slic_lines.append(f"        Kill();")
                     slic_lines.append(f"        Message(player[0], '{next_name}');")
                     slic_lines.append(f"    }}")
-                    arm_num += 1
 
                 slic_lines.append(f"}}")
                 slic_lines.append(f"")
@@ -3535,15 +3603,19 @@ def _emit_spellbook_pages() -> tuple[int, int]:
     str_block_lines = [
         "",
         "# Paged spellbook button labels -- GENERATED by tools/ctp2_generator.py",
-        "# Format: MOM_SPELL_<N> = \"Spell Name (cost)\"",
-        'MOM_SPELL_CLOSE\t\t"Close"',
-        'MOM_SPELL_PREV\t\t"<< Prev"',
-        'MOM_SPELL_NEXT\t\t"Next >>"',
+        "# Single-char buttons with body-text legend. Research-gated per rarity tier.",
+        'MOM_SPELL_CLOSE\t\t"X"',
+        'MOM_SPELL_PREV\t\t"<"',
+        'MOM_SPELL_NEXT\t\t">"',
+        'MOM_SPELL_BTN_1\t\t"1"',
+        'MOM_SPELL_BTN_2\t\t"2"',
+        'MOM_SPELL_BTN_3\t\t"3"',
         'MOM_MSG_SPELL_CAST\t\t"Your spell takes effect."',
         'MOM_MSG_NOT_ENOUGH_MANA\t\t"Not enough mana to cast this spell."',
+        'MOM_MSG_SPELL_LOCKED\t\t"You have not yet researched this school of magic."',
     ]
 
-    # Hub text strings: "Life Spellbook - choose rarity:"
+    # Hub text strings: "Life Spellbook"
     for sphere in _SPELLBOOK_SPHERES:
         sphere_title = sphere_identity.get(sphere, {}).get("title", sphere.capitalize())
         key = f"MOM_SPELLHUB_{sphere.upper()}"
@@ -3555,7 +3627,7 @@ def _emit_spellbook_pages() -> tuple[int, int]:
         rarity_label = RARITY_LABELS[rarity]
         str_block_lines.append(f'MOM_SPELLHUB_BTN_{rarity_key}\t\t"{rarity_label}"')
 
-    # Per-page title strings
+    # Per-page body-text strings: the legend "Title\n1. Spell (cost)\n2. Spell (cost)..."
     for sphere in _SPELLBOOK_SPHERES:
         sphere_title = sphere_identity.get(sphere, {}).get("title", sphere.capitalize())
         for rarity in RARITY_ORDER:
@@ -3564,10 +3636,28 @@ def _emit_spellbook_pages() -> tuple[int, int]:
             rarity_spells = [r for r in by_sphere[sphere] if r["_rarity"] == rarity]
             if not rarity_spells:
                 continue
-            num_pages = (len(rarity_spells) + 2) // 3  # ceil(n/3)
-            for pg in range(1, num_pages + 1):
-                key = f"MOM_SPELL_TITLE_{sphere.upper()}_{rarity_key}_{pg}"
-                val = f"{sphere_title} - {rarity_label} ({pg}/{num_pages})"
+            rarity_spells.sort(key=lambda x: x["name"].strip().lower())
+            # Same pagination logic as the SLIC emitter
+            pages_for_str: list[list[dict]] = []
+            remaining_str = list(rarity_spells)
+            pg_i = 0
+            while remaining_str and len(pages_for_str) < max_pages:
+                is_first_pg = pg_i == 0
+                is_pot_last = len(remaining_str) <= spells_per_page
+                n = spells_per_page if (is_first_pg or is_pot_last) else (spells_per_page - 1)
+                pages_for_str.append(remaining_str[:n])
+                remaining_str = remaining_str[n:]
+                pg_i += 1
+            num_pages = len(pages_for_str)
+            for pg_idx, pg_spells in enumerate(pages_for_str):
+                pg_num = pg_idx + 1
+                key = f"MOM_SPELL_PAGE_{sphere.upper()}_{rarity_key}_{pg_num}"
+                legend_parts = [f"{sphere_title} - {rarity_label} ({pg_num}/{num_pages})"]
+                for slot_idx, sp in enumerate(pg_spells):
+                    sp_name = sp["name"].strip()
+                    sp_cost = sp["_shipped_cost"]
+                    legend_parts.append(f"{slot_idx + 1}. {sp_name} ({sp_cost})")
+                val = "\\n".join(legend_parts)
                 str_block_lines.append(f'{key}\t\t"{val}"')
 
     # Sphere greeting strings
@@ -3576,6 +3666,26 @@ def _emit_spellbook_pages() -> tuple[int, int]:
         if greeting:
             key = f"MOM_SPHERE_GREETING_{sphere.upper()}"
             str_block_lines.append(f'{key}\t\t"{greeting}"')
+
+    # Emit string entries for ALL spells (some may be off-page due to page cap
+    # but the cast if-chain still needs their ID→label mapping).
+    emitted_spell_ids: set[int] = set()
+    for entry in spell_string_entries:
+        # extract the ID from 'MOM_SPELL_N\t\t"..."'
+        key_part = entry.split("\t")[0]
+        try:
+            emitted_spell_ids.add(int(key_part.replace("MOM_SPELL_", "")))
+        except ValueError:
+            pass
+    for sphere in _SPELLBOOK_SPHERES:
+        for row in by_sphere[sphere]:
+            sid = all_spell_ids[id(row)]
+            if sid not in emitted_spell_ids:
+                spell_name = row["name"].strip()
+                shipped_cost = row["_shipped_cost"]
+                label = f"{spell_name} ({shipped_cost})"
+                label = label.encode("latin-1", errors="replace").decode("latin-1")
+                spell_string_entries.append(f'MOM_SPELL_{sid}\t\t"{label}"')
 
     str_block_lines.extend(spell_string_entries)
     str_block_lines.append("")
@@ -3604,7 +3714,7 @@ def _emit_spellbook_pages() -> tuple[int, int]:
     if legacy_path.exists():
         legacy_path.unlink()
 
-    return total_pages, spell_id_counter
+    return total_pages, total_spells_all
 
 
 def _emit_spell_effects() -> int:
@@ -3624,38 +3734,8 @@ def _emit_spell_effects() -> int:
     """
     import re as _re
 
-    # --- Load rescale policy (same as _emit_spellbook_pages) ---
-    rescale_cfg = MOD_POLICY["spellbook"]["cost_rescale"]
-    rescale_factor = rescale_cfg["rescale_factor"]
-    min_cost = rescale_cfg["min_cost"]
-    max_cost = rescale_cfg["max_cost"]
-    rarity_factors = rescale_cfg.get("rarity_factors", {})
-
-    # --- Read and filter spells (same logic as _emit_spellbook_pages) ---
-    spells_path = MOMJR / "spells.csv"
-    with open(spells_path, newline="", encoding="utf-8-sig") as fh:
-        all_spells = list(csv.DictReader(fh))
-
-    by_sphere: dict[str, list[dict]] = {s: [] for s in _SPELLBOOK_SPHERES}
-    for row in all_spells:
-        sphere = row["sphere"].strip().lower()
-        if sphere not in by_sphere:
-            continue
-        effect_kind = row["effect_kind"].strip()
-        overland_cost = int(row["overland_cost"].strip() or "0")
-        if effect_kind == "flavour" or overland_cost <= 0:
-            continue
-        # Rarity-aware cost rescaling (Phase 4)
-        rarity = row.get("rarity", "").lower().strip()
-        factor = rarity_factors.get(rarity, rescale_factor)
-        shipped_cost = max(min_cost, min(max_cost, int(overland_cost * factor)))
-        row["_shipped_cost"] = shipped_cost
-        row["_research_cost_int"] = int(row["research_cost"].strip() or "0")
-        row["_rarity"] = rarity
-        by_sphere[sphere].append(row)
-
-    for sphere in _SPELLBOOK_SPHERES:
-        by_sphere[sphere].sort(key=lambda r: r["_research_cost_int"])
+    # --- Use shared spell loader (same ordering as _emit_spellbook_pages) ---
+    by_sphere = _load_implementable_spells()
 
     # --- Build flat ordered spell list (same order as page IDs) ---
     ordered_spells: list[dict] = []
@@ -3738,6 +3818,146 @@ def _emit_spell_effects() -> int:
 
         return ""
 
+    # --- SPELL BINDINGS: signature spells tied to specific units ---
+    spell_name_to_idx: dict[str, int] = {}
+    for i, row in enumerate(ordered_spells):
+        spell_name_to_idx[row["name"].strip()] = i
+
+    SPELL_BINDINGS: dict[int, dict] = {}
+    _binding_defs = [
+        ("Death Wish",        "UNIT_DEATH_KNIGHT",  1, "kill_strongest", {}),
+        ("Black Wind",        "UNIT_WRAITH",        1, "kill_weakest",   {}),
+        ("Cruel Unminding",   "UNIT_LICH",          1, "mana_drain",     {"drain": 30}),
+        ("Fire Storm",        "UNIT_EFREET",        2, "spawn",          {"spawn_unit": "UNIT_HELL_HOUNDS"}),
+        ("Call the Void",     "UNIT_GREAT_WYRM",    2, "kill_two",       {}),
+        ("Earthquake",        "UNIT_BEHEMOTH",      1, "spawn",          {"spawn_unit": "UNIT_WAR_TROLL"}),
+        ("Ice Storm",         "UNIT_STORM_GIANT",   2, "spawn",          {"spawn_unit": "UNIT_WARBEARS"}),
+        ("Stasis",            "UNIT_STORM_DRAKE",   2, "spawn",          {"spawn_unit": "UNIT_PHANTOM_WARRIORS"}),
+        ("Spell Binding",     "UNIT_WARLOCK",       2, "mana_drain",     {"drain": 50}),
+        ("Great Unsummoning", "UNIT_AIR_ELEMENTAL", 2, "kill_strongest", {}),
+    ]
+    for spell_name_b, unit_b, range_b, effect_b, cfg_b in _binding_defs:
+        if spell_name_b in spell_name_to_idx:
+            SPELL_BINDINGS[spell_name_to_idx[spell_name_b]] = {
+                "unit": unit_b, "range": range_b, "effect": effect_b, **cfg_b,
+            }
+
+    # --- MAGIC RESISTANCE SYSTEM (5-sphere graduated affinities) ---
+    # NO TOTAL BLOCKS. Every spell has a chance to land. Resistance is a %
+    # chance to survive, checked via Random(100) < threshold.
+    # Tiers: elite opposing 80%, strong aura 60%, moderate aura 40%,
+    #         chaos entropy 25%, hero self-save 35%, lamp +15% (additive).
+    # Highest applicable tier wins (no multiplicative stacking). Lamp adds on top.
+    # Maximum possible resistance: 80 + 15 = 95%. Never 100%.
+    HERO_UNITS = [
+        "UNIT_ARIEL", "UNIT_SERENA", "UNIT_FREYA", "UNIT_ALORRA",
+        "UNIT_JAFAR", "UNIT_RJAK", "UNIT_MALLEUS", "UNIT_TAURON", "UNIT_WARRAX",
+    ]
+    CHAOS_UNITS = [
+        "UNIT_HELL_HOUNDS", "UNIT_MINOTAUR", "UNIT_GARGOYLE", "UNIT_SALAMANDER",
+        "UNIT_INFERNAL_DEVICE", "UNIT_HYDRA", "UNIT_EFREET", "UNIT_TAURON", "UNIT_WARRAX",
+    ]
+    SPHERE_RESISTANCE = {
+        "death": {
+            "elite": [
+                "UNIT_ZOMBIES", "UNIT_SKELETONS", "UNIT_WRAITH", "UNIT_MINION",
+                "UNIT_DEATH_KNIGHT", "UNIT_LICH", "UNIT_UNDEAD_DRAGON", "UNIT_DRACOLICH",
+                "UNIT_PALADINS", "UNIT_ARCHANGEL", "UNIT_ARCH_MAGE",
+            ],
+            "aura_strong": ["UNIT_PALADINS", "UNIT_ARCHANGEL"],
+            "aura_moderate": ["UNIT_GUARDIAN_SPIRIT", "UNIT_UNICORN", "UNIT_ARIEL", "UNIT_SERENA"],
+        },
+        "chaos": {
+            "elite": ["UNIT_STORM_DRAKE", "UNIT_AIR_ELEMENTAL", "UNIT_WARLOCK"],
+            "aura_strong": ["UNIT_STORM_DRAKE", "UNIT_WARLOCK"],
+            "aura_moderate": ["UNIT_MAGE", "UNIT_JAFAR", "UNIT_STORM_GIANT"],
+        },
+        "nature": {
+            "elite": ["UNIT_EFREET", "UNIT_HYDRA", "UNIT_INFERNAL_DEVICE"],
+            "aura_strong": ["UNIT_EFREET", "UNIT_HYDRA"],
+            "aura_moderate": ["UNIT_HELL_HOUNDS", "UNIT_TAURON", "UNIT_WARRAX"],
+        },
+        "sorcery": {
+            "elite": ["UNIT_BEHEMOTH", "UNIT_GREAT_WYRM", "UNIT_WAR_MAMMOTH"],
+            "aura_strong": ["UNIT_BEHEMOTH", "UNIT_GREAT_WYRM"],
+            "aura_moderate": ["UNIT_WARBEARS", "UNIT_FREYA", "UNIT_ALORRA"],
+        },
+        "life": {
+            "elite": ["UNIT_LICH", "UNIT_DEATH_KNIGHT", "UNIT_DRACOLICH"],
+            "aura_strong": ["UNIT_LICH", "UNIT_DRACOLICH"],
+            "aura_moderate": ["UNIT_WRAITH", "UNIT_RJAK", "UNIT_MALLEUS"],
+        },
+    }
+
+    def _emit_resistance_check(ll: list[str], indent: str, spell_sphere: str) -> None:
+        """Emit graduated resistance check. NO total blocks — always a Random roll.
+
+        Resolution: find highest applicable tier, add lamp bonus, roll once.
+        Tiers: elite=80, aura_strong=60, aura_moderate=40, chaos=25, hero=35, lamp=+15.
+        """
+        res = SPHERE_RESISTANCE.get(spell_sphere, {})
+        elite_set = res.get("elite", [])
+        aura_strong_set = res.get("aura_strong", [])
+        aura_moderate_set = res.get("aura_moderate", [])
+
+        ll.append(f"{indent}resisted = 0;")
+        ll.append(f"{indent}bestAtk = 0;")  # reuse as threshold variable
+        # Tier 1: elite opposing (80%)
+        if elite_set:
+            ll.append(f"{indent}// Elite opposing affinity (80%)")
+            for u in elite_set:
+                ll.append(f"{indent}if (killUnit.type == UnitDB({u})) {{ bestAtk = 80; }}")
+        # Tier 2: strong aura (60%) — co-located protector
+        if aura_strong_set:
+            ll.append(f"{indent}// Strong aura: opposing elite on same tile (60%)")
+            ll.append(f"{indent}if (bestAtk < 60) {{")
+            ll.append(f"{indent}    auraCount = GetUnitsAtLocation(tgtLoc);")
+            ll.append(f"{indent}    for (ai = 0; ai < auraCount; ai = ai + 1) {{")
+            ll.append(f"{indent}        GetUnitFromCell(tgtLoc, ai, auraUnit);")
+            ll.append(f"{indent}        if (auraUnit.owner == killUnit.owner) {{")
+            for u in aura_strong_set:
+                ll.append(f"{indent}            if (auraUnit.type == UnitDB({u})) {{ bestAtk = 60; }}")
+            ll.append(f"{indent}        }}")
+            ll.append(f"{indent}    }}")
+            ll.append(f"{indent}}}")
+        # Tier 3: moderate aura (40%)
+        if aura_moderate_set:
+            ll.append(f"{indent}// Moderate aura: opposing common on tile (40%)")
+            ll.append(f"{indent}if (bestAtk < 40) {{")
+            ll.append(f"{indent}    auraCount = GetUnitsAtLocation(tgtLoc);")
+            ll.append(f"{indent}    for (ai = 0; ai < auraCount; ai = ai + 1) {{")
+            ll.append(f"{indent}        GetUnitFromCell(tgtLoc, ai, auraUnit);")
+            ll.append(f"{indent}        if (auraUnit.owner == killUnit.owner) {{")
+            for u in aura_moderate_set:
+                ll.append(f"{indent}            if (auraUnit.type == UnitDB({u})) {{ bestAtk = 40; }}")
+            ll.append(f"{indent}        }}")
+            ll.append(f"{indent}    }}")
+            ll.append(f"{indent}}}")
+        # Tier 4: hero self-save (35%)
+        ll.append(f"{indent}// Hero self-save (35%)")
+        ll.append(f"{indent}if (bestAtk < 35) {{")
+        for u in HERO_UNITS:
+            ll.append(f"{indent}    if (killUnit.type == UnitDB({u})) {{ bestAtk = 35; }}")
+        ll.append(f"{indent}}}")
+        # Tier 5: chaos entropy (25%)
+        ll.append(f"{indent}// Chaos entropy (25%)")
+        ll.append(f"{indent}if (bestAtk < 25) {{")
+        for u in CHAOS_UNITS:
+            ll.append(f"{indent}    if (killUnit.type == UnitDB({u})) {{ bestAtk = 25; }}")
+        ll.append(f"{indent}}}")
+        # Lamp bonus: +15 additive (cap at 95)
+        ll.append(f"{indent}// Lamp artifact: +15% additive")
+        ll.append(f"{indent}if (bestAtk > 0 && MomHasLamp[killUnit.owner] == 1) {{")
+        ll.append(f"{indent}    bestAtk = bestAtk + 15;")
+        ll.append(f"{indent}}}")
+        ll.append(f"{indent}if (bestAtk > 95) {{ bestAtk = 95; }}")
+        # Single roll against the resolved threshold
+        ll.append(f"{indent}// Roll against threshold (0 = no protection, spell always lands)")
+        ll.append(f"{indent}if (bestAtk > 0) {{")
+        ll.append(f"{indent}    roll = Random(100);")
+        ll.append(f"{indent}    if (roll < bestAtk) {{ resisted = 1; }}")
+        ll.append(f"{indent}}}")
+
     # --- Generate the MomCastSpell function ---
     lines: list[str] = [
         "// mom_spellbook_cast.slc -- GENERATED by tools/ctp2_generator.py. DO NOT HAND-EDIT.",
@@ -3745,15 +3965,89 @@ def _emit_spell_effects() -> int:
         "// MomCastSpell: flat if-chain covering all implementable spells.",
         "// Spell IDs match the paged alertbox arms (sequential, same order).",
         "// Must load BEFORE per-sphere page files (page Button arms call MomCastSpell).",
+        "//",
+        "// PROXIMITY-GATED CASTING + UNIT-SPELL BINDINGS (2026-08-07):",
+        "// Range tiers: Any=0, WAR_MAGE=1, ARCH_MAGE=2.",
+        "// Signature spells require a specific unit within range of target.",
         "",
         "// ---------------------------------------------------------------------------",
-        "// MomCastSpell: generated per-spell effect bodies.",
-        "// Flat if-chain covering all implementable spells. DO NOT HAND-EDIT.",
-        "// Spell IDs match the paged alertbox arms (sequential, same order).",
+        "// MomCastSpell: generated per-spell effect bodies with proximity targeting",
+        "// and unit-spell bindings. DO NOT HAND-EDIT.",
         "// ---------------------------------------------------------------------------",
         "int_f MomCastSpell(int_t p, int_t spellId)",
         "{",
         "    city_t tmpCity;",
+        "    unit_t scanUnit;",
+        "    unit_t killUnit;",
+        "    unit_t bestKill;",
+        "    location_t mageLoc;",
+        "    location_t tgtLoc;",
+        "    int_t mageRange;",
+        "    int_t uIdx;",
+        "    int_t uType;",
+        "    int_t numUnits;",
+        "    int_t tgtFound;",
+        "    int_t tgtOwner;",
+        "    int_t bestDist;",
+        "    int_t curDist;",
+        "    int_t ci;",
+        "    int_t pi;",
+        "    int_t boundFound;",
+        "    int_t cellCount;",
+        "    int_t ki;",
+        "    int_t bestAtk;",
+        "    int_t killCount;",
+        "    int_t resisted;",
+        "    int_t roll;",
+        "    int_t ai;",
+        "    int_t auraCount;",
+        "    unit_t auraUnit;",
+        "",
+        "    // --- TARGETING PREAMBLE: find the player's best mage and resolve range ---",
+        "    mageRange = 0;",
+        "    numUnits = player[0].units;",
+        "    for (uIdx = 0; uIdx < numUnits; uIdx = uIdx + 1) {",
+        "        GetUnitByIndex(p, uIdx, scanUnit);",
+        "        uType = scanUnit.type;",
+        "        if (uType == UnitDB(UNIT_ARCH_MAGE)) {",
+        "            if (mageRange < 2) {",
+        "                mageRange = 2;",
+        "                mageLoc = scanUnit.location;",
+        "            }",
+        "        } elseif (uType == UnitDB(UNIT_WAR_MAGE)) {",
+        "            if (mageRange < 1) {",
+        "                mageRange = 1;",
+        "                mageLoc = scanUnit.location;",
+        "            }",
+        "        }",
+        "    }",
+        "",
+        "    // --- ENEMY CITY TARGET: find nearest enemy city within mageRange ---",
+        "    tgtFound = 0;",
+        "    tgtOwner = 0;",
+        "    bestDist = 999999;",
+        "    if (mageRange > 0) {",
+        "        for (pi = 1; pi < 31; pi = pi + 1) {",
+        "            if (pi != p && IsPlayerAlive(pi)) {",
+        "                player[2] = pi;",
+        "                if (player[2].cities > 0) {",
+        "                    for (ci = 0; ci < player[2].cities; ci = ci + 1) {",
+        "                        GetCityByIndex(player[2], ci, tmpCity);",
+        "                        if (CityIsValid(tmpCity)) {",
+        "                            curDist = Distance(mageLoc, tmpCity.location);",
+        "                            if (curDist <= mageRange && curDist < bestDist) {",
+        "                                bestDist = curDist;",
+        "                                tgtLoc = tmpCity.location;",
+        "                                tgtOwner = pi;",
+        "                                tgtFound = 1;",
+        "                            }",
+        "                        }",
+        "                    }",
+        "                }",
+        "            }",
+        "        }",
+        "    }",
+        "",
         "    // Generated from spells.csv -- DO NOT HAND-EDIT",
     ]
 
@@ -3767,9 +4061,111 @@ def _emit_spell_effects() -> int:
         keyword = "if" if idx == 0 else "} elseif"
         lines.append(f"    {keyword} (spellId == {idx}) {{")
         lines.append(f"        // {spell_name} ({effect_kind}) - cost {shipped_cost}")
-        lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
 
-        if effect_kind == "summon":
+        # --- BOUND SIGNATURE SPELL ---
+        if idx in SPELL_BINDINGS:
+            binding = SPELL_BINDINGS[idx]
+            b_unit = binding["unit"]
+            b_range = binding["range"]
+            b_effect = binding["effect"]
+            lines.append(f"        // BOUND to {b_unit} (range {b_range})")
+            lines.append(f"        boundFound = 0;")
+            lines.append(f"        if (tgtFound == 1) {{")
+            lines.append(f"            for (uIdx = 0; uIdx < numUnits; uIdx = uIdx + 1) {{")
+            lines.append(f"                GetUnitByIndex(p, uIdx, scanUnit);")
+            lines.append(f"                if (scanUnit.type == UnitDB({b_unit})) {{")
+            lines.append(f"                    if (Distance(scanUnit.location, tgtLoc) <= {b_range}) {{")
+            lines.append(f"                        boundFound = 1;")
+            lines.append(f"                    }}")
+            lines.append(f"                }}")
+            lines.append(f"            }}")
+            lines.append(f"        }}")
+            lines.append(f"        if (boundFound == 1) {{")
+            lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            # Emit effect body
+            if b_effect == "kill_strongest":
+                lines.append(f"            cellCount = GetUnitsAtLocation(tgtLoc);")
+                lines.append(f"            for (ki = 0; ki < cellCount; ki = ki + 1) {{")
+                lines.append(f"                GetUnitFromCell(tgtLoc, ki, killUnit);")
+                lines.append(f"                if (killUnit.owner != p) {{")
+                # Resistance check before kill
+                _emit_resistance_check(lines, "                    ", sphere)
+                lines.append(f"                    if (resisted == 0) {{")
+                lines.append(f"                        KillUnit(killUnit);")
+                lines.append(f"                    }} else {{")
+                lines.append(f"                        Message(p, 'MomSpellResisted');")
+                lines.append(f"                    }}")
+                lines.append(f"                    ki = cellCount;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+            elif b_effect == "kill_weakest":
+                lines.append(f"            cellCount = GetUnitsAtLocation(tgtLoc);")
+                lines.append(f"            bestAtk = 0;")
+                lines.append(f"            for (ki = 0; ki < cellCount; ki = ki + 1) {{")
+                lines.append(f"                GetUnitFromCell(tgtLoc, ki, killUnit);")
+                lines.append(f"                if (killUnit.owner != p) {{")
+                lines.append(f"                    bestKill = killUnit;")
+                lines.append(f"                    bestAtk = 1;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+                lines.append(f"            if (bestAtk == 1) {{")
+                lines.append(f"                killUnit = bestKill;")
+                _emit_resistance_check(lines, "                ", sphere)
+                lines.append(f"                if (resisted == 0) {{")
+                lines.append(f"                    KillUnit(bestKill);")
+                lines.append(f"                }} else {{")
+                lines.append(f"                    Message(p, 'MomSpellResisted');")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+            elif b_effect == "kill_two":
+                # First kill with resistance
+                lines.append(f"            cellCount = GetUnitsAtLocation(tgtLoc);")
+                lines.append(f"            killCount = 0;")
+                lines.append(f"            for (ki = 0; ki < cellCount; ki = ki + 1) {{")
+                lines.append(f"                GetUnitFromCell(tgtLoc, ki, killUnit);")
+                lines.append(f"                if (killUnit.owner != p && killCount == 0) {{")
+                _emit_resistance_check(lines, "                    ", sphere)
+                lines.append(f"                    if (resisted == 0) {{")
+                lines.append(f"                        KillUnit(killUnit);")
+                lines.append(f"                    }}")
+                lines.append(f"                    killCount = 1;")
+                lines.append(f"                    ki = cellCount;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+                # Second kill with resistance
+                lines.append(f"            cellCount = GetUnitsAtLocation(tgtLoc);")
+                lines.append(f"            for (ki = 0; ki < cellCount; ki = ki + 1) {{")
+                lines.append(f"                GetUnitFromCell(tgtLoc, ki, killUnit);")
+                lines.append(f"                if (killUnit.owner != p && killCount == 1) {{")
+                _emit_resistance_check(lines, "                    ", sphere)
+                lines.append(f"                    if (resisted == 0) {{")
+                lines.append(f"                        KillUnit(killUnit);")
+                lines.append(f"                    }}")
+                lines.append(f"                    killCount = 2;")
+                lines.append(f"                    ki = cellCount;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+            elif b_effect == "spawn":
+                spawn_u = binding["spawn_unit"]
+                lines.append(f"            CreateUnit(p, UnitDB({spawn_u}), tgtLoc, 0);")
+            elif b_effect == "mana_drain":
+                drain_amt = binding["drain"]
+                lines.append(f"            if (tgtOwner >= 1 && tgtOwner <= 5) {{")
+                lines.append(f"                MomMagicCur[tgtOwner] = MomMagicCur[tgtOwner] - {drain_amt};")
+                lines.append(f"                if (MomMagicCur[tgtOwner] < 0) {{")
+                lines.append(f"                    MomMagicCur[tgtOwner] = 0;")
+                lines.append(f"                }}")
+                lines.append(f"            }}")
+            lines.append(f"            Message(p, 'MomSpellCast');")
+            lines.append(f"        }} elseif (tgtFound == 1) {{")
+            lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"            Message(p, 'MomNoRequiredUnit');")
+            lines.append(f"        }} else {{")
+            lines.append(f"            Message(p, 'MomNoTargetInRange');")
+            lines.append(f"        }}")
+
+        elif effect_kind == "summon":
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
             unit_ident = _spell_name_to_unit(spell_name)
             if unit_ident:
                 lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
@@ -3778,8 +4174,39 @@ def _emit_spell_effects() -> int:
             else:
                 lines.append(f"        // TODO: no matching unit for '{spell_name}'")
                 lines.append(f"        Message(p, 'MomSpellCast');")
+
+        elif effect_kind == "instant_damage":
+            lines.append(f"        if (tgtFound == 1) {{")
+            lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);")
+            lines.append(f"            Message(p, 'MomSpellCast');")
+            lines.append(f"        }} else {{")
+            lines.append(f"            Message(p, 'MomNoTargetInRange');")
+            lines.append(f"        }}")
+
+        elif effect_kind == "city_enchant":
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
+            lines.append(f"        Message(p, 'MomSpellCast');")
+
+        elif effect_kind == "unit_enchant":
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"        Message(p, 'MomSpellCast');")
+
+        elif effect_kind == "global_enchant":
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"        Message(p, 'MomSpellCast');")
+
+        elif effect_kind == "dispel":
+            lines.append(f"        if (tgtFound == 1) {{")
+            lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"            Message(p, 'MomSpellCast');")
+            lines.append(f"        }} else {{")
+            lines.append(f"            Message(p, 'MomNoTargetInRange');")
+            lines.append(f"        }}")
+
         else:
-            # All non-summon kinds are stubs for now
+            lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
             lines.append(f"        Message(p, 'MomSpellCast');")
 
     # Close final elseif
@@ -3800,39 +4227,83 @@ def _emit_spell_effects() -> int:
     lines.append("    Text(ID_MOM_MSG_NOT_ENOUGH_MANA);")
     lines.append("}")
     lines.append("")
+    lines.append("messagebox 'MomSpellLocked' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_SPELL_LOCKED);")
+    lines.append("}")
+    lines.append("")
+    lines.append("// Out-of-range feedback when no mage is close enough to an enemy city")
+    lines.append("messagebox 'MomNoTargetInRange' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_NO_TARGET_IN_RANGE);")
+    lines.append("}")
+    lines.append("")
+    lines.append("// Feedback when the signature unit is not in range for a bound spell")
+    lines.append("messagebox 'MomNoRequiredUnit' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_NO_REQUIRED_UNIT);")
+    lines.append("}")
+    lines.append("")
+    lines.append("// Feedback when a target unit resists or is immune to a kill spell")
+    lines.append("messagebox 'MomSpellResisted' {")
+    lines.append("    Show();")
+    lines.append("    Text(ID_MOM_MSG_SPELL_RESISTED);")
+    lines.append("}")
+    lines.append("")
 
     # --- Write to mom_spellbook_cast.slc (standalone file) ---
     _write_rel(_SPELLBOOK_CAST_SLC_REL, "\n".join(lines))
+
+    # --- Patch unit GL GAMEPLAY sections with spell portfolio info ---
+    gl_path = SCENARIO / "english" / "gamedata" / "Great_Library.txt"
+    if gl_path.exists():
+        gl_text = gl_path.read_text(encoding="latin-1")
+        _portfolio_notes = {
+            "UNIT_DEATH_KNIGHT": "Signature Spell: Death Wish (kills an enemy unit at an adjacent city).",
+            "UNIT_WRAITH": "Signature Spell: Black Wind (kills an enemy unit at an adjacent city).",
+            "UNIT_LICH": "Signature Spell: Cruel Unminding (drains 30 mana from an adjacent enemy wizard).",
+            "UNIT_EFREET": "Signature Spell: Fire Storm (deploys Hell Hounds at an enemy city within 2 tiles).",
+            "UNIT_GREAT_WYRM": "Signature Spell: Call the Void (kills 2 enemy units at a city within 2 tiles).",
+            "UNIT_BEHEMOTH": "Signature Spell: Earthquake (deploys a War Troll at an adjacent enemy city).",
+            "UNIT_STORM_GIANT": "Signature Spell: Ice Storm (deploys War Bears at an enemy city within 2 tiles).",
+            "UNIT_STORM_DRAKE": "Signature Spell: Stasis (deploys Phantom Warriors at a city within 2 tiles).",
+            "UNIT_WARLOCK": "Signature Spell: Spell Binding (drains 50 mana from an enemy wizard within 2 tiles).",
+            "UNIT_AIR_ELEMENTAL": "Signature Spell: Great Unsummoning (kills an enemy unit at a city within 2 tiles).",
+            "UNIT_WAR_MAGE": "Tactical Caster: enables city-targeted spells at range 1 (adjacent tile).",
+            "UNIT_ARCH_MAGE": "Strategic Caster: enables city-targeted spells at range 2 (artillery reach).",
+        }
+        patched = 0
+        for unit_id, note in _portfolio_notes.items():
+            section_tag = f"[{unit_id}_GAMEPLAY]"
+            end_tag = "[END]"
+            if section_tag in gl_text:
+                # Find the section and inject the note before [END]
+                start = gl_text.index(section_tag)
+                end_pos = gl_text.index(end_tag, start)
+                existing_content = gl_text[start + len(section_tag):end_pos]
+                if note not in existing_content:
+                    # Insert the note on a new line before [END]
+                    insert_point = end_pos
+                    gl_text = gl_text[:insert_point] + "\n" + note + "\n" + gl_text[insert_point:]
+                    patched += 1
+        if patched > 0:
+            with open(gl_path, "w", encoding="latin-1", newline="") as fh:
+                fh.write(gl_text)
+            print(f"  + patched {patched} unit GL GAMEPLAY section(s) with spell portfolio info")
 
     return len(ordered_spells)
 
 
 def _print_spell_cost_distribution():
     """Print a cost distribution summary by rarity for Phase 4b verification."""
-    rescale_cfg = MOD_POLICY["spellbook"]["cost_rescale"]
-    rescale_factor = rescale_cfg["rescale_factor"]
-    min_cost = rescale_cfg["min_cost"]
-    max_cost = rescale_cfg["max_cost"]
-    rarity_factors = rescale_cfg.get("rarity_factors", {})
-
-    spells_path = MOMJR / "spells.csv"
-    with open(spells_path, newline="", encoding="utf-8-sig") as fh:
-        all_spells = list(csv.DictReader(fh))
+    by_sphere = _load_implementable_spells()
 
     # Group by rarity, compute costs
     by_rarity: dict[str, list[int]] = {}
-    for row in all_spells:
-        sphere = row["sphere"].strip().lower()
-        if sphere not in _SPELLBOOK_SPHERES:
-            continue
-        effect_kind = row["effect_kind"].strip()
-        overland_cost = int(row["overland_cost"].strip() or "0")
-        if effect_kind == "flavour" or overland_cost <= 0:
-            continue
-        rarity = row.get("rarity", "unknown").lower().strip()
-        factor = rarity_factors.get(rarity, rescale_factor)
-        shipped_cost = max(min_cost, min(max_cost, int(overland_cost * factor)))
-        by_rarity.setdefault(rarity, []).append(shipped_cost)
+    for sphere in _SPELLBOOK_SPHERES:
+        for row in by_sphere[sphere]:
+            rarity = row.get("_rarity", "unknown")
+            by_rarity.setdefault(rarity, []).append(row["_shipped_cost"])
 
     print("    --- Spell Cost Distribution (Phase 4 economy retune) ---")
     print(f"    {'Rarity':<12} {'Count':>5} {'Min':>5} {'Avg':>5} {'Max':>5}  Target Range")
@@ -4417,6 +4888,62 @@ def _retune_mom_advance_costs(adv_file: "P.AdvanceFile") -> int:
             adv_file._text = adv_file._text.replace(block_text, new_block, 1)
             advance_blocks[ident] = new_block
             changed += 1
+    return changed
+
+
+def _apply_magic_cost_share(adv_file: "P.AdvanceFile") -> int:
+    """Reprice sphere ladder advances as a fraction of the era's tech budget.
+
+    Magic is the cheat code, not a second grind. Each ladder rung's cost is set to
+    magic_ratio × era_midpoint, making it visibly cheaper than a same-era tech.
+    Called AFTER _retune_mom_advance_costs so it overrides the generic banding.
+
+    Returns the number of advances repriced.
+    """
+    share_cfg = MOD_POLICY.get("advance_cost_scaling", {}).get("magic_cost_share")
+    if not share_cfg:
+        return 0
+    magic_ratio = float(share_cfg["magic_ratio"])
+    ae_bands = _load_ae_advance_cost_bands()
+    if not ae_bands:
+        return 0
+
+    # Collect all sphere ladder idents
+    ladder_idents: set[str] = set()
+    for sphere in ["life", "nature", "sorcery", "death", "chaos"]:
+        ladder_idents.update(_sphere_ladder_idents(sphere))
+
+    advance_blocks = _scan_advance_blocks(adv_file._text)
+    changed = 0
+    round_to = int(MOD_POLICY.get("advance_cost_scaling", {}).get("round_to", 5))
+
+    for ident in sorted(ladder_idents):
+        block_text = advance_blocks.get(ident)
+        if not block_text:
+            continue
+        age_match = re.search(r'^\s*Age\s+(AGE_[A-Z0-9_]+)\s*$', block_text, re.MULTILINE)
+        cost_match = re.search(r'^\s*Cost\s+(\d+)\s*$', block_text, re.MULTILINE)
+        if not age_match or not cost_match:
+            continue
+        low, high = ae_bands.get(age_match.group(1), (0, 0))
+        if low == 0 and high == 0:
+            continue
+        era_midpoint = (low + high) // 2
+        new_cost = int(round((era_midpoint * magic_ratio) / round_to) * round_to)
+        new_cost = max(low // 2, new_cost)  # floor at half the era minimum
+        current_cost = int(cost_match.group(1))
+        if new_cost == current_cost:
+            continue
+        new_block = re.sub(
+            r'^(\s*Cost\s+)\d+(\s*)$',
+            rf'\g<1>{new_cost}\g<2>',
+            block_text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        adv_file._text = adv_file._text.replace(block_text, new_block, 1)
+        advance_blocks[ident] = new_block
+        changed += 1
     return changed
 
 
@@ -5452,6 +5979,9 @@ def main():
     retuned_advance_costs = _retune_mom_advance_costs(adv_file)
     if retuned_advance_costs:
         print(f"  + rescaled {retuned_advance_costs} MoM advance cost(s) into AE age bands")
+    magic_share_repriced = _apply_magic_cost_share(adv_file)
+    if magic_share_repriced:
+        print(f"  + magic-share: repriced {magic_share_repriced} sphere ladder advance(s) at {MOD_POLICY['advance_cost_scaling']['magic_cost_share']['magic_ratio']:.0%} of era midpoint")
     advance_ages = _advance_age_map_from_text(adv_file._text)
 
     # Backfill display names for pre-existing advances that still show raw ADVANCE_* IDs
@@ -5786,6 +6316,7 @@ def main():
         # Ages changed -> research costs must be re-banded, and advance_ages
         # (which feeds the improvement cost bands) refreshed off the NEW tree.
         _retune_mom_advance_costs(adv_file)
+        _apply_magic_cost_share(adv_file)
         advance_ages = _advance_age_map_from_text(adv_file._text)
 
         # SLIC start-of-game grants: player index -> sphere is the scenario
@@ -7215,13 +7746,16 @@ def main():
     _generate_civstr_tribes()
     # The workbook mirrors the ACTIVE csv dir: legacy MoM path when running the
     # default control plane, <csv_dir>/mod_inventory.xlsx for any other mod.
-    _default_csv_dir = Path(__file__).parent / "momjr_csv"
-    if MOMJR.resolve() == _default_csv_dir.resolve():
-        workbook_path, workbook_sheet_count = export_workbook(MOD_WORKBOOK_PATH)
+    if export_workbook is not None:
+        _default_csv_dir = Path(__file__).parent / "momjr_csv"
+        if MOMJR.resolve() == _default_csv_dir.resolve():
+            workbook_path, workbook_sheet_count = export_workbook(MOD_WORKBOOK_PATH)
+        else:
+            workbook_path, workbook_sheet_count = export_workbook(
+                MOMJR / "mod_inventory.xlsx", csv_root=MOMJR)
+        print(f"  + refreshed workbook {workbook_path} ({workbook_sheet_count} sheet(s))")
     else:
-        workbook_path, workbook_sheet_count = export_workbook(
-            MOMJR / "mod_inventory.xlsx", csv_root=MOMJR)
-    print(f"  + refreshed workbook {workbook_path} ({workbook_sheet_count} sheet(s))")
+        print("  ~ skipped workbook export (openpyxl not installed)")
     
     # CRITICAL: Ensure scenario newsprite.txt contains all base sprites PLUS any custom sprites used in Units.txt
     base_newsprite = str(CTP2_DATA / "default" / "gamedata" / "newsprite.txt")
