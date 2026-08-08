@@ -5105,7 +5105,7 @@ def _write_mom_unit_build_lists(units_file: P.UnitsFile) -> dict[str, int]:
     for ident, block_text in blocks.items():
         if ident == "UNIT_CITY":
             continue
-        if re.search(r'^\s*(NoIndex|GLHidden)\s*$', block_text, re.MULTILINE):
+        if re.search(r'^\s*(NoIndex|GLHidden|CantBuild)\s*$', block_text, re.MULTILINE):
             continue
         visible_units.append((ident, block_text))
 
@@ -6670,6 +6670,20 @@ def main():
             hidden_count += 1
     if hidden_count:
         print(f"  + hid {hidden_count} base CTP2 unit(s) from Great Library index")
+
+    # HERO SCARCITY: mark named heroes as CantBuild (summon-only, no city production).
+    # Heroes come through the spellbook's summon spells, not the build queue.
+    _HERO_UNITS = [
+        "UNIT_ARIEL", "UNIT_SERENA", "UNIT_FREYA", "UNIT_ALORRA",
+        "UNIT_JAFAR", "UNIT_RJAK", "UNIT_MALLEUS", "UNIT_TAURON", "UNIT_WARRAX",
+    ]
+    hero_cantbuild_count = 0
+    for hero_id in _HERO_UNITS:
+        if hero_id in uni._unit_ids:
+            if uni.ensure_flags(hero_id, ["CantBuild"]):
+                hero_cantbuild_count += 1
+    if hero_cantbuild_count:
+        print(f"  + marked {hero_cantbuild_count} hero unit(s) as CantBuild (summon-only)")
 
     # Closed-gate GL hygiene: an advance is CLOSED when it can never be
     # researched — it self-prereqs (unreachable-gate idiom kept closed by the

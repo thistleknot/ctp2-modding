@@ -12,8 +12,8 @@ UNIT_ZOMBIES {
    Firepower 1
    Armor 1
    MaxHP 35
-   ShieldCost 350
-   PowerPoints 175
+   ShieldCost 270
+   PowerPoints 135
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -216,8 +216,8 @@ UNIT_HELL_HOUNDS {
    Firepower 1
    Armor 1
    MaxHP 20
-   ShieldCost 740
-   PowerPoints 370
+   ShieldCost 500
+   PowerPoints 250
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -267,8 +267,8 @@ UNIT_WARBEARS {
    Firepower 1
    Armor 1
    MaxHP 35
-   ShieldCost 350
-   PowerPoints 175
+   ShieldCost 270
+   PowerPoints 135
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -369,14 +369,14 @@ UNIT_ARIEL {
    Firepower 5
    Armor 1
    MaxHP 20
-   ShieldCost 460
-   PowerPoints 230
+   ShieldCost 1125
+   PowerPoints 562
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_MYSTICISM
+   EnableAdvance ADVANCE_LIFE_WIZARD
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -407,6 +407,7 @@ UNIT_ARIEL {
       Sound SOUND_ID_REFORM_CITY
       Effect SPECEFFECT_REFORMCITY
    }
+   CantBuild
 }
 
 UNIT_JAFAR {
@@ -420,14 +421,14 @@ UNIT_JAFAR {
    Firepower 5
    Armor 1
    MaxHP 20
-   ShieldCost 460
-   PowerPoints 230
+   ShieldCost 500
+   PowerPoints 250
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 400
    VisionRange 2
-   EnableAdvance ADVANCE_MYSTICISM
+   EnableAdvance ADVANCE_SORCERY
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -458,6 +459,7 @@ UNIT_JAFAR {
       Sound SOUND_ID_REFORM_CITY
       Effect SPECEFFECT_REFORMCITY
    }
+   CantBuild
 }
 
 UNIT_RJAK {
@@ -471,14 +473,14 @@ UNIT_RJAK {
    Firepower 5
    Armor 1
    MaxHP 20
-   ShieldCost 470
-   PowerPoints 235
+   ShieldCost 740
+   PowerPoints 370
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_MYSTICISM
+   EnableAdvance ADVANCE_DEATH_MAGIC
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -509,6 +511,7 @@ UNIT_RJAK {
       Sound SOUND_ID_REFORM_CITY
       Effect SPECEFFECT_REFORMCITY
    }
+   CantBuild
 }
 
 UNIT_TAURON {
@@ -522,14 +525,14 @@ UNIT_TAURON {
    Firepower 6
    Armor 1
    MaxHP 20
-   ShieldCost 460
-   PowerPoints 230
+   ShieldCost 390
+   PowerPoints 195
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_MYSTICISM
+   EnableAdvance ADVANCE_CHAOS_MAGIC
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -560,6 +563,7 @@ UNIT_TAURON {
       Sound SOUND_ID_REFORM_CITY
       Effect SPECEFFECT_REFORMCITY
    }
+   CantBuild
 }
 
 UNIT_SERENA {
@@ -573,14 +577,14 @@ UNIT_SERENA {
    Firepower 1
    Armor 1
    MaxHP 20
-   ShieldCost 460
-   PowerPoints 230
+   ShieldCost 500
+   PowerPoints 250
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_MYSTICISM
+   EnableAdvance ADVANCE_LIFE_MAGIC
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -611,6 +615,7 @@ UNIT_SERENA {
       Sound SOUND_ID_REFORM_CITY
       Effect SPECEFFECT_REFORMCITY
    }
+   CantBuild
 }
 
 UNIT_FREYA {
@@ -624,14 +629,14 @@ UNIT_FREYA {
    Firepower 5
    Armor 1
    MaxHP 20
-   ShieldCost 460
-   PowerPoints 230
+   ShieldCost 270
+   PowerPoints 135
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 300
    VisionRange 2
-   EnableAdvance ADVANCE_MYSTICISM
+   EnableAdvance ADVANCE_NATURE_MAGIC
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -662,6 +667,7 @@ UNIT_FREYA {
       Sound SOUND_ID_REFORM_CITY
       Effect SPECEFFECT_REFORMCITY
    }
+   CantBuild
 }
 
 UNIT_ALORRA {
@@ -675,14 +681,14 @@ UNIT_ALORRA {
    Firepower 1
    Armor 1
    MaxHP 20
-   ShieldCost 470
-   PowerPoints 235
+   ShieldCost 2910
+   PowerPoints 1455
    ShieldHunger 2
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_MYSTICISM
+   EnableAdvance ADVANCE_NATURE_WIZARD
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -713,6 +719,7 @@ UNIT_ALORRA {
       Sound SOUND_ID_REFORM_CITY
       Effect SPECEFFECT_REFORMCITY
    }
+   CantBuild
 }
 
 UNIT_CENTAURS {
@@ -973,8 +980,8 @@ UNIT_PALADINS {
    Firepower 1
    Armor 1
    MaxHP 20
-   ShieldCost 1125
-   PowerPoints 562
+   ShieldCost 1420
+   PowerPoints 710
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -1075,8 +1082,8 @@ UNIT_IRON_GOLEM {
    Firepower 1
    Armor 1
    MaxHP 48
-   ShieldCost 3500
-   PowerPoints 1750
+   ShieldCost 2610
+   PowerPoints 1305
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -1743,8 +1750,8 @@ UNIT_GUARDIAN_SPIRIT {
    Firepower 1
    Armor 1
    MaxHP 50
-   ShieldCost 350
-   PowerPoints 175
+   ShieldCost 270
+   PowerPoints 135
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
@@ -2264,14 +2271,14 @@ UNIT_WARRAX {
    Firepower 5
    Armor 1
    MaxHP 20
-   ShieldCost 470
-   PowerPoints 235
+   ShieldCost 3500
+   PowerPoints 1750
    ShieldHunger 2
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_MYSTICISM
+   EnableAdvance ADVANCE_CHAOS_WIZARD
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -2302,6 +2309,7 @@ UNIT_WARRAX {
       Sound SOUND_ID_REFORM_CITY
       Effect SPECEFFECT_REFORMCITY
    }
+   CantBuild
 }
 
 UNIT_UNDEAD_DRAGON {
@@ -2460,14 +2468,14 @@ UNIT_MALLEUS {
    Firepower 1
    Armor 1
    MaxHP 20
-   ShieldCost 470
-   PowerPoints 235
+   ShieldCost 2980
+   PowerPoints 1490
    ShieldHunger 2
    GoldHunger 0
    FoodHunger 0
    MaxMovePoints 200
    VisionRange 2
-   EnableAdvance ADVANCE_MYSTICISM
+   EnableAdvance ADVANCE_DEATH_MASTER
    ActiveDefenseRange 0
    LossMoveToDmgNone
    MaxFuel 0
@@ -2498,6 +2506,7 @@ UNIT_MALLEUS {
       Sound SOUND_ID_REFORM_CITY
       Effect SPECEFFECT_REFORMCITY
    }
+   CantBuild
 }
 
 UNIT_MERFOLK {
@@ -2650,8 +2659,8 @@ UNIT_DRACOLICH {
    Firepower 4
    Armor 1
    MaxHP 62
-   ShieldCost 3500
-   PowerPoints 1750
+   ShieldCost 2610
+   PowerPoints 1305
    ShieldHunger 1
    GoldHunger 0
    FoodHunger 0
