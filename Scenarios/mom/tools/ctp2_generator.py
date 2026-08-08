@@ -3721,7 +3721,20 @@ def _emit_spellbook_pages() -> tuple[int, int]:
             if effect_kind == "summon":
                 desc = f"{spell_name}\\nSummons a creature at your capital.\\nCost: {shipped_cost} mana"
             elif effect_kind == "instant_damage":
-                desc = f"{spell_name}\\nStrikes the nearest enemy city within range.\\nRequires War Mage or Arch Mage in position.\\nCost: {shipped_cost} mana"
+                _UTILITY_SPELLS_DESC = {
+                    "Earth Lore", "Change Terrain", "Transmute", "Nature's Cures",
+                    "Wall of Stone", "Move Fortress", "Plane Shift", "Enchant Road",
+                    "Resurrection", "Raise Dead", "Word of Recall", "Healing",
+                    "Mass Healing", "Recall Hero", "Summoning Circle", "Spell of Return",
+                    "Create Artifact", "Enchant Item", "Spell of Mastery",
+                    "Disenchant Area", "Disenchant True", "Chaos Channels",
+                    "Raise Volcano", "Corruption", "Animate Dead",
+                    "Holy Word", "Stasis",
+                }
+                if spell_name in _UTILITY_SPELLS_DESC:
+                    desc = f"{spell_name}\\nUtility spell (no targeting required).\\nCost: {shipped_cost} mana"
+                else:
+                    desc = f"{spell_name}\\nStrikes the nearest enemy city within range.\\nRequires War Mage or Arch Mage in position.\\nCost: {shipped_cost} mana"
             elif effect_kind == "city_enchant":
                 desc = f"{spell_name}\\nEnchants your capital city.\\nCost: {shipped_cost} mana"
             elif effect_kind == "unit_enchant":
@@ -4369,13 +4382,29 @@ def _emit_spell_effects() -> int:
                 lines.append(f"        Message(p, 'MomSpellCast');")
 
         elif effect_kind == "instant_damage":
-            lines.append(f"        if (tgtFound == 1) {{")
-            lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
-            lines.append(f"            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);")
-            lines.append(f"            Message(p, 'MomSpellCast');")
-            lines.append(f"        }} else {{")
-            lines.append(f"            Message(p, 'MomNoTargetInRange');")
-            lines.append(f"        }}")
+            # UTILITY OVERRIDE: non-offensive "instant" spells that don't target
+            # enemy cities. These fire unconditionally (deduct mana, show message).
+            _UTILITY_SPELLS = {
+                "Earth Lore", "Change Terrain", "Transmute", "Nature's Cures",
+                "Wall of Stone", "Move Fortress", "Plane Shift", "Enchant Road",
+                "Resurrection", "Raise Dead", "Word of Recall", "Healing",
+                "Mass Healing", "Recall Hero", "Summoning Circle", "Spell of Return",
+                "Create Artifact", "Enchant Item", "Spell of Mastery",
+                "Disenchant Area", "Disenchant True", "Chaos Channels",
+                "Raise Volcano", "Corruption", "Animate Dead",
+                "Holy Word", "Stasis",
+            }
+            if spell_name in _UTILITY_SPELLS:
+                lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+                lines.append(f"        Message(p, 'MomSpellCast');")
+            else:
+                lines.append(f"        if (tgtFound == 1) {{")
+                lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+                lines.append(f"            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);")
+                lines.append(f"            Message(p, 'MomSpellCast');")
+                lines.append(f"        }} else {{")
+                lines.append(f"            Message(p, 'MomNoTargetInRange');")
+                lines.append(f"        }}")
 
         elif effect_kind == "city_enchant":
             lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")

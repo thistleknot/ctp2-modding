@@ -132,22 +132,12 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 10) {
         // Plane Shift (instant_damage) - cost 12
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 12;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 12;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 11) {
         // Resurrection (instant_damage) - cost 25
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 25;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 25;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 12) {
         // True Sight (unit_enchant) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
@@ -240,13 +230,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 31) {
         // Earth Lore (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 32) {
         // Giant Strength (unit_enchant) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
@@ -267,13 +252,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 36) {
         // Wall of Stone (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 37) {
         // War Bears (summon) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
@@ -292,13 +272,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 40) {
         // Change Terrain (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 41) {
         // Cockatrices (summon) - cost 27
         MomMagicCur[p] = MomMagicCur[p] - 27;
@@ -313,13 +288,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 43) {
         // Nature's Cures (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 44) {
         // Nature's Eye (city_enchant) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
@@ -331,13 +301,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 46) {
         // Transmute (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 47) {
         // Earthquake (instant_damage) - cost 30
         // BOUND to UNIT_BEHEMOTH (range 1)
@@ -407,13 +372,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 53) {
         // Move Fortress (instant_damage) - cost 30
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 30;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 30;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 54) {
         // Stone Giant (summon) - cost 67
         MomMagicCur[p] = MomMagicCur[p] - 67;
@@ -481,35 +441,20 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 67) {
         // Word of Recall (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 68) {
         // Aura of Majesty (global_enchant) - cost 40
         MomMagicCur[p] = MomMagicCur[p] - 40;
         Message(p, 'MomSpellCast');
     } elseif (spellId == 69) {
         // Disenchant True (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 70) {
         // Enchant Road (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 71) {
         // Flight (unit_enchant) - cost 12
         MomMagicCur[p] = MomMagicCur[p] - 12;
@@ -1117,13 +1062,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 112) {
         // Corruption (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 113) {
         // Eldritch Weapon (unit_enchant) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
@@ -1141,13 +1081,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 116) {
         // Chaos Channels (instant_damage) - cost 10
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 10;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 10;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 117) {
         // Chimeras (summon) - cost 35
         MomMagicCur[p] = MomMagicCur[p] - 35;
@@ -1182,13 +1117,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
         Message(p, 'MomSpellCast');
     } elseif (spellId == 123) {
         // Raise Volcano (instant_damage) - cost 20
-        if (tgtFound == 1) {
-            MomMagicCur[p] = MomMagicCur[p] - 20;
-            CreateUnit(p, UnitDB(UNIT_GUARDIAN_SPIRIT), tgtLoc, 0);
-            Message(p, 'MomSpellCast');
-        } else {
-            Message(p, 'MomNoTargetInRange');
-        }
+        MomMagicCur[p] = MomMagicCur[p] - 20;
+        Message(p, 'MomSpellCast');
     } elseif (spellId == 124) {
         // Chaos Spawn (summon) - cost 75
         MomMagicCur[p] = MomMagicCur[p] - 75;
