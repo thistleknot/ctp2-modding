@@ -3322,6 +3322,104 @@ def _emit_mom_summon_slc() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Summon Selection Pages (player-choice menu)
+# ---------------------------------------------------------------------------
+
+def _emit_summon_selection_pages() -> int:
+    """Generate per-sphere summon selection alertbox pages.
+
+    Each sphere gets a page listing its summonable creatures (max 4 per page +
+    Close button = 5 total, the engine ceiling). Each creature button checks
+    rung and mana, then sets MomSummonChoice[p] to the specific UnitDB value.
+
+    Also emits a MomSummonRungOf lookup function used by MomSummonOrderTick
+    to determine prep time and upkeep rung for the chosen creature.
+
+    Returns total creature buttons emitted.
+    """
+    pools = _summon_pool_by_rung()
+    lines: list[str] = []
+    str_lines: list[str] = []  # scen_str entries
+    total_buttons = 0
+
+    # Flatten each sphere's pool into a list of (unit_ident, rung) pairs
+    for sphere in _SPHERE_PLAYER:
+        roster: list[tuple[str, int]] = []
+        sphere_pools = pools[sphere]
+        for rung_idx, rung_units in enumerate(sphere_pools):
+            for uid in rung_units:
+                # rung_idx 0 = root (maps to rung 1 in the game)
+                display_rung = max(1, rung_idx)
+                roster.append((uid, display_rung))
+
+        if not roster:
+            continue
+
+        # Split into pages of 4 creatures each (+ Close = 5 buttons max)
+        pages = [roster[i:i+4] for i in range(0, len(roster), 4)]
+        sphere_title = sphere.upper()
+
+        for page_idx, page_creatures in enumerate(pages):
+            page_num = page_idx + 1
+            total_pages = len(pages)
+            seg_name = f"MomSummonPick_{sphere}_{page_num}"
+
+            # Build page text showing creature names + rung + cost
+            page_text_parts = [f"{sphere_title} Summons ({page_num}/{total_pages})"]
+            for btn_idx, (uid, rung) in enumerate(page_creatures):
+                display_name = humanize_ident(uid, "UNIT_")
+                cost_expr = f"45+30*{rung}"
+                page_text_parts.append(f"{btn_idx+1}. {display_name} (rung {rung}, ~{45+30*rung} mana)")
+            page_text = "\\n".join(page_text_parts)
+
+            # String ID for page text
+            str_id = f"MOM_SUMMON_PAGE_{sphere.upper()}_{page_num}"
+            str_lines.append(f'{str_id}\t\t"{page_text}"')
+
+            # Alertbox
+            lines.append(f"alertbox '{seg_name}' {{")
+            lines.append(f"    Show();")
+            lines.append(f"    Text(ID_{str_id});")
+            lines.append(f"")
+            lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
+            lines.append(f"        Kill();")
+            lines.append(f"    }}")
+
+            # Creature buttons
+            for btn_idx, (uid, rung) in enumerate(page_creatures):
+                btn_label_id = f"MOM_SPELL_BTN_{btn_idx+1}"
+                # Cost formula: (45 + 30*rung) * MomSummonCivPct / 100
+                lines.append(f"    Button(ID_{btn_label_id}) {{")
+                lines.append(f"        if (MomSphereRung[player[0]] >= {rung}) {{")
+                lines.append(f"            if (MomSummonPrep[player[0]] > 0) {{")
+                lines.append(f"                Message(player[0], 'MomSummonBusy');")
+                lines.append(f"            }} elseif (MomMagicCur[player[0]] >= ((45 + 30 * {rung}) * MomSummonCivPct[player[0]]) / 100) {{")
+                lines.append(f"                MomSummonChoice[player[0]] = UnitDB({uid});")
+                lines.append(f"            }} else {{")
+                lines.append(f"                Message(player[0], 'MomSummonNoMana');")
+                lines.append(f"            }}")
+                lines.append(f"        }} else {{")
+                lines.append(f"            Message(player[0], 'MomSpellLocked');")
+                lines.append(f"        }}")
+                lines.append(f"        Kill();")
+                lines.append(f"    }}")
+                total_buttons += 1
+
+            lines.append(f"}}")
+            lines.append(f"")
+
+    # Write the summon selection pages into mom_summon.slc (append)
+    summon_path = SCENARIO / _SUMMON_SLC_REL
+    if summon_path.exists():
+        with open(summon_path, "a", encoding="latin-1", newline="") as fh:
+            fh.write("\n\n// --- SUMMON SELECTION PAGES (player picks creature) ---\n")
+            fh.write("\n".join(lines))
+            fh.write("\n")
+
+    return total_buttons
+
+
+# ---------------------------------------------------------------------------
 # Paged Spellbook emitter
 # ---------------------------------------------------------------------------
 
@@ -3538,14 +3636,28 @@ def _emit_spellbook_pages() -> tuple[int, int]:
                 slic_lines.append(f"    Text(ID_{title_key});")
                 slic_lines.append(f"")
 
-                # Arm 0: Close (back to hub)
+                # BUTTON ORDER: spell buttons first (leftmost on screen), then
+                # navigation (Prev/Next), then Close (rightmost). CTP2 renders
+                # buttons in REVERSE declaration order, so declare the rightmost
+                # button FIRST and the leftmost LAST.
+
+                # Arm: Close (rightmost on screen → declared first)
                 slic_lines.append(f"    // [X] Close")
                 slic_lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
                 slic_lines.append(f"        Kill();")
                 slic_lines.append(f"        Message(player[0], '{hub_name}');")
                 slic_lines.append(f"    }}")
 
-                # Prev button if not first page
+                # Next button (second from right → declared second)
+                if has_next:
+                    next_name = f"MomSpell_{sphere}_{rarity_key}_{page_num + 1}"
+                    slic_lines.append(f"    // [>] Next")
+                    slic_lines.append(f"    Button(ID_MOM_SPELL_NEXT) {{")
+                    slic_lines.append(f"        Kill();")
+                    slic_lines.append(f"        Message(player[0], '{next_name}');")
+                    slic_lines.append(f"    }}")
+
+                # Prev button (third from right)
                 if has_prev:
                     prev_name = f"MomSpell_{sphere}_{rarity_key}_{page_num - 1}"
                     slic_lines.append(f"    // [<] Prev")
@@ -3554,12 +3666,10 @@ def _emit_spellbook_pages() -> tuple[int, int]:
                     slic_lines.append(f"        Message(player[0], '{prev_name}');")
                     slic_lines.append(f"    }}")
 
-                # Spell buttons — single-char labels "1", "2", "3"
-                # CTP2 renders arms last-defined=top, so emit in REVERSE order
-                # so they appear 1, 2, 3 reading top-to-bottom on screen.
-                for slot_idx, spell_row in enumerate(reversed(page_spells)):
-                    # slot_idx here is reversed; compute the DISPLAY number
-                    display_num = len(page_spells) - slot_idx
+                # Spell buttons (leftmost on screen → declared last)
+                # Emit in FORWARD order so [1] is declared last = renders leftmost.
+                for slot_idx, spell_row in enumerate(page_spells):
+                    display_num = slot_idx + 1
                     spell_name = spell_row["name"].strip()
                     shipped_cost = spell_row["_shipped_cost"]
                     btn_key = f"MOM_SPELL_BTN_{display_num}"
@@ -3581,15 +3691,6 @@ def _emit_spellbook_pages() -> tuple[int, int]:
                     label = label.encode("latin-1", errors="replace").decode("latin-1")
                     spell_string_entries.append(f'{str_key}\t\t"{label}"')
 
-                # Next button if not last page
-                if has_next:
-                    next_name = f"MomSpell_{sphere}_{rarity_key}_{page_num + 1}"
-                    slic_lines.append(f"    // [>] Next")
-                    slic_lines.append(f"    Button(ID_MOM_SPELL_NEXT) {{")
-                    slic_lines.append(f"        Kill();")
-                    slic_lines.append(f"        Message(player[0], '{next_name}');")
-                    slic_lines.append(f"    }}")
-
                 slic_lines.append(f"}}")
                 slic_lines.append(f"")
 
@@ -3610,6 +3711,7 @@ def _emit_spellbook_pages() -> tuple[int, int]:
         'MOM_SPELL_BTN_1\t\t"1"',
         'MOM_SPELL_BTN_2\t\t"2"',
         'MOM_SPELL_BTN_3\t\t"3"',
+        'MOM_SPELL_BTN_4\t\t"4"',
         'MOM_MSG_SPELL_CAST\t\t"Your spell takes effect."',
         'MOM_MSG_NOT_ENOUGH_MANA\t\t"Not enough mana to cast this spell."',
         'MOM_MSG_SPELL_LOCKED\t\t"You have not yet researched this school of magic."',
@@ -3688,6 +3790,26 @@ def _emit_spellbook_pages() -> tuple[int, int]:
                 spell_string_entries.append(f'MOM_SPELL_{sid}\t\t"{label}"')
 
     str_block_lines.extend(spell_string_entries)
+
+    # Summon selection page text strings
+    _sum_pools = _summon_pool_by_rung()
+    for _s_sphere in _SPHERE_PLAYER:
+        _s_roster: list[tuple[str, int]] = []
+        for _ri, _ru in enumerate(_sum_pools.get(_s_sphere, [])):
+            for _uid in _ru:
+                _s_roster.append((_uid, max(1, _ri)))
+        _s_pages = [_s_roster[i:i+4] for i in range(0, len(_s_roster), 4)]
+        for _pi, _pg in enumerate(_s_pages):
+            _pn = _pi + 1
+            _tp = len(_s_pages)
+            _parts = [f"{_s_sphere.upper()} Summons ({_pn}/{_tp})"]
+            for _bi, (_uid, _rung) in enumerate(_pg):
+                _dn = humanize_ident(_uid, "UNIT_")
+                _parts.append(f"{_bi+1}. {_dn} (rung {_rung}, ~{45+30*_rung} mana)")
+            _val = "\\n".join(_parts)
+            _key = f"MOM_SUMMON_PAGE_{_s_sphere.upper()}_{_pn}"
+            str_block_lines.append(f'{_key}\t\t"{_val}"')
+
     str_block_lines.append("")
 
     # Read existing content and append (preserving LF)
@@ -7721,6 +7843,9 @@ def main():
     # the settled prereq rewrite, so it must not run before either.
     summon_units = _emit_mom_summon_slc()
     print(f"  + mom_summon.slc: {summon_units} summonable creature(s) across 5 ladders")
+
+    summon_pages = _emit_summon_selection_pages()
+    print(f"  + summon selection: {summon_pages} creature button(s) across 5 sphere menus")
 
     spellbook_pages, spellbook_spells = _emit_spellbook_pages()
     print(f"  + mom_spellbook_*.slc: {spellbook_pages} pages across 5 sphere files ({spellbook_spells} spells)")

@@ -352,3 +352,368 @@ int_f MomSummonRungOf(int_t unitType)
     if (unitType == UnitDB(UNIT_ZOMBIES)) { return 1; }
     return 0;
 }
+
+
+// --- SUMMON SELECTION PAGES (player picks creature) ---
+alertbox 'MomSummonPick_life_1' {
+    Show();
+    Text(ID_MOM_SUMMON_PAGE_LIFE_1);
+
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomSphereRung[player[0]] >= 1) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 1) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_GUARDIAN_SPIRIT);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_2) {
+        if (MomSphereRung[player[0]] >= 2) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 2) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_UNICORN);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_3) {
+        if (MomSphereRung[player[0]] >= 3) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 3) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_PEGASUS);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_4) {
+        if (MomSphereRung[player[0]] >= 5) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 5) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_ARCHANGEL);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+}
+
+alertbox 'MomSummonPick_nature_1' {
+    Show();
+    Text(ID_MOM_SUMMON_PAGE_NATURE_1);
+
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomSphereRung[player[0]] >= 1) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 1) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_WARBEARS);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_2) {
+        if (MomSphereRung[player[0]] >= 2) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 2) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_COCKATRICE);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_3) {
+        if (MomSphereRung[player[0]] >= 3) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 3) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_BEHEMOTH);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_4) {
+        if (MomSphereRung[player[0]] >= 5) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 5) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_GREAT_WYRM);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+}
+
+alertbox 'MomSummonPick_sorcery_1' {
+    Show();
+    Text(ID_MOM_SUMMON_PAGE_SORCERY_1);
+
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomSphereRung[player[0]] >= 1) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 1) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_PHANTOM_WARRIORS);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_2) {
+        if (MomSphereRung[player[0]] >= 2) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 2) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_AIR_ELEMENTAL);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_3) {
+        if (MomSphereRung[player[0]] >= 3) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 3) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_STORM_GIANT);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_4) {
+        if (MomSphereRung[player[0]] >= 5) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 5) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_STORM_DRAKE);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+}
+
+alertbox 'MomSummonPick_death_1' {
+    Show();
+    Text(ID_MOM_SUMMON_PAGE_DEATH_1);
+
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomSphereRung[player[0]] >= 1) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 1) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_SKELETONS);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_2) {
+        if (MomSphereRung[player[0]] >= 1) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 1) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_ZOMBIES);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_3) {
+        if (MomSphereRung[player[0]] >= 2) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 2) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_WRAITH);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_4) {
+        if (MomSphereRung[player[0]] >= 3) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 3) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_DEMON);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+}
+
+alertbox 'MomSummonPick_death_2' {
+    Show();
+    Text(ID_MOM_SUMMON_PAGE_DEATH_2);
+
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomSphereRung[player[0]] >= 4) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 4) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_DRACOLICH);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_2) {
+        if (MomSphereRung[player[0]] >= 5) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 5) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_UNDEAD_DRAGON);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+}
+
+alertbox 'MomSummonPick_chaos_1' {
+    Show();
+    Text(ID_MOM_SUMMON_PAGE_CHAOS_1);
+
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomSphereRung[player[0]] >= 1) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 1) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_HELL_HOUNDS);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_2) {
+        if (MomSphereRung[player[0]] >= 2) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 2) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_GARGOYLE);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_3) {
+        if (MomSphereRung[player[0]] >= 3) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 3) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_EFREET);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+    Button(ID_MOM_SPELL_BTN_4) {
+        if (MomSphereRung[player[0]] >= 5) {
+            if (MomSummonPrep[player[0]] > 0) {
+                Message(player[0], 'MomSummonBusy');
+            } elseif (MomMagicCur[player[0]] >= ((45 + 30 * 5) * MomSummonCivPct[player[0]]) / 100) {
+                MomSummonChoice[player[0]] = UnitDB(UNIT_HYDRA);
+            } else {
+                Message(player[0], 'MomSummonNoMana');
+            }
+        } else {
+            Message(player[0], 'MomSpellLocked');
+        }
+        Kill();
+    }
+}
+
