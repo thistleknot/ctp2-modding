@@ -116,3 +116,88 @@ move is neutralized by the defender's positioning.
 - **Nesting (P7):** Auras nest — a Paladin protects the whole stack, not just itself.
 - **Segmentation (P1):** Different protections for different schools. No universal shield.
 - **Universality (P6):** The resistance check is ONE system with per-sphere parameters (not 5 separate systems).
+
+
+---
+
+## Game Inspirations
+
+### Magic: The Gathering
+- The color wheel: five philosophies in tension, each with natural enemies and allies
+- Protection from [color] → our graduated resistance affinities
+- Mana as a spatial resource (lands you tap) → our positioning-as-permission model
+- Sideboard strategy (adapt to opponent) → our army-composition-as-spell-posture
+- Creature keywords (flying, trample, hexproof) → our unit classification (undead, holy, chaos)
+- Legendary creatures → our CantBuild hero scarcity
+
+### Mage Knight (board game)
+- The hand is the constraint: you can only do what your cards allow THIS turn
+- Positioning on the map determines which sites you can assault
+- Units as persistent resources that augment your base abilities
+- Terrain matters: forests block ranged, mountains cost extra movement
+- Night/day cycle changes what works → our cataclysm terrain transformation idea
+- Solo puzzle of optimizing limited resources against a spatial challenge
+
+### Lord of the Rings (thematic)
+- The One Ring as a double-edged artifact → our Lamp (boon + bane, can't set it down)
+- Nazgul as high-value pieces that project fear in an area → our aura system
+- Gandalf can't just cast fireball everywhere — magic has COST and PRESENCE
+- Armies of the dead can only be called once for one purpose → hero scarcity
+- Terrain as narrative: Mordor IS death magic, Lothlorien IS life magic
+- The Balrog as a cataclysm trigger: one creature changes the landscape
+
+### Heroes of Might and Magic
+- Town types produce sphere-specific creatures (like our tribe → unit gating)
+- Heroes carry artifacts and level up, lead armies but don't fight alone
+- Creature tiers within each faction (peasant → angel within Castle)
+- Magic guilds in towns unlock spell tiers progressively → our rung ladder
+- Wandering creatures guard resources on the map → potential MoM goodie hut equiv
+- Split between adventure map (positioning) and combat (resolution)
+- Morale/luck as probabilistic modifiers → our resistance percentages
+
+### Cross-Cutting Themes
+
+**Spatial magic** (all four sources):
+- Magic isn't a menu you click from anywhere. It requires PRESENCE.
+- MtG: tap lands where they are. Mage Knight: be adjacent to the target.
+  HoMM: hero must be in the battle. LotR: Gandalf rides TO Helm's Deep.
+- Our system: mage units must be physically positioned within range.
+
+**Piece identity** (all four):
+- Different units do different things. Not interchangeable.
+- MtG: each creature has unique abilities. Mage Knight: each unit card is distinct.
+  HoMM: archers vs cavalry vs flyers. LotR: each fellowship member has a role.
+- Our system: unit-spell bindings give each elite a signature move.
+
+**Terrain as faction identity** (MtG + HoMM + LotR):
+- The landscape BELONGS to someone and reflects their power.
+- MtG: swamps produce black mana. HoMM: each town type has its terrain.
+  LotR: Mordor is literally death, Rivendell is literally life.
+- Our cataclysm concept: researching endgame magic TRANSFORMS the land into
+  your sphere's terrain, giving your creatures home-field advantage.
+
+**Scarcity creates drama** (Mage Knight + LotR):
+- The most powerful things are rare and hard to replace.
+- Mage Knight: high-tier units are limited per game. LotR: the ring is ONE.
+- Our system: heroes are CantBuild, summon-only, ladder-gated.
+
+### Cataclysm Concept (from these inspirations)
+
+The endgame isn't just "bigger armies." It's the world CHANGING.
+
+When a player researches their sphere's Master advance:
+- `Terraform()` transforms tiles in a radius around their cities
+- Death: land becomes TERRAIN_DEAD (Ravenloft). Undead get combat bonuses there.
+- Life: land becomes TERRAIN_SPECIAL1 (Elysian Fields). Life units heal/defend.
+- Chaos: land becomes volcanic. Chaos creatures get attack bonuses.
+- Nature: land becomes primal forest. Nature creatures move faster.
+- Sorcery: land becomes crystalline/frozen. Sorcery units gain vision range.
+
+The cataclysm is CAUSED by player action (research), not by a timer. It's the
+consequence of pushing your sphere to its ultimate expression — and it permanently
+changes the map for everyone. Other players see your territory transforming and
+know what's coming.
+
+`Terraform(location, terrain_index)` is base-verified (MagnificentSamurai scenario).
+`TerrainType(location)` reads current terrain. Both are SLIC builtins.
+Trigger: `HandleEvent(GrantAdvance)` on the sphere Master advance.

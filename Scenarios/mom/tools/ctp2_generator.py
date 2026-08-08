@@ -3668,21 +3668,20 @@ def _emit_spellbook_pages() -> tuple[int, int]:
 
                 # Spell buttons (leftmost on screen → declared last)
                 # Emit in FORWARD order so [1] is declared last = renders leftmost.
+                # Each button navigates to a CONFIRMATION page (shows description,
+                # Cast/Back). No direct MomCastSpell from the list page.
                 for slot_idx, spell_row in enumerate(page_spells):
                     display_num = slot_idx + 1
                     spell_name = spell_row["name"].strip()
                     shipped_cost = spell_row["_shipped_cost"]
                     btn_key = f"MOM_SPELL_BTN_{display_num}"
                     spell_id = all_spell_ids[id(spell_row)]
+                    confirm_seg = f"MomSpellConfirm_{spell_id}"
 
                     slic_lines.append(f"    // [{display_num}] {spell_name} ({shipped_cost} mana)")
                     slic_lines.append(f"    Button(ID_{btn_key}) {{")
-                    slic_lines.append(f"        if (MomMagicCur[player[0]] >= {shipped_cost}) {{")
-                    slic_lines.append(f"            MomCastSpell(player[0], {spell_id});")
-                    slic_lines.append(f"        }} else {{")
-                    slic_lines.append(f"            Message(player[0], 'MomNotEnoughMana');")
-                    slic_lines.append(f"        }}")
                     slic_lines.append(f"        Kill();")
+                    slic_lines.append(f"        Message(player[0], '{confirm_seg}');")
                     slic_lines.append(f"    }}")
 
                     # String entry for cast.slc reference
@@ -3693,6 +3692,57 @@ def _emit_spellbook_pages() -> tuple[int, int]:
 
                 slic_lines.append(f"}}")
                 slic_lines.append(f"")
+
+        # --- CONFIRMATION ALERTBOXES for each spell in this sphere ---
+        # Each shows a description + Cast/Back buttons.
+        for spell_row in by_sphere[sphere]:
+            spell_id = all_spell_ids[id(spell_row)]
+            spell_name = spell_row["name"].strip()
+            effect_kind = spell_row["effect_kind"].strip()
+            shipped_cost = spell_row["_shipped_cost"]
+            confirm_seg = f"MomSpellConfirm_{spell_id}"
+            desc_str_id = f"MOM_SPELL_DESC_{spell_id}"
+            # Find which page this spell is on (for the Back button)
+            back_seg = f"MomSpellHub_{sphere}"  # fallback: return to hub
+
+            # Build description based on effect_kind
+            if effect_kind == "summon":
+                desc = f"{spell_name}\\nSummons a creature at your capital.\\nCost: {shipped_cost} mana"
+            elif effect_kind == "instant_damage":
+                desc = f"{spell_name}\\nStrikes the nearest enemy city within range.\\nRequires War Mage or Arch Mage in position.\\nCost: {shipped_cost} mana"
+            elif effect_kind == "city_enchant":
+                desc = f"{spell_name}\\nEnchants your capital city.\\nCost: {shipped_cost} mana"
+            elif effect_kind == "unit_enchant":
+                desc = f"{spell_name}\\nEnchants a friendly unit (self-buff).\\nCost: {shipped_cost} mana"
+            elif effect_kind == "global_enchant":
+                desc = f"{spell_name}\\nGlobal enchantment affecting the entire world.\\nCost: {shipped_cost} mana"
+            elif effect_kind == "dispel":
+                desc = f"{spell_name}\\nDispels enemy magic within range.\\nRequires a mage in position.\\nCost: {shipped_cost} mana"
+            else:
+                desc = f"{spell_name}\\nCost: {shipped_cost} mana"
+
+            spell_string_entries.append(f'{desc_str_id}\t\t"{desc}"')
+
+            slic_lines.append(f"// Confirmation for {spell_name}")
+            slic_lines.append(f"alertbox '{confirm_seg}' {{")
+            slic_lines.append(f"    Show();")
+            slic_lines.append(f"    Text(ID_{desc_str_id});")
+            # Close/Back = declared first → renders rightmost
+            slic_lines.append(f"    Button(ID_MOM_SPELL_CLOSE) {{")
+            slic_lines.append(f"        Kill();")
+            slic_lines.append(f"        Message(player[0], '{back_seg}');")
+            slic_lines.append(f"    }}")
+            # Cast = declared last → renders leftmost
+            slic_lines.append(f"    Button(ID_MOM_SPELL_BTN_1) {{")
+            slic_lines.append(f"        if (MomMagicCur[player[0]] >= {shipped_cost}) {{")
+            slic_lines.append(f"            MomCastSpell(player[0], {spell_id});")
+            slic_lines.append(f"        }} else {{")
+            slic_lines.append(f"            Message(player[0], 'MomNotEnoughMana');")
+            slic_lines.append(f"        }}")
+            slic_lines.append(f"        Kill();")
+            slic_lines.append(f"    }}")
+            slic_lines.append(f"}}")
+            slic_lines.append(f"")
 
         # Write per-sphere SLIC file
         _write_rel(_SPELLBOOK_SPHERE_SLC_REL[sphere], "\n".join(slic_lines))

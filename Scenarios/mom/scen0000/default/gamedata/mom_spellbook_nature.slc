@@ -70,30 +70,18 @@ alertbox 'MomSpell_nature_COMMON_1' {
     }
     // [1] Earth Lore (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 31);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_31');
     }
     // [2] Giant Strength (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 32);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_32');
     }
     // [3] Resist Elements (10 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 33);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_33');
     }
 }
 
@@ -119,21 +107,13 @@ alertbox 'MomSpell_nature_COMMON_2' {
     }
     // [1] Sprites (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 34);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_34');
     }
     // [2] Stone Skin (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 35);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_35');
     }
 }
 
@@ -154,30 +134,18 @@ alertbox 'MomSpell_nature_COMMON_3' {
     }
     // [1] Wall of Stone (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 36);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_36');
     }
     // [2] War Bears (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 37);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_37');
     }
     // [3] Water Walking (10 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 38);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_38');
     }
 }
 
@@ -200,30 +168,18 @@ alertbox 'MomSpell_nature_UNCOMMON_1' {
     }
     // [1] Basilisk (32 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 32) {
-            MomCastSpell(player[0], 39);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_39');
     }
     // [2] Change Terrain (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 40);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_40');
     }
     // [3] Cockatrices (27 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 27) {
-            MomCastSpell(player[0], 41);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_41');
     }
 }
 
@@ -249,21 +205,13 @@ alertbox 'MomSpell_nature_UNCOMMON_2' {
     }
     // [1] Giant Spiders (20 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 20) {
-            MomCastSpell(player[0], 42);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_42');
     }
     // [2] Nature's Cures (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 43);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_43');
     }
 }
 
@@ -284,30 +232,18 @@ alertbox 'MomSpell_nature_UNCOMMON_3' {
     }
     // [1] Nature's Eye (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 44);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_44');
     }
     // [2] Path Finding (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 45);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_45');
     }
     // [3] Transmute (10 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 46);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_46');
     }
 }
 
@@ -330,30 +266,18 @@ alertbox 'MomSpell_nature_RARE_1' {
     }
     // [1] Earthquake (30 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 30) {
-            MomCastSpell(player[0], 47);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_47');
     }
     // [2] Elemental Armor (26 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 26) {
-            MomCastSpell(player[0], 48);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_48');
     }
     // [3] Gaia's Blessing (45 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 45) {
-            MomCastSpell(player[0], 49);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_49');
     }
 }
 
@@ -379,21 +303,13 @@ alertbox 'MomSpell_nature_RARE_2' {
     }
     // [1] Gorgons (90 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 90) {
-            MomCastSpell(player[0], 50);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_50');
     }
     // [2] Ice Storm (30 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 30) {
-            MomCastSpell(player[0], 51);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_51');
     }
 }
 
@@ -414,30 +330,18 @@ alertbox 'MomSpell_nature_RARE_3' {
     }
     // [1] Iron Skin (30 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 30) {
-            MomCastSpell(player[0], 52);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_52');
     }
     // [2] Move Fortress (30 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 30) {
-            MomCastSpell(player[0], 53);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_53');
     }
     // [3] Stone Giant (67 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 67) {
-            MomCastSpell(player[0], 54);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_54');
     }
 }
 
@@ -460,30 +364,18 @@ alertbox 'MomSpell_nature_VERY_RARE_1' {
     }
     // [1] Behemoth (140 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 140) {
-            MomCastSpell(player[0], 55);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_55');
     }
     // [2] Colossus (160 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 160) {
-            MomCastSpell(player[0], 56);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_56');
     }
     // [3] Earth Gate (50 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 50) {
-            MomCastSpell(player[0], 57);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_57');
     }
 }
 
@@ -509,21 +401,13 @@ alertbox 'MomSpell_nature_VERY_RARE_2' {
     }
     // [1] Great Wyrm (180 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 180) {
-            MomCastSpell(player[0], 58);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_58');
     }
     // [2] Herb Mastery (180 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 180) {
-            MomCastSpell(player[0], 59);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_59');
     }
 }
 
@@ -544,6 +428,552 @@ alertbox 'MomSpell_nature_VERY_RARE_3' {
     }
     // [1] Nature Awareness (160 mana)
     Button(ID_MOM_SPELL_BTN_1) {
+        Kill();
+        Message(player[0], 'MomSpellConfirm_60');
+    }
+    // [2] Nature's Wrath (180 mana)
+    Button(ID_MOM_SPELL_BTN_2) {
+        Kill();
+        Message(player[0], 'MomSpellConfirm_61');
+    }
+    // [3] Regeneration (60 mana)
+    Button(ID_MOM_SPELL_BTN_3) {
+        Kill();
+        Message(player[0], 'MomSpellConfirm_62');
+    }
+}
+
+// Confirmation for Earth Lore
+alertbox 'MomSpellConfirm_31' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_31);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 31);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Giant Strength
+alertbox 'MomSpellConfirm_32' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_32);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 32);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Resist Elements
+alertbox 'MomSpellConfirm_33' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_33);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 33);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Sprites
+alertbox 'MomSpellConfirm_34' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_34);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 34);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Stone Skin
+alertbox 'MomSpellConfirm_35' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_35);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 35);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Wall of Stone
+alertbox 'MomSpellConfirm_36' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_36);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 36);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for War Bears
+alertbox 'MomSpellConfirm_37' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_37);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 37);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Water Walking
+alertbox 'MomSpellConfirm_38' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_38);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 38);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Basilisk
+alertbox 'MomSpellConfirm_39' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_39);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 32) {
+            MomCastSpell(player[0], 39);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Change Terrain
+alertbox 'MomSpellConfirm_40' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_40);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 40);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Cockatrices
+alertbox 'MomSpellConfirm_41' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_41);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 27) {
+            MomCastSpell(player[0], 41);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Giant Spiders
+alertbox 'MomSpellConfirm_42' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_42);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 20) {
+            MomCastSpell(player[0], 42);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Nature's Cures
+alertbox 'MomSpellConfirm_43' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_43);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 43);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Nature's Eye
+alertbox 'MomSpellConfirm_44' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_44);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 44);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Path Finding
+alertbox 'MomSpellConfirm_45' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_45);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 45);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Transmute
+alertbox 'MomSpellConfirm_46' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_46);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 46);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Earthquake
+alertbox 'MomSpellConfirm_47' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_47);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 30) {
+            MomCastSpell(player[0], 47);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Elemental Armor
+alertbox 'MomSpellConfirm_48' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_48);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 26) {
+            MomCastSpell(player[0], 48);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Gaia's Blessing
+alertbox 'MomSpellConfirm_49' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_49);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 45) {
+            MomCastSpell(player[0], 49);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Gorgons
+alertbox 'MomSpellConfirm_50' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_50);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 90) {
+            MomCastSpell(player[0], 50);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Ice Storm
+alertbox 'MomSpellConfirm_51' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_51);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 30) {
+            MomCastSpell(player[0], 51);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Iron Skin
+alertbox 'MomSpellConfirm_52' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_52);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 30) {
+            MomCastSpell(player[0], 52);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Move Fortress
+alertbox 'MomSpellConfirm_53' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_53);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 30) {
+            MomCastSpell(player[0], 53);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Stone Giant
+alertbox 'MomSpellConfirm_54' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_54);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 67) {
+            MomCastSpell(player[0], 54);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Behemoth
+alertbox 'MomSpellConfirm_55' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_55);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 140) {
+            MomCastSpell(player[0], 55);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Colossus
+alertbox 'MomSpellConfirm_56' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_56);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 160) {
+            MomCastSpell(player[0], 56);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Earth Gate
+alertbox 'MomSpellConfirm_57' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_57);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 50) {
+            MomCastSpell(player[0], 57);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Great Wyrm
+alertbox 'MomSpellConfirm_58' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_58);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 180) {
+            MomCastSpell(player[0], 58);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Herb Mastery
+alertbox 'MomSpellConfirm_59' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_59);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 180) {
+            MomCastSpell(player[0], 59);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Nature Awareness
+alertbox 'MomSpellConfirm_60' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_60);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
         if (MomMagicCur[player[0]] >= 160) {
             MomCastSpell(player[0], 60);
         } else {
@@ -551,8 +981,17 @@ alertbox 'MomSpell_nature_VERY_RARE_3' {
         }
         Kill();
     }
-    // [2] Nature's Wrath (180 mana)
-    Button(ID_MOM_SPELL_BTN_2) {
+}
+
+// Confirmation for Nature's Wrath
+alertbox 'MomSpellConfirm_61' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_61);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
         if (MomMagicCur[player[0]] >= 180) {
             MomCastSpell(player[0], 61);
         } else {
@@ -560,8 +999,17 @@ alertbox 'MomSpell_nature_VERY_RARE_3' {
         }
         Kill();
     }
-    // [3] Regeneration (60 mana)
-    Button(ID_MOM_SPELL_BTN_3) {
+}
+
+// Confirmation for Regeneration
+alertbox 'MomSpellConfirm_62' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_62);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_nature');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
         if (MomMagicCur[player[0]] >= 60) {
             MomCastSpell(player[0], 62);
         } else {

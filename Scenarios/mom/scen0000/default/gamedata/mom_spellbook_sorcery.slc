@@ -70,30 +70,18 @@ alertbox 'MomSpell_sorcery_COMMON_1' {
     }
     // [1] Floating Island (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 63);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_63');
     }
     // [2] Guardian Wind (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 64);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_64');
     }
     // [3] Nagas (10 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 65);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_65');
     }
 }
 
@@ -114,21 +102,13 @@ alertbox 'MomSpell_sorcery_COMMON_2' {
     }
     // [1] Resist Magic (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 66);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_66');
     }
     // [2] Word of Recall (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 67);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_67');
     }
 }
 
@@ -151,30 +131,18 @@ alertbox 'MomSpell_sorcery_UNCOMMON_1' {
     }
     // [1] Aura of Majesty (40 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 40) {
-            MomCastSpell(player[0], 68);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_68');
     }
     // [2] Disenchant True (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 69);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_69');
     }
     // [3] Enchant Road (10 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 70);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_70');
     }
 }
 
@@ -200,21 +168,13 @@ alertbox 'MomSpell_sorcery_UNCOMMON_2' {
     }
     // [1] Flight (12 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 12) {
-            MomCastSpell(player[0], 71);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_71');
     }
     // [2] Spell Blast (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 72);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_72');
     }
 }
 
@@ -235,21 +195,13 @@ alertbox 'MomSpell_sorcery_UNCOMMON_3' {
     }
     // [1] Spell Lock (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 73);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_73');
     }
     // [2] Wind Mastery (40 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 40) {
-            MomCastSpell(player[0], 74);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_74');
     }
 }
 
@@ -272,30 +224,18 @@ alertbox 'MomSpell_sorcery_RARE_1' {
     }
     // [1] Disjunction True (30 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 30) {
-            MomCastSpell(player[0], 75);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_75');
     }
     // [2] Invisibility (26 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 26) {
-            MomCastSpell(player[0], 76);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_76');
     }
     // [3] Magic Immunity (37 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 37) {
-            MomCastSpell(player[0], 77);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_77');
     }
 }
 
@@ -316,30 +256,18 @@ alertbox 'MomSpell_sorcery_RARE_2' {
     }
     // [1] Stasis (37 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 37) {
-            MomCastSpell(player[0], 78);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_78');
     }
     // [2] Storm Giant (75 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 75) {
-            MomCastSpell(player[0], 79);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_79');
     }
     // [3] Wind Walking (37 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 37) {
-            MomCastSpell(player[0], 80);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_80');
     }
 }
 
@@ -362,30 +290,18 @@ alertbox 'MomSpell_sorcery_VERY_RARE_1' {
     }
     // [1] Djinn (130 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 130) {
-            MomCastSpell(player[0], 81);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_81');
     }
     // [2] Flying Fortress (100 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 100) {
-            MomCastSpell(player[0], 82);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_82');
     }
     // [3] Great Unsummoning (180 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 180) {
-            MomCastSpell(player[0], 83);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_83');
     }
 }
 
@@ -411,21 +327,13 @@ alertbox 'MomSpell_sorcery_VERY_RARE_2' {
     }
     // [1] Sky Drake (180 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 180) {
-            MomCastSpell(player[0], 84);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_84');
     }
     // [2] Spell Binding (180 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 180) {
-            MomCastSpell(player[0], 85);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_85');
     }
 }
 
@@ -446,6 +354,444 @@ alertbox 'MomSpell_sorcery_VERY_RARE_3' {
     }
     // [1] Spell Ward (70 mana)
     Button(ID_MOM_SPELL_BTN_1) {
+        Kill();
+        Message(player[0], 'MomSpellConfirm_86');
+    }
+    // [2] Suppress Magic (180 mana)
+    Button(ID_MOM_SPELL_BTN_2) {
+        Kill();
+        Message(player[0], 'MomSpellConfirm_87');
+    }
+    // [3] Time Stop (180 mana)
+    Button(ID_MOM_SPELL_BTN_3) {
+        Kill();
+        Message(player[0], 'MomSpellConfirm_88');
+    }
+}
+
+// Confirmation for Floating Island
+alertbox 'MomSpellConfirm_63' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_63);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 63);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Guardian Wind
+alertbox 'MomSpellConfirm_64' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_64);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 64);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Nagas
+alertbox 'MomSpellConfirm_65' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_65);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 65);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Resist Magic
+alertbox 'MomSpellConfirm_66' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_66);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 66);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Word of Recall
+alertbox 'MomSpellConfirm_67' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_67);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 67);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Aura of Majesty
+alertbox 'MomSpellConfirm_68' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_68);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 40) {
+            MomCastSpell(player[0], 68);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Disenchant True
+alertbox 'MomSpellConfirm_69' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_69);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 69);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Enchant Road
+alertbox 'MomSpellConfirm_70' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_70);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 70);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Flight
+alertbox 'MomSpellConfirm_71' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_71);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 12) {
+            MomCastSpell(player[0], 71);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Spell Blast
+alertbox 'MomSpellConfirm_72' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_72);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 72);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Spell Lock
+alertbox 'MomSpellConfirm_73' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_73);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 73);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Wind Mastery
+alertbox 'MomSpellConfirm_74' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_74);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 40) {
+            MomCastSpell(player[0], 74);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Disjunction True
+alertbox 'MomSpellConfirm_75' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_75);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 30) {
+            MomCastSpell(player[0], 75);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Invisibility
+alertbox 'MomSpellConfirm_76' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_76);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 26) {
+            MomCastSpell(player[0], 76);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Magic Immunity
+alertbox 'MomSpellConfirm_77' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_77);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 37) {
+            MomCastSpell(player[0], 77);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Stasis
+alertbox 'MomSpellConfirm_78' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_78);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 37) {
+            MomCastSpell(player[0], 78);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Storm Giant
+alertbox 'MomSpellConfirm_79' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_79);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 75) {
+            MomCastSpell(player[0], 79);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Wind Walking
+alertbox 'MomSpellConfirm_80' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_80);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 37) {
+            MomCastSpell(player[0], 80);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Djinn
+alertbox 'MomSpellConfirm_81' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_81);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 130) {
+            MomCastSpell(player[0], 81);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Flying Fortress
+alertbox 'MomSpellConfirm_82' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_82);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 100) {
+            MomCastSpell(player[0], 82);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Great Unsummoning
+alertbox 'MomSpellConfirm_83' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_83);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 180) {
+            MomCastSpell(player[0], 83);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Sky Drake
+alertbox 'MomSpellConfirm_84' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_84);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 180) {
+            MomCastSpell(player[0], 84);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Spell Binding
+alertbox 'MomSpellConfirm_85' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_85);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 180) {
+            MomCastSpell(player[0], 85);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Spell Ward
+alertbox 'MomSpellConfirm_86' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_86);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
         if (MomMagicCur[player[0]] >= 70) {
             MomCastSpell(player[0], 86);
         } else {
@@ -453,8 +799,17 @@ alertbox 'MomSpell_sorcery_VERY_RARE_3' {
         }
         Kill();
     }
-    // [2] Suppress Magic (180 mana)
-    Button(ID_MOM_SPELL_BTN_2) {
+}
+
+// Confirmation for Suppress Magic
+alertbox 'MomSpellConfirm_87' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_87);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
         if (MomMagicCur[player[0]] >= 180) {
             MomCastSpell(player[0], 87);
         } else {
@@ -462,8 +817,17 @@ alertbox 'MomSpell_sorcery_VERY_RARE_3' {
         }
         Kill();
     }
-    // [3] Time Stop (180 mana)
-    Button(ID_MOM_SPELL_BTN_3) {
+}
+
+// Confirmation for Time Stop
+alertbox 'MomSpellConfirm_88' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_88);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_sorcery');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
         if (MomMagicCur[player[0]] >= 180) {
             MomCastSpell(player[0], 88);
         } else {

@@ -70,30 +70,18 @@ alertbox 'MomSpell_chaos_COMMON_1' {
     }
     // [1] Corruption (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 112);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_112');
     }
     // [2] Eldritch Weapon (10 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 113);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_113');
     }
     // [3] Hell Hounds (10 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 114);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_114');
     }
 }
 
@@ -114,12 +102,8 @@ alertbox 'MomSpell_chaos_COMMON_2' {
     }
     // [1] Wall of Fire (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 115);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_115');
     }
 }
 
@@ -142,30 +126,18 @@ alertbox 'MomSpell_chaos_UNCOMMON_1' {
     }
     // [1] Chaos Channels (10 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 10) {
-            MomCastSpell(player[0], 116);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_116');
     }
     // [2] Chimeras (35 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 35) {
-            MomCastSpell(player[0], 117);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_117');
     }
     // [3] Doom Bat (30 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 30) {
-            MomCastSpell(player[0], 118);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_118');
     }
 }
 
@@ -191,21 +163,13 @@ alertbox 'MomSpell_chaos_UNCOMMON_2' {
     }
     // [1] Fire Giant (15 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 15) {
-            MomCastSpell(player[0], 119);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_119');
     }
     // [2] Flame Blade (12 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 12) {
-            MomCastSpell(player[0], 120);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_120');
     }
 }
 
@@ -226,30 +190,18 @@ alertbox 'MomSpell_chaos_UNCOMMON_3' {
     }
     // [1] Gargoyles (20 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 20) {
-            MomCastSpell(player[0], 121);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_121');
     }
     // [2] Immolation (15 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 15) {
-            MomCastSpell(player[0], 122);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_122');
     }
     // [3] Raise Volcano (20 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 20) {
-            MomCastSpell(player[0], 123);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_123');
     }
 }
 
@@ -267,30 +219,18 @@ alertbox 'MomSpell_chaos_RARE_1' {
     }
     // [1] Chaos Spawn (75 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 75) {
-            MomCastSpell(player[0], 124);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_124');
     }
     // [2] Efreet (82 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 82) {
-            MomCastSpell(player[0], 125);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_125');
     }
     // [3] Fire Storm (37 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 37) {
-            MomCastSpell(player[0], 126);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_126');
     }
 }
 
@@ -313,30 +253,18 @@ alertbox 'MomSpell_chaos_VERY_RARE_1' {
     }
     // [1] Armageddon (180 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 180) {
-            MomCastSpell(player[0], 127);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_127');
     }
     // [2] Call the Void (100 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 100) {
-            MomCastSpell(player[0], 128);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_128');
     }
     // [3] Chaos Surge (180 mana)
     Button(ID_MOM_SPELL_BTN_3) {
-        if (MomMagicCur[player[0]] >= 180) {
-            MomCastSpell(player[0], 129);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_129');
     }
 }
 
@@ -362,21 +290,13 @@ alertbox 'MomSpell_chaos_VERY_RARE_2' {
     }
     // [1] Doom Mastery (180 mana)
     Button(ID_MOM_SPELL_BTN_1) {
-        if (MomMagicCur[player[0]] >= 180) {
-            MomCastSpell(player[0], 130);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_130');
     }
     // [2] Great Drake (180 mana)
     Button(ID_MOM_SPELL_BTN_2) {
-        if (MomMagicCur[player[0]] >= 180) {
-            MomCastSpell(player[0], 131);
-        } else {
-            Message(player[0], 'MomNotEnoughMana');
-        }
         Kill();
+        Message(player[0], 'MomSpellConfirm_131');
     }
 }
 
@@ -397,6 +317,390 @@ alertbox 'MomSpell_chaos_VERY_RARE_3' {
     }
     // [1] Great Wasting (180 mana)
     Button(ID_MOM_SPELL_BTN_1) {
+        Kill();
+        Message(player[0], 'MomSpellConfirm_132');
+    }
+    // [2] Hydra (130 mana)
+    Button(ID_MOM_SPELL_BTN_2) {
+        Kill();
+        Message(player[0], 'MomSpellConfirm_133');
+    }
+    // [3] Meteor Storm (180 mana)
+    Button(ID_MOM_SPELL_BTN_3) {
+        Kill();
+        Message(player[0], 'MomSpellConfirm_134');
+    }
+}
+
+// Confirmation for Corruption
+alertbox 'MomSpellConfirm_112' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_112);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 112);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Eldritch Weapon
+alertbox 'MomSpellConfirm_113' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_113);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 113);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Hell Hounds
+alertbox 'MomSpellConfirm_114' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_114);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 114);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Wall of Fire
+alertbox 'MomSpellConfirm_115' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_115);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 115);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Chaos Channels
+alertbox 'MomSpellConfirm_116' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_116);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 10) {
+            MomCastSpell(player[0], 116);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Chimeras
+alertbox 'MomSpellConfirm_117' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_117);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 35) {
+            MomCastSpell(player[0], 117);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Doom Bat
+alertbox 'MomSpellConfirm_118' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_118);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 30) {
+            MomCastSpell(player[0], 118);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Fire Giant
+alertbox 'MomSpellConfirm_119' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_119);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 15) {
+            MomCastSpell(player[0], 119);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Flame Blade
+alertbox 'MomSpellConfirm_120' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_120);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 12) {
+            MomCastSpell(player[0], 120);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Gargoyles
+alertbox 'MomSpellConfirm_121' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_121);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 20) {
+            MomCastSpell(player[0], 121);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Immolation
+alertbox 'MomSpellConfirm_122' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_122);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 15) {
+            MomCastSpell(player[0], 122);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Raise Volcano
+alertbox 'MomSpellConfirm_123' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_123);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 20) {
+            MomCastSpell(player[0], 123);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Chaos Spawn
+alertbox 'MomSpellConfirm_124' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_124);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 75) {
+            MomCastSpell(player[0], 124);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Efreet
+alertbox 'MomSpellConfirm_125' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_125);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 82) {
+            MomCastSpell(player[0], 125);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Fire Storm
+alertbox 'MomSpellConfirm_126' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_126);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 37) {
+            MomCastSpell(player[0], 126);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Armageddon
+alertbox 'MomSpellConfirm_127' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_127);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 180) {
+            MomCastSpell(player[0], 127);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Call the Void
+alertbox 'MomSpellConfirm_128' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_128);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 100) {
+            MomCastSpell(player[0], 128);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Chaos Surge
+alertbox 'MomSpellConfirm_129' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_129);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 180) {
+            MomCastSpell(player[0], 129);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Doom Mastery
+alertbox 'MomSpellConfirm_130' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_130);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 180) {
+            MomCastSpell(player[0], 130);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Great Drake
+alertbox 'MomSpellConfirm_131' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_131);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
+        if (MomMagicCur[player[0]] >= 180) {
+            MomCastSpell(player[0], 131);
+        } else {
+            Message(player[0], 'MomNotEnoughMana');
+        }
+        Kill();
+    }
+}
+
+// Confirmation for Great Wasting
+alertbox 'MomSpellConfirm_132' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_132);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
         if (MomMagicCur[player[0]] >= 180) {
             MomCastSpell(player[0], 132);
         } else {
@@ -404,8 +708,17 @@ alertbox 'MomSpell_chaos_VERY_RARE_3' {
         }
         Kill();
     }
-    // [2] Hydra (130 mana)
-    Button(ID_MOM_SPELL_BTN_2) {
+}
+
+// Confirmation for Hydra
+alertbox 'MomSpellConfirm_133' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_133);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
         if (MomMagicCur[player[0]] >= 130) {
             MomCastSpell(player[0], 133);
         } else {
@@ -413,8 +726,17 @@ alertbox 'MomSpell_chaos_VERY_RARE_3' {
         }
         Kill();
     }
-    // [3] Meteor Storm (180 mana)
-    Button(ID_MOM_SPELL_BTN_3) {
+}
+
+// Confirmation for Meteor Storm
+alertbox 'MomSpellConfirm_134' {
+    Show();
+    Text(ID_MOM_SPELL_DESC_134);
+    Button(ID_MOM_SPELL_CLOSE) {
+        Kill();
+        Message(player[0], 'MomSpellHub_chaos');
+    }
+    Button(ID_MOM_SPELL_BTN_1) {
         if (MomMagicCur[player[0]] >= 180) {
             MomCastSpell(player[0], 134);
         } else {
