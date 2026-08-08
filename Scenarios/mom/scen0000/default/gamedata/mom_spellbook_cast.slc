@@ -116,11 +116,15 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 6) {
         // Just Cause (global_enchant) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
+        AddGold(p, 100);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 7) {
         // Heavenly Light (city_enchant) - cost 15
         MomMagicCur[p] = MomMagicCur[p] - 15;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_TEMPLE")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_TEMPLE));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 8) {
         // Planar Seal (global_enchant) - cost 50
@@ -152,6 +156,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Altar of Battle (city_enchant) - cost 45
         MomMagicCur[p] = MomMagicCur[p] - 45;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_COLOSSEUM")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_COLOSSEUM));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 15) {
         // Angel (summon) - cost 82
@@ -177,6 +184,7 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Prosperity (city_enchant) - cost 37
         MomMagicCur[p] = MomMagicCur[p] - 37;
         GetCityByIndex(p, 0, tmpCity);
+        AddGold(p, 200);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 20) {
         // Righteousness (unit_enchant) - cost 30
@@ -186,6 +194,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Stream of Life (city_enchant) - cost 45
         MomMagicCur[p] = MomMagicCur[p] - 45;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_AQUEDUCT")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_AQUEDUCT));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 22) {
         // Arch Angel (summon) - cost 180
@@ -197,6 +208,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Astral Gate (city_enchant) - cost 70
         MomMagicCur[p] = MomMagicCur[p] - 70;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_HARBOR")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_HARBOR));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 24) {
         // Charm of Life (global_enchant) - cost 180
@@ -206,10 +220,13 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Consecration (city_enchant) - cost 80
         MomMagicCur[p] = MomMagicCur[p] - 80;
         GetCityByIndex(p, 0, tmpCity);
+        AddGold(p, 250);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 26) {
         // Crusade (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        GetCityByIndex(p, 0, tmpCity);
+        CreateUnit(p, UnitDB(UNIT_PALADINS), tmpCity.location, 0);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 27) {
         // Holy Arms (global_enchant) - cost 180
@@ -219,14 +236,27 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Inspirations (city_enchant) - cost 70
         MomMagicCur[p] = MomMagicCur[p] - 70;
         GetCityByIndex(p, 0, tmpCity);
+        AddGold(p, 150);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 29) {
         // Life Force (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        for (pi = 1; pi < 6; pi = pi + 1) {
+            if (pi != p) {
+                MomMagicCur[pi] = MomMagicCur[pi] - 20;
+                if (MomMagicCur[pi] < 0) { MomMagicCur[pi] = 0; }
+            }
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 30) {
         // Tranquility (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        for (pi = 1; pi < 6; pi = pi + 1) {
+            if (pi != p) {
+                MomMagicCur[pi] = MomMagicCur[pi] - 15;
+                if (MomMagicCur[pi] < 0) { MomMagicCur[pi] = 0; }
+            }
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 31) {
         // Earth Lore (instant_damage) - cost 10
@@ -253,6 +283,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 36) {
         // Wall of Stone (instant_damage) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
+        GetCityByIndex(p, 0, tmpCity);
+        CreateBuilding(tmpCity, BuildingDB(IMPROVE_CITY_WALLS));
         Message(p, 'MomSpellCast');
     } elseif (spellId == 37) {
         // War Bears (summon) - cost 10
@@ -273,6 +305,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 40) {
         // Change Terrain (instant_damage) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
+        GetCityByIndex(p, 0, tmpCity);
+        Terraform(tmpCity.location, 4);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 41) {
         // Cockatrices (summon) - cost 27
@@ -294,6 +328,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Nature's Eye (city_enchant) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_GRANARY")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_GRANARY));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 45) {
         // Path Finding (unit_enchant) - cost 10
@@ -302,6 +339,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 46) {
         // Transmute (instant_damage) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
+        GetCityByIndex(p, 0, tmpCity);
+        AddGold(p, 150);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 47) {
         // Earthquake (instant_damage) - cost 30
@@ -335,6 +374,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Gaia's Blessing (city_enchant) - cost 45
         MomMagicCur[p] = MomMagicCur[p] - 45;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_FANTASTIC_STABLE")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_FANTASTIC_STABLE));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 50) {
         // Gorgons (summon) - cost 90
@@ -396,6 +438,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Earth Gate (city_enchant) - cost 50
         MomMagicCur[p] = MomMagicCur[p] - 50;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_HARBOR")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_HARBOR));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 58) {
         // Great Wyrm (summon) - cost 180
@@ -406,6 +451,7 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 59) {
         // Herb Mastery (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        AddGold(p, 100);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 60) {
         // Nature Awareness (global_enchant) - cost 160
@@ -414,6 +460,12 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 61) {
         // Nature's Wrath (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        for (pi = 1; pi < 6; pi = pi + 1) {
+            if (pi != p) {
+                MomMagicCur[pi] = MomMagicCur[pi] - 20;
+                if (MomMagicCur[pi] < 0) { MomMagicCur[pi] = 0; }
+            }
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 62) {
         // Regeneration (unit_enchant) - cost 60
@@ -454,6 +506,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 70) {
         // Enchant Road (instant_damage) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
+        GetCityByIndex(p, 0, tmpCity);
+        AddGold(p, 100);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 71) {
         // Flight (unit_enchant) - cost 12
@@ -480,6 +534,10 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Disjunction True (dispel) - cost 30
         if (tgtFound == 1) {
             MomMagicCur[p] = MomMagicCur[p] - 30;
+            if (tgtOwner >= 1 && tgtOwner <= 5) {
+                MomMagicCur[tgtOwner] = MomMagicCur[tgtOwner] - 50;
+                if (MomMagicCur[tgtOwner] < 0) { MomMagicCur[tgtOwner] = 0; }
+            }
             Message(p, 'MomSpellCast');
         } else {
             Message(p, 'MomNoTargetInRange');
@@ -536,6 +594,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Flying Fortress (city_enchant) - cost 100
         MomMagicCur[p] = MomMagicCur[p] - 100;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_COASTAL_FORTRESS")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_COASTAL_FORTRESS));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 83) {
         // Great Unsummoning (instant_damage) - cost 180
@@ -679,10 +740,19 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Spell Ward (city_enchant) - cost 70
         MomMagicCur[p] = MomMagicCur[p] - 70;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_CITY_WALLS")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_CITY_WALLS));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 87) {
         // Suppress Magic (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        for (pi = 1; pi < 6; pi = pi + 1) {
+            if (pi != p) {
+                MomMagicCur[pi] = MomMagicCur[pi] - 25;
+                if (MomMagicCur[pi] < 0) { MomMagicCur[pi] = 0; }
+            }
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 88) {
         // Time Stop (global_enchant) - cost 180
@@ -696,6 +766,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Dark Rituals (city_enchant) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_BARRACKS")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_BARRACKS));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 91) {
         // Ghouls (summon) - cost 10
@@ -753,6 +826,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Wall of Darkness (city_enchant) - cost 20
         MomMagicCur[p] = MomMagicCur[p] - 20;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_CITY_WALLS")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_CITY_WALLS));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 100) {
         // Black Wind (instant_damage) - cost 30
@@ -875,6 +951,9 @@ int_f MomCastSpell(int_t p, int_t spellId)
         // Cloud of Shadow (city_enchant) - cost 22
         MomMagicCur[p] = MomMagicCur[p] - 22;
         GetCityByIndex(p, 0, tmpCity);
+        if (!CityHasBuilding(tmpCity, "IMPROVE_CITY_WALLS")) {
+            CreateBuilding(tmpCity, BuildingDB(IMPROVE_CITY_WALLS));
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 102) {
         // Warp Node (instant_damage) - cost 11
@@ -898,6 +977,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 105) {
         // Zombie Mastery (global_enchant) - cost 120
         MomMagicCur[p] = MomMagicCur[p] - 120;
+        GetCityByIndex(p, 0, tmpCity);
+        CreateUnit(p, UnitDB(UNIT_ZOMBIES), tmpCity.location, 0);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 106) {
         // Cruel Unminding (instant_damage) - cost 50
@@ -1055,14 +1136,28 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 110) {
         // Eternal Night (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        for (pi = 1; pi < 6; pi = pi + 1) {
+            if (pi != p) {
+                MomMagicCur[pi] = MomMagicCur[pi] - 20;
+                if (MomMagicCur[pi] < 0) { MomMagicCur[pi] = 0; }
+            }
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 111) {
         // Evil Omens (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        for (pi = 1; pi < 6; pi = pi + 1) {
+            if (pi != p) {
+                MomMagicCur[pi] = MomMagicCur[pi] - 15;
+                if (MomMagicCur[pi] < 0) { MomMagicCur[pi] = 0; }
+            }
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 112) {
         // Corruption (instant_damage) - cost 10
         MomMagicCur[p] = MomMagicCur[p] - 10;
+        GetCityByIndex(p, 0, tmpCity);
+        Terraform(tmpCity.location, 17);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 113) {
         // Eldritch Weapon (unit_enchant) - cost 10
@@ -1118,6 +1213,8 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 123) {
         // Raise Volcano (instant_damage) - cost 20
         MomMagicCur[p] = MomMagicCur[p] - 20;
+        GetCityByIndex(p, 0, tmpCity);
+        Terraform(tmpCity.location, 5);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 124) {
         // Chaos Spawn (summon) - cost 75
@@ -1158,6 +1255,12 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 127) {
         // Armageddon (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        for (pi = 1; pi < 6; pi = pi + 1) {
+            if (pi != p) {
+                MomMagicCur[pi] = MomMagicCur[pi] - 30;
+                if (MomMagicCur[pi] < 0) { MomMagicCur[pi] = 0; }
+            }
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 128) {
         // Call the Void (instant_damage) - cost 100
@@ -1344,10 +1447,14 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 129) {
         // Chaos Surge (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        GetCityByIndex(p, 0, tmpCity);
+        CreateUnit(p, UnitDB(UNIT_HELL_HOUNDS), tmpCity.location, 0);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 130) {
         // Doom Mastery (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        GetCityByIndex(p, 0, tmpCity);
+        CreateUnit(p, UnitDB(UNIT_GARGOYLE), tmpCity.location, 0);
         Message(p, 'MomSpellCast');
     } elseif (spellId == 131) {
         // Great Drake (summon) - cost 180
@@ -1358,6 +1465,12 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 132) {
         // Great Wasting (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        for (pi = 1; pi < 6; pi = pi + 1) {
+            if (pi != p) {
+                MomMagicCur[pi] = MomMagicCur[pi] - 30;
+                if (MomMagicCur[pi] < 0) { MomMagicCur[pi] = 0; }
+            }
+        }
         Message(p, 'MomSpellCast');
     } elseif (spellId == 133) {
         // Hydra (summon) - cost 130
@@ -1368,6 +1481,12 @@ int_f MomCastSpell(int_t p, int_t spellId)
     } elseif (spellId == 134) {
         // Meteor Storm (global_enchant) - cost 180
         MomMagicCur[p] = MomMagicCur[p] - 180;
+        for (pi = 1; pi < 6; pi = pi + 1) {
+            if (pi != p) {
+                MomMagicCur[pi] = MomMagicCur[pi] - 20;
+                if (MomMagicCur[pi] < 0) { MomMagicCur[pi] = 0; }
+            }
+        }
         Message(p, 'MomSpellCast');
     }
     return 1;

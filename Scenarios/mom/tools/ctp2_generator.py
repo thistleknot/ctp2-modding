@@ -4367,19 +4367,30 @@ def _emit_spell_effects() -> int:
                 lines.append(f"        Message(p, 'MomSpellCast');")
 
         elif effect_kind == "instant_damage":
-            # UTILITY OVERRIDE: non-offensive "instant" spells that don't target
-            # enemy cities. These fire unconditionally (deduct mana, show message).
-            _UTILITY_SPELLS = {
-                "Earth Lore", "Change Terrain", "Transmute", "Nature's Cures",
-                "Wall of Stone", "Move Fortress", "Plane Shift", "Enchant Road",
+            # UTILITY SPELLS: non-offensive instants. Some have REAL effects,
+            # others are honest stubs (CTP2 can't implement the original effect).
+            _UTILITY_REAL_EFFECTS = {
+                "Wall of Stone":   'CreateBuilding(tmpCity, BuildingDB(IMPROVE_CITY_WALLS));',
+                "Transmute":       'AddGold(p, 150);',
+                "Enchant Road":    'AddGold(p, 100);',
+                "Change Terrain":  'Terraform(tmpCity.location, 4);',  # to grassland
+                "Raise Volcano":   'Terraform(tmpCity.location, 5);',  # to desert/volcanic
+                "Corruption":      'Terraform(tmpCity.location, 17);', # to dead terrain
+            }
+            _UTILITY_STUBS = {
+                "Earth Lore", "Nature's Cures", "Move Fortress", "Plane Shift",
                 "Resurrection", "Raise Dead", "Word of Recall", "Healing",
                 "Mass Healing", "Recall Hero", "Summoning Circle", "Spell of Return",
                 "Create Artifact", "Enchant Item", "Spell of Mastery",
                 "Disenchant Area", "Disenchant True", "Chaos Channels",
-                "Raise Volcano", "Corruption", "Animate Dead",
-                "Holy Word", "Stasis",
+                "Animate Dead", "Holy Word", "Stasis",
             }
-            if spell_name in _UTILITY_SPELLS:
+            if spell_name in _UTILITY_REAL_EFFECTS:
+                lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+                lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
+                lines.append(f"        {_UTILITY_REAL_EFFECTS[spell_name]}")
+                lines.append(f"        Message(p, 'MomSpellCast');")
+            elif spell_name in _UTILITY_STUBS:
                 lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
                 lines.append(f"        Message(p, 'MomSpellCast');")
             else:
@@ -4392,8 +4403,34 @@ def _emit_spell_effects() -> int:
                 lines.append(f"        }}")
 
         elif effect_kind == "city_enchant":
+            # City enchants: build a thematic building in the player's capital.
+            _CITY_ENCHANT_BUILDINGS = {
+                "Heavenly Light":    "IMPROVE_TEMPLE",
+                "Dark Rituals":      "IMPROVE_BARRACKS",
+                "Nature's Eye":      "IMPROVE_GRANARY",
+                "Altar of Battle":   "IMPROVE_COLOSSEUM",
+                "Gaia's Blessing":   "IMPROVE_FANTASTIC_STABLE",
+                "Stream of Life":    "IMPROVE_AQUEDUCT",
+                "Wall of Darkness":  "IMPROVE_CITY_WALLS",
+                "Cloud of Shadow":   "IMPROVE_CITY_WALLS",
+                "Flying Fortress":   "IMPROVE_COASTAL_FORTRESS",
+                "Spell Ward":        "IMPROVE_CITY_WALLS",
+                "Earth Gate":        "IMPROVE_HARBOR",
+                "Astral Gate":       "IMPROVE_HARBOR",
+            }
             lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
             lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
+            if spell_name in _CITY_ENCHANT_BUILDINGS:
+                bld = _CITY_ENCHANT_BUILDINGS[spell_name]
+                lines.append(f"        if (!CityHasBuilding(tmpCity, \"{bld}\")) {{")
+                lines.append(f"            CreateBuilding(tmpCity, BuildingDB({bld}));")
+                lines.append(f"        }}")
+            elif spell_name == "Prosperity":
+                lines.append(f"        AddGold(p, 200);")
+            elif spell_name == "Inspirations":
+                lines.append(f"        AddGold(p, 150);")
+            elif spell_name == "Consecration":
+                lines.append(f"        AddGold(p, 250);")
             lines.append(f"        Message(p, 'MomSpellCast');")
 
         elif effect_kind == "unit_enchant":
@@ -4401,12 +4438,45 @@ def _emit_spell_effects() -> int:
             lines.append(f"        Message(p, 'MomSpellCast');")
 
         elif effect_kind == "global_enchant":
+            _GLOBAL_SPAWN = {
+                "Crusade":        "UNIT_PALADINS",
+                "Chaos Surge":    "UNIT_HELL_HOUNDS",
+                "Zombie Mastery": "UNIT_ZOMBIES",
+                "Doom Mastery":   "UNIT_GARGOYLE",
+            }
+            _GLOBAL_GOLD = {"Just Cause": 100, "Herb Mastery": 100}
+            _GLOBAL_DRAIN = {
+                "Armageddon": 30, "Great Wasting": 30, "Meteor Storm": 20,
+                "Eternal Night": 20, "Evil Omens": 15, "Suppress Magic": 25,
+                "Nature's Wrath": 20, "Tranquility": 15, "Life Force": 20,
+            }
             lines.append(f"        MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            if spell_name in _GLOBAL_SPAWN:
+                u = _GLOBAL_SPAWN[spell_name]
+                lines.append(f"        GetCityByIndex(p, 0, tmpCity);")
+                lines.append(f"        CreateUnit(p, UnitDB({u}), tmpCity.location, 0);")
+            elif spell_name in _GLOBAL_GOLD:
+                lines.append(f"        AddGold(p, {_GLOBAL_GOLD[spell_name]});")
+            elif spell_name in _GLOBAL_DRAIN:
+                drain = _GLOBAL_DRAIN[spell_name]
+                lines.append(f"        for (pi = 1; pi < 6; pi = pi + 1) {{")
+                lines.append(f"            if (pi != p) {{")
+                lines.append(f"                MomMagicCur[pi] = MomMagicCur[pi] - {drain};")
+                lines.append(f"                if (MomMagicCur[pi] < 0) {{ MomMagicCur[pi] = 0; }}")
+                lines.append(f"            }}")
+                lines.append(f"        }}")
             lines.append(f"        Message(p, 'MomSpellCast');")
 
         elif effect_kind == "dispel":
+            # Dispel: drain mana from target player (proxy for removing enchantments)
+            _DISPEL_DRAIN = {"Disjunction True": 50, "Dispel Evil": 20, "Dispel Magic True": 10}
+            drain_amt = _DISPEL_DRAIN.get(spell_name, 15)
             lines.append(f"        if (tgtFound == 1) {{")
             lines.append(f"            MomMagicCur[p] = MomMagicCur[p] - {shipped_cost};")
+            lines.append(f"            if (tgtOwner >= 1 && tgtOwner <= 5) {{")
+            lines.append(f"                MomMagicCur[tgtOwner] = MomMagicCur[tgtOwner] - {drain_amt};")
+            lines.append(f"                if (MomMagicCur[tgtOwner] < 0) {{ MomMagicCur[tgtOwner] = 0; }}")
+            lines.append(f"            }}")
             lines.append(f"            Message(p, 'MomSpellCast');")
             lines.append(f"        }} else {{")
             lines.append(f"            Message(p, 'MomNoTargetInRange');")
