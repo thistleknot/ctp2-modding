@@ -3717,34 +3717,19 @@ def _emit_spellbook_pages() -> tuple[int, int]:
             # Find which page this spell is on (for the Back button)
             back_seg = f"MomSpellHub_{sphere}"  # fallback: return to hub
 
-            # Build description based on effect_kind
-            if effect_kind == "summon":
-                desc = f"{spell_name}\\nSummons a creature at your capital.\\nCost: {shipped_cost} mana"
-            elif effect_kind == "instant_damage":
-                _UTILITY_SPELLS_DESC = {
-                    "Earth Lore", "Change Terrain", "Transmute", "Nature's Cures",
-                    "Wall of Stone", "Move Fortress", "Plane Shift", "Enchant Road",
-                    "Resurrection", "Raise Dead", "Word of Recall", "Healing",
-                    "Mass Healing", "Recall Hero", "Summoning Circle", "Spell of Return",
-                    "Create Artifact", "Enchant Item", "Spell of Mastery",
-                    "Disenchant Area", "Disenchant True", "Chaos Channels",
-                    "Raise Volcano", "Corruption", "Animate Dead",
-                    "Holy Word", "Stasis",
-                }
-                if spell_name in _UTILITY_SPELLS_DESC:
-                    desc = f"{spell_name}\\nUtility spell (no targeting required).\\nCost: {shipped_cost} mana"
-                else:
-                    desc = f"{spell_name}\\nStrikes the nearest enemy city within range.\\nRequires War Mage or Arch Mage in position.\\nCost: {shipped_cost} mana"
-            elif effect_kind == "city_enchant":
-                desc = f"{spell_name}\\nEnchants your capital city.\\nCost: {shipped_cost} mana"
-            elif effect_kind == "unit_enchant":
-                desc = f"{spell_name}\\nEnchants a friendly unit (self-buff).\\nCost: {shipped_cost} mana"
-            elif effect_kind == "global_enchant":
-                desc = f"{spell_name}\\nGlobal enchantment affecting the entire world.\\nCost: {shipped_cost} mana"
-            elif effect_kind == "dispel":
-                desc = f"{spell_name}\\nDispels enemy magic within range.\\nRequires a mage in position.\\nCost: {shipped_cost} mana"
+            # Build description from the CSV's wiki-sourced description column.
+            # Truncate to ~120 chars for the alertbox (it has limited height).
+            raw_desc = spell_row.get("description", "").strip()
+            # Extract just the Effects portion if present
+            if "Effects " in raw_desc:
+                effects_part = raw_desc.split("Effects ", 1)[1][:120]
+            elif "effects " in raw_desc:
+                effects_part = raw_desc.split("effects ", 1)[1][:120]
             else:
-                desc = f"{spell_name}\\nCost: {shipped_cost} mana"
+                effects_part = raw_desc[:120]
+            # Clean for SLIC string (no quotes, no newlines)
+            effects_part = effects_part.replace('"', "'").replace("\n", " ").replace("\r", "")
+            desc = f"{spell_name}\\n{effects_part}\\nCost: {shipped_cost} mana"
 
             spell_string_entries.append(f'{desc_str_id}\t\t"{desc}"')
 
