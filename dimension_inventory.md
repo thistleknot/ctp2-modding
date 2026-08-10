@@ -36,10 +36,12 @@ Policy: **KEEP** = genre-agnostic; base CTP2 content is correct and sufficient.
 | Events | SLIC | MoM | ⚠️ First pass shipped (turn, advance, city hooks) |
 | Scenario art sheets and sounds | Scenario Art | MoM | ⚠️ Partial (icons done; unit TGAs/sounds open) |
 | — | Wonder_Movies {30} | KEEP | ✅ Reusing base movies |
+| — | Spells {214} | MoM | ⚠️ CSV defined; SLIC casting shipped for Phase 0 subset |
 
 **Remaining MoM-specific work:**
 1. **SLIC/Events** — scenario scripting (encounter triggers, founding events, MoM mechanics)
 2. **Scenario Art** — unit sprite TGAs for MoM-specific units; ambient sounds
+3. **Spells** — full spell roster in CSV; casting SLIC for remaining spells beyond Phase 0
 
 ---
 
@@ -63,7 +65,26 @@ Paths are relative to the repo root (`H:\Program Files(x86)\Activision\Call To P
 | **Concepts** {61} | `Scenarios/mom/tools/momjr_csv/concept_mask.csv` | `scen0000/default/gamedata/concept.txt` | `scen0000/english/gamedata/gl_str.txt`, `Great_Library.txt` | base concept icon TGAs |
 | **Civilizations** {75} | `Scenarios/mom/tools/momjr_csv/players.csv`, `tribe_cities.csv` | `scen0000/default/gamedata/civilisation.txt` | `scen0000/english/gamedata/civ_str.txt` | — (no GL articles; CTP2 has no DATABASE_CIVILIZATIONS) |
 | **SLIC / Events** | `Scenarios/mom/tools/momjr_csv/slic_inventory.csv`, `slic_purpose.json`, `spells.csv` | `scen0000/default/gamedata/mom_*.slc`, `scenario.slc` | `scen0000/english/gamedata/scen_str.txt` | `scen0000/default/graphics/pictures/mom_magicbtn_*.tga` |
+| **Spells** {214} | `Scenarios/mom/tools/momjr_csv/spells.csv` | `scen0000/default/gamedata/mom_spellbook_*.slc`, `mom_spells.slc` | `scen0000/english/gamedata/scen_str.txt` (spell names/descriptions) | — (no dedicated spell icons yet) |
 | **Scenario Art** | `Scenarios/mom/tools/momjr_csv/sprite_pick_rules.csv`, `civ2_converted_graphics.csv` | `scen0000/default/gamedata/newsprite.txt` | — | `scen0000/default/graphics/pictures/SPRITE_*.tga`, GL TGAs (160×120 ARGB1555) |
+
+### Terrain Image Files (Base CTP2)
+
+CTP2 terrain graphics are split across multiple layers — there are no `ICON_TERRAIN_*.tga` files in `ctp2_data/default/graphics/pictures/`. Instead:
+
+| Layer | Location | File Pattern | Count | Purpose |
+|---|---|---|---|---|
+| Tile sprites | `ctp2_data/default/graphics/tiles/gtset/` | `TILE*.tga` | 385 | Isometric terrain tile art (grassland, forest, desert, etc.) |
+| Tile imp overlays | `ctp2_data/default/graphics/tiles/gtset/` | `TIMP*.tga` | 167 | Tile improvement visual overlays (roads, farms, mines, etc.) |
+| Border transitions | `ctp2_data/default/graphics/tiles/gtset/` | `BORD*.tga` | 221 | Terrain border/transition blending art |
+| River overlays | `ctp2_data/default/graphics/tiles/gtset/` | `RIVE*.tga` | 31 | River tile overlays |
+| GL terrain pictures | `ctp2_data/default/graphics/pictures/` | `uptg*.tga` | 22 | Great Library terrain display images |
+| Scenario tileimp icons | `Scenarios/mom/scen0000/default/graphics/pictures/` | `ICON_TILEIMP_*.tga` | 32 | Tile improvement GL icons (scenario) |
+| Scenario tileimp sprites | `Scenarios/mom/scen0000/default/graphics/pictures/` | `TILEIMP_*.tga` | 32 | Tile improvement map sprites (scenario) |
+
+**Total terrain-related images: 890** (804 tile set + 22 GL pictures + 64 scenario tileimp)
+
+Note: CTP2's `terrain_icons.csv` references 24 `ICON_TERRAIN_*` keys, but these resolve to entries in `uniticon.txt` (the shared icon registry), NOT to standalone TGA files. The GL pictures for terrain types are the `uptg*.tga` files (22 total).
 
 ### Civ2 Source (MOMJR) File Locations
 
@@ -95,9 +116,9 @@ Paths are relative to the repo root (`H:\Program Files(x86)\Activision\Call To P
 
 ## CTP2 Current Full-Kit Count Matrix
 
-| Mod | advances | civilizations | concepts | goods | goods_icons | goods_ids | government_icons | governments | improvements | orders | terrain | terrain_icons | tile_improvements | units | wonder_icons | wonder_movies | wonders |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| mom | 100 | 75 | 61 | 72 | 17 | 82 | 5 | 5 | 68 | 47 | 26 | 24 | 81 | 62 | 36 | 30 | 30 |
+| Mod | advances | civilizations | concepts | goods | goods_icons | goods_ids | government_icons | governments | improvements | orders | spells | terrain | terrain_icons | tile_improvements | units | wonder_icons | wonder_movies | wonders |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| mom | 100 | 75 | 61 | 72 | 17 | 82 | 5 | 5 | 68 | 47 | 214 | 26 | 24 | 81 | 62 | 36 | 30 | 30 |
 
 ## CTP2 Reference Roundtrip Count Matrix
 
@@ -1838,6 +1859,240 @@ Paths are relative to the repo root (`H:\Program Files(x86)\Activision\Call To P
 | 21 | Sioux | NATIVE_AMERICAN | no |
 | 22 | Arabs | ARABIAN | no |
 | 23 | Incas | INCAN | no |
+
+### Spells {214}
+- source: `Scenarios/mom/tools/momjr_csv/spells.csv`
+- **Origin**: Master of Magic (original game) — full spell roster ported to CTP2 MoM
+- **Implementation**: SLIC casting via `mom_spellbook_*.slc` files; Phase 0 subset shipped
+- **Spheres**: arcane (14), life (40), nature (40), sorcery (40), chaos (40), death (40)
+- **Rarity tiers**: common, uncommon, rare, very rare
+- **Spell types**: Summoning Spell, Unit Enchantment, Combat Instant, Global Enchantment, Town Enchantment, Instant Spell, Unit Curse, Town Curse, Combat Enchantment
+
+#### Arcane {14}
+- `SPELL_AWARENESS` — Awareness (common, Global Enchantment)
+- `SPELL_CREATE_ARTIFACT` — Create Artifact (common, Instant Spell)
+- `SPELL_DETECT_MAGIC` — Detect Magic (common, Global Enchantment)
+- `SPELL_DISENCHANT_AREA` — Disenchant Area (common, Instant Spell)
+- `SPELL_DISJUNCTION` — Disjunction (common, Instant Spell)
+- `SPELL_DISPEL_MAGIC` — Dispel Magic (common, Instant Spell)
+- `SPELL_ENCHANT_ITEM` — Enchant Item (common, Instant Spell)
+- `SPELL_MAGIC_SPIRIT` — Magic Spirit (common, Summoning Spell)
+- `SPELL_RECALL_HERO` — Recall Hero (common, Combat Instant)
+- `SPELL_SPELL_OF_MASTERY` — Spell of Mastery (common, Instant Spell)
+- `SPELL_SPELL_OF_RETURN` — Spell of Return (common, Instant Spell)
+- `SPELL_SUMMON_CHAMPION` — Summon Champion (common, Summoning Spell)
+- `SPELL_SUMMON_HERO` — Summon Hero (common, Summoning Spell)
+- `SPELL_SUMMONING_CIRCLE` — Summoning Circle (common, Instant Spell)
+
+#### Life {40}
+- `SPELL_ALTAR_OF_BATTLE` — Altar of Battle (rare, Town Enchantment)
+- `SPELL_ANGEL` — Angel (rare, Summoning Spell)
+- `SPELL_ARCH_ANGEL` — Arch Angel (very rare, Summoning Spell)
+- `SPELL_ASTRAL_GATE` — Astral Gate (very rare, Town Enchantment)
+- `SPELL_BLESS` — Bless (common, Unit Enchantment)
+- `SPELL_CHARM_OF_LIFE` — Charm of Life (very rare, Global Enchantment)
+- `SPELL_CONSECRATION` — Consecration (very rare, Town Enchantment)
+- `SPELL_CRUSADE` — Crusade (very rare, Global Enchantment)
+- `SPELL_DISPEL_EVIL` — Dispel Evil (uncommon, Combat Instant)
+- `SPELL_ENDURANCE` — Endurance (common, Unit Enchantment)
+- `SPELL_GUARDIAN_SPIRIT` — Guardian Spirit (common, Summoning Spell)
+- `SPELL_HEALING` — Healing (common, Combat Instant)
+- `SPELL_HEAVENLY_LIGHT` — Heavenly Light (uncommon, Town Enchantment)
+- `SPELL_HEROISM` — Heroism (common, Unit Enchantment)
+- `SPELL_HIGH_PRAYER` — High Prayer (very rare, Combat Enchantment)
+- `SPELL_HOLY_ARMOR` — Holy Armor (common, Unit Enchantment)
+- `SPELL_HOLY_ARMS` — Holy Arms (very rare, Global Enchantment)
+- `SPELL_HOLY_WEAPON` — Holy Weapon (common, Unit Enchantment)
+- `SPELL_HOLY_WORD` — Holy Word (rare, Combat Instant)
+- `SPELL_INCARNATION` — Incarnation (rare, Summoning Spell)
+- `SPELL_INSPIRATIONS` — Inspirations (very rare, Town Enchantment)
+- `SPELL_INVULNERABILITY` — Invulnerability (rare, Unit Enchantment)
+- `SPELL_JUST_CAUSE` — Just Cause (common, Global Enchantment)
+- `SPELL_LIFE_FORCE` — Life Force (very rare, Global Enchantment)
+- `SPELL_LIONHEART` — Lionheart (rare, Unit Enchantment)
+- `SPELL_MASS_HEALING` — Mass Healing (rare, Combat Instant)
+- `SPELL_PLANAR_SEAL` — Planar Seal (uncommon, Global Enchantment)
+- `SPELL_PLANAR_TRAVEL` — Planar Travel (uncommon, Unit Enchantment)
+- `SPELL_PLANE_SHIFT` — Plane Shift (uncommon, Instant Spell)
+- `SPELL_PRAYER` — Prayer (uncommon, Combat Enchantment)
+- `SPELL_PROSPERITY` — Prosperity (rare, Town Enchantment)
+- `SPELL_RAISE_DEAD` — Raise Dead (uncommon, Combat Instant)
+- `SPELL_RESURRECTION` — Resurrection (uncommon, Instant Spell)
+- `SPELL_RIGHTEOUSNESS` — Righteousness (rare, Unit Enchantment)
+- `SPELL_STAR_FIRES` — Star Fires (common, Combat Instant)
+- `SPELL_STREAM_OF_LIFE` — Stream of Life (rare, Town Enchantment)
+- `SPELL_TRANQUILITY` — Tranquility (very rare, Global Enchantment)
+- `SPELL_TRUE_LIGHT` — True Light (common, Combat Enchantment)
+- `SPELL_TRUE_SIGHT` — True Sight (uncommon, Unit Enchantment)
+- `SPELL_UNICORNS` — Unicorns (uncommon, Summoning Spell)
+
+#### Nature {40}
+- `SPELL_BASILISK` — Basilisk (uncommon, Summoning Spell)
+- `SPELL_BEHEMOTH` — Behemoth (very rare, Summoning Spell)
+- `SPELL_CALL_LIGHTNING` — Call Lightning (very rare, Combat Enchantment)
+- `SPELL_CHANGE_TERRAIN` — Change Terrain (uncommon, Instant Spell)
+- `SPELL_COCKATRICES` — Cockatrices (uncommon, Summoning Spell)
+- `SPELL_COLOSSUS` — Colossus (very rare, Summoning Spell)
+- `SPELL_CRACKS_CALL` — Cracks Call (uncommon, Combat Instant)
+- `SPELL_EARTH_ELEMENTAL` — Earth Elemental (rare, Summoning Spell)
+- `SPELL_EARTH_GATE` — Earth Gate (very rare, Town Enchantment)
+- `SPELL_EARTH_LORE` — Earth Lore (common, Instant Spell)
+- `SPELL_EARTH_TO_MUD` — Earth to Mud (common, Combat Instant)
+- `SPELL_EARTHQUAKE` — Earthquake (rare, Instant Spell)
+- `SPELL_ELEMENTAL_ARMOR` — Elemental Armor (rare, Unit Enchantment)
+- `SPELL_ENTANGLE` — Entangle (very rare, Combat Enchantment)
+- `SPELL_GAIA_S_BLESSING` — Gaia's Blessing (rare, Town Enchantment)
+- `SPELL_GIANT_SPIDERS` — Giant Spiders (uncommon, Summoning Spell)
+- `SPELL_GIANT_STRENGTH` — Giant Strength (common, Unit Enchantment)
+- `SPELL_GORGONS` — Gorgons (rare, Summoning Spell)
+- `SPELL_GREAT_WYRM` — Great Wyrm (very rare, Summoning Spell)
+- `SPELL_HERB_MASTERY` — Herb Mastery (very rare, Global Enchantment)
+- `SPELL_ICE_BOLT` — Ice Bolt (uncommon, Combat Instant)
+- `SPELL_ICE_STORM` — Ice Storm (rare, Instant Spell)
+- `SPELL_IRON_SKIN` — Iron Skin (rare, Unit Enchantment)
+- `SPELL_MOVE_FORTRESS` — Move Fortress (rare, Instant Spell)
+- `SPELL_NATURE_AWARENESS` — Nature Awareness (very rare, Global Enchantment)
+- `SPELL_NATURE_S_CURES` — Nature's Cures (uncommon, Instant Spell)
+- `SPELL_NATURE_S_EYE` — Nature's Eye (uncommon, Town Enchantment)
+- `SPELL_NATURE_S_WRATH` — Nature's Wrath (very rare, Global Enchantment)
+- `SPELL_PATH_FINDING` — Path Finding (uncommon, Unit Enchantment)
+- `SPELL_PETRIFY` — Petrify (rare, Combat Instant)
+- `SPELL_REGENERATION` — Regeneration (very rare, Unit Enchantment)
+- `SPELL_RESIST_ELEMENTS` — Resist Elements (common, Unit Enchantment)
+- `SPELL_SPRITES` — Sprites (common, Summoning Spell)
+- `SPELL_STONE_GIANT` — Stone Giant (rare, Summoning Spell)
+- `SPELL_STONE_SKIN` — Stone Skin (common, Unit Enchantment)
+- `SPELL_TRANSMUTE` — Transmute (uncommon, Instant Spell)
+- `SPELL_WALL_OF_STONE` — Wall of Stone (common, Instant Spell)
+- `SPELL_WAR_BEARS` — War Bears (common, Summoning Spell)
+- `SPELL_WATER_WALKING` — Water Walking (common, Unit Enchantment)
+- `SPELL_WEB` — Web (common, Combat Instant)
+
+#### Sorcery {40}
+- `SPELL_AIR_ELEMENTAL` — Air Elemental (rare, Summoning Spell)
+- `SPELL_AURA_OF_MAJESTY` — Aura of Majesty (uncommon, Global Enchantment)
+- `SPELL_BANISH` — Banish (rare, Combat Instant)
+- `SPELL_BLUR` — Blur (uncommon, Combat Enchantment)
+- `SPELL_CONFUSION` — Confusion (common, Unit Curse)
+- `SPELL_COUNTER_MAGIC` — Counter Magic (common, Combat Enchantment)
+- `SPELL_CREATURE_BINDING` — Creature Binding (very rare, Unit Curse)
+- `SPELL_DISENCHANT_TRUE` — Disenchant True (uncommon, Instant Spell)
+- `SPELL_DISJUNCTION_TRUE` — Disjunction True (rare, Instant Spell)
+- `SPELL_DISPEL_MAGIC_TRUE` — Dispel Magic True (common, Combat Instant)
+- `SPELL_DJINN` — Djinn (very rare, Summoning Spell)
+- `SPELL_ENCHANT_ROAD` — Enchant Road (uncommon, Instant Spell)
+- `SPELL_FLIGHT` — Flight (uncommon, Unit Enchantment)
+- `SPELL_FLOATING_ISLAND` — Floating Island (common, Summoning Spell)
+- `SPELL_FLYING_FORTRESS` — Flying Fortress (very rare, Town Enchantment)
+- `SPELL_GREAT_UNSUMMONING` — Great Unsummoning (very rare, Instant Spell)
+- `SPELL_GUARDIAN_WIND` — Guardian Wind (common, Unit Enchantment)
+- `SPELL_HASTE` — Haste (rare, Unit Enchantment)
+- `SPELL_INVISIBILITY` — Invisibility (rare, Unit Enchantment)
+- `SPELL_MAGIC_IMMUNITY` — Magic Immunity (rare, Unit Enchantment)
+- `SPELL_MASS_INVISIBILITY` — Mass Invisibility (very rare, Combat Enchantment)
+- `SPELL_MIND_STORM` — Mind Storm (rare, Unit Curse)
+- `SPELL_NAGAS` — Nagas (common, Summoning Spell)
+- `SPELL_PHANTOM_BEAST` — Phantom Beast (uncommon, Summoning Spell)
+- `SPELL_PHANTOM_WARRIORS` — Phantom Warriors (common, Summoning Spell)
+- `SPELL_PSIONIC_BLAST` — Psionic Blast (common, Combat Instant)
+- `SPELL_RESIST_MAGIC` — Resist Magic (common, Unit Enchantment)
+- `SPELL_SKY_DRAKE` — Sky Drake (very rare, Summoning Spell)
+- `SPELL_SPELL_BINDING` — Spell Binding (very rare, Instant Spell)
+- `SPELL_SPELL_BLAST` — Spell Blast (uncommon, Instant Spell)
+- `SPELL_SPELL_LOCK` — Spell Lock (uncommon, Unit Enchantment)
+- `SPELL_SPELL_WARD` — Spell Ward (very rare, Town Enchantment)
+- `SPELL_STASIS` — Stasis (rare, Instant Spell)
+- `SPELL_STORM_GIANT` — Storm Giant (rare, Summoning Spell)
+- `SPELL_SUPPRESS_MAGIC` — Suppress Magic (very rare, Global Enchantment)
+- `SPELL_TIME_STOP` — Time Stop (very rare, Global Enchantment)
+- `SPELL_VERTIGO` — Vertigo (uncommon, Unit Curse)
+- `SPELL_WIND_MASTERY` — Wind Mastery (uncommon, Global Enchantment)
+- `SPELL_WIND_WALKING` — Wind Walking (rare, Unit Enchantment)
+- `SPELL_WORD_OF_RECALL` — Word of Recall (common, Instant Spell)
+
+#### Chaos {40}
+- `SPELL_ARMAGEDDON` — Armageddon (very rare, Global Enchantment)
+- `SPELL_CALL_CHAOS` — Call Chaos (very rare, Combat Instant)
+- `SPELL_CALL_THE_VOID` — Call the Void (very rare, Instant Spell)
+- `SPELL_CHAOS_CHANNELS` — Chaos Channels (uncommon, Instant Spell)
+- `SPELL_CHAOS_RIFT` — Chaos Rift (rare, Town Curse)
+- `SPELL_CHAOS_SPAWN` — Chaos Spawn (rare, Summoning Spell)
+- `SPELL_CHAOS_SURGE` — Chaos Surge (very rare, Global Enchantment)
+- `SPELL_CHIMERAS` — Chimeras (uncommon, Summoning Spell)
+- `SPELL_CORRUPTION` — Corruption (common, Instant Spell)
+- `SPELL_DISINTEGRATE` — Disintegrate (very rare, Combat Instant)
+- `SPELL_DISRUPT` — Disrupt (common, Combat Instant)
+- `SPELL_DOOM_BAT` — Doom Bat (uncommon, Summoning Spell)
+- `SPELL_DOOM_BOLT` — Doom Bolt (rare, Combat Instant)
+- `SPELL_DOOM_MASTERY` — Doom Mastery (very rare, Global Enchantment)
+- `SPELL_EFREET` — Efreet (rare, Summoning Spell)
+- `SPELL_ELDRITCH_WEAPON` — Eldritch Weapon (common, Unit Enchantment)
+- `SPELL_FIRE_BOLT` — Fire Bolt (common, Combat Instant)
+- `SPELL_FIRE_ELEMENTAL` — Fire Elemental (common, Summoning Spell)
+- `SPELL_FIRE_GIANT` — Fire Giant (uncommon, Summoning Spell)
+- `SPELL_FIRE_STORM` — Fire Storm (rare, Instant Spell)
+- `SPELL_FIREBALL` — Fireball (uncommon, Combat Instant)
+- `SPELL_FLAME_BLADE` — Flame Blade (uncommon, Unit Enchantment)
+- `SPELL_FLAME_STRIKE` — Flame Strike (rare, Combat Instant)
+- `SPELL_GARGOYLES` — Gargoyles (uncommon, Summoning Spell)
+- `SPELL_GREAT_DRAKE` — Great Drake (very rare, Summoning Spell)
+- `SPELL_GREAT_WASTING` — Great Wasting (very rare, Global Enchantment)
+- `SPELL_HELL_HOUNDS` — Hell Hounds (common, Summoning Spell)
+- `SPELL_HYDRA` — Hydra (very rare, Summoning Spell)
+- `SPELL_IMMOLATION` — Immolation (uncommon, Unit Enchantment)
+- `SPELL_LIGHTNING_BOLT` — Lightning Bolt (uncommon, Combat Instant)
+- `SPELL_MAGIC_VORTEX` — Magic Vortex (rare, Combat Instant)
+- `SPELL_METAL_FIRES` — Metal Fires (rare, Combat Enchantment)
+- `SPELL_METEOR_STORM` — Meteor Storm (very rare, Global Enchantment)
+- `SPELL_RAISE_VOLCANO` — Raise Volcano (uncommon, Instant Spell)
+- `SPELL_SHATTER` — Shatter (common, Unit Curse)
+- `SPELL_WALL_OF_FIRE` — Wall of Fire (common, Town Enchantment)
+- `SPELL_WARP_CREATURE` — Warp Creature (common, Unit Curse)
+- `SPELL_WARP_LIGHTNING` — Warp Lightning (rare, Combat Instant)
+- `SPELL_WARP_REALITY` — Warp Reality (rare, Combat Enchantment)
+- `SPELL_WARP_WOOD` — Warp Wood (common, Combat Instant)
+
+#### Death {40}
+- `SPELL_ANIMATE_DEAD` — Animate Dead (very rare, Combat Instant)
+- `SPELL_BERSERK` — Berserk (uncommon, Unit Enchantment)
+- `SPELL_BLACK_CHANNELS` — Black Channels (uncommon, Unit Enchantment)
+- `SPELL_BLACK_PRAYER` — Black Prayer (uncommon, Combat Enchantment)
+- `SPELL_BLACK_SLEEP` — Black Sleep (common, Unit Curse)
+- `SPELL_BLACK_WIND` — Black Wind (rare, Instant Spell)
+- `SPELL_CLOAK_OF_FEAR` — Cloak of Fear (common, Unit Enchantment)
+- `SPELL_CLOUD_OF_SHADOW` — Cloud of Shadow (rare, Town Enchantment)
+- `SPELL_CRUEL_UNMINDING` — Cruel Unminding (very rare, Instant Spell)
+- `SPELL_CURSED_LANDS` — Cursed Lands (rare, Town Curse)
+- `SPELL_DARK_RITUALS` — Dark Rituals (common, Town Enchantment)
+- `SPELL_DARKNESS` — Darkness (common, Combat Enchantment)
+- `SPELL_DEATH_KNIGHTS` — Death Knights (very rare, Summoning Spell)
+- `SPELL_DEATH_SPELL` — Death Spell (very rare, Combat Instant)
+- `SPELL_DEATH_WISH` — Death Wish (very rare, Instant Spell)
+- `SPELL_DEMON_LORD` — Demon Lord (very rare, Summoning Spell)
+- `SPELL_DRAIN_POWER` — Drain Power (uncommon, Instant Spell)
+- `SPELL_ETERNAL_NIGHT` — Eternal Night (very rare, Global Enchantment)
+- `SPELL_EVIL_OMENS` — Evil Omens (very rare, Global Enchantment)
+- `SPELL_EVIL_PRESENCE` — Evil Presence (rare, Town Curse)
+- `SPELL_FAMINE` — Famine (rare, Town Curse)
+- `SPELL_GHOULS` — Ghouls (common, Summoning Spell)
+- `SPELL_LIFE_DRAIN` — Life Drain (common, Combat Instant)
+- `SPELL_LYCANTHROPY` — Lycanthropy (uncommon, Summoning Spell)
+- `SPELL_MANA_LEAK` — Mana Leak (common, Combat Enchantment)
+- `SPELL_NIGHT_STALKER` — Night Stalker (uncommon, Summoning Spell)
+- `SPELL_PESTILENCE` — Pestilence (very rare, Town Curse)
+- `SPELL_POSSESSION` — Possession (uncommon, Unit Curse)
+- `SPELL_SHADOW_DEMONS` — Shadow Demons (uncommon, Summoning Spell)
+- `SPELL_SKELETONS` — Skeletons (common, Summoning Spell)
+- `SPELL_SUBVERSION` — Subversion (uncommon, Instant Spell)
+- `SPELL_TERROR` — Terror (common, Combat Enchantment)
+- `SPELL_WALL_OF_DARKNESS` — Wall of Darkness (uncommon, Town Enchantment)
+- `SPELL_WARP_NODE` — Warp Node (rare, Instant Spell)
+- `SPELL_WEAKNESS` — Weakness (common, Unit Curse)
+- `SPELL_WORD_OF_DEATH` — Word of Death (very rare, Combat Instant)
+- `SPELL_WRACK` — Wrack (rare, Combat Enchantment)
+- `SPELL_WRAITH_FORM` — Wraith Form (rare, Unit Enchantment)
+- `SPELL_WRAITHS` — Wraiths (rare, Summoning Spell)
+- `SPELL_ZOMBIE_MASTERY` — Zombie Mastery (rare, Global Enchantment)
 
 ## ae
 ### Advances {107}
