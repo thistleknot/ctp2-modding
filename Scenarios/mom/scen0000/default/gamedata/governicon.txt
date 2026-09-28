@@ -1,6 +1,0 @@
-5
-ICON_GOV_DEFAULT	{ Icon "CM038F.tga"	Movie "CM038A.avi"	Gameplay "GAMEC001.txt"	Historical "HISTC001.txt"	Prerequisites "PREQC001.txt"	Vari "VARIC001.txt" }
-ICON_GOV_ANARCHY	{ Icon "CC057F.tga"	Movie "CC057A.avi"	Gameplay "GAMEC057.txt"	Historical "HISTC057.txt"	Prerequisites "PREQC057.txt"	Vari "VARIC057.txt" }
-ICON_GOV_MONARCHY	{ Icon "CA013F.tga"	Movie "CA013A.avi"	Gameplay "GAMEC058.txt"	Historical "HISTC058.txt"	Prerequisites "PREQC058.txt"	Vari "VARIC058.txt" }
-ICON_GOV_THEOCRACY	{ Icon "CA023F.tga"	Movie "CA023A.avi"	Gameplay "GAMEC060.txt"	Historical "HISTC060.txt"	Prerequisites "PREQC060.txt"	Vari "VARIC060.txt" }
-ICON_GOV_REPUBLIC	{ Icon "CA016F.tga"	Movie "CA016A.avi"	Gameplay "GAMEC059.txt"	Historical "HISTC059.txt"	Prerequisites "PREQC059.txt"	Vari "VARIC059.txt" }

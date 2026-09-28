@@ -3,3 +3,7 @@
 Scenarios/mom/tools/uiwalk/runs/
 Scenarios/mom/tools/uiwalk/*.log
 Scenarios/mom/tools/uiwalk/__pycache__/
+
+# The MOD repo (Scenarios/mom, ctp2-momjr) owns the game files. The harness must
+# never track them: a harness checkout/reset restored stale unit art (2026-09-28).
+Scenarios/mom/scen0000/
