@@ -10,6 +10,15 @@ tooling produced live in their own repos —
 and `examples/` carries only the control plane that drives one, so the pipeline
 has something real to run against.
 
+## Building the CTP2 engine
+
+This repository's harness runs Python data-generation and validation tools; it
+does not compile the game engine. When a mod feature requires a custom engine,
+use the [Windows build prerequisites and commands](https://github.com/thistleknot/civctp2/blob/master/README.md#building-on-windows)
+or the [Linux build instructions](https://github.com/thistleknot/civctp2/blob/master/README.md#building-on-linux)
+in the CTP2 source repository. The MoM JR `j` magic hub also requires its custom
+engine patch; stock game binaries do not provide that hook.
+
 ## The core idea: merging mods is a schema map-reduce
 
 The pipeline encodes each source mod — **civ2 OR native ctp2** — into ONE
