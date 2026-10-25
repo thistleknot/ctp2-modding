@@ -3,6 +3,14 @@
 
 This harness gates all MoM→CTP2 import changes through validation before commit.
 
+## CTP2 engine builds
+
+Scenario generation and validation do not compile the engine. When a mod change
+depends on native CTP2 source changes, build the matching engine executable using
+the [Windows prerequisites and build steps](https://github.com/thistleknot/civctp2/blob/master/README.md#building-on-windows)
+or [Linux prerequisites and build steps](https://github.com/thistleknot/civctp2/blob/master/README.md#building-on-linux).
+MoM JR's `j` magic hub is one example that requires its custom engine patch.
+
 ---
 
 ## ⚠ AGENT RULES — READ FIRST
